@@ -106,6 +106,7 @@
     "typescript": "^5.5.3"
   },
   "overrides": {
+    "genkit": "1.28.0",
     "@radix-ui/primitive": "1.1.0",
     "@radix-ui/react-context": "1.1.1",
     "@radix-ui/react-direction": "1.1.0",
