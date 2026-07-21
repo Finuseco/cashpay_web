@@ -1,0 +1,28 @@
+<h1 style="font-size: 24px; color: #000E38; margin-top: 0;">Action requise : La vérification de votre site a échoué</h1>
+<p>Bonjour {{userName}},</p>
+<p>Nous avons tenté de vérifier la propriété de votre site <strong>{{siteUrl}}</strong>, mais nous n'avons pas pu trouver la balise de vérification nécessaire dans son code source.</p>
+
+<div style="background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 20px; margin: 20px 0;">
+    <h3 style="margin-top: 0; color: #000E38;">Comment résoudre ce problème ?</h3>
+    <p>Ne vous inquiétez pas, c'est généralement facile à corriger. Veuillez suivre ces étapes :</p>
+    <ol style="padding-left: 20px; line-height: 1.6;">
+        <li style="margin-bottom: 10px;">
+            <strong>Copiez à nouveau la balise meta ci-dessous :</strong>
+            <div style="background-color: #e9ecef; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; margin-top: 5px; word-break: break-all;">
+                <code>{{verificationTag}}</code>
+            </div>
+        </li>
+        <li style="margin-bottom: 10px;">
+            Assurez-vous de coller cette balise exactement comme elle est écrite, à l'intérieur de la section <strong><code>&lt;head&gt;</code></strong> de la page d'accueil de votre site.
+        </li>
+        <li style="margin-bottom: 10px;">
+            Enregistrez et publiez les modifications sur votre site.
+        </li>
+        <li>
+            Retournez sur votre <a href="{{dashboardUrl}}" style="color: #FF6600; text-decoration: underline;">tableau de bord éditeur</a> et cliquez à nouveau sur le bouton "Vérifier".
+        </li>
+    </ol>
+</div>
+
+<p>Si le problème persiste après avoir suivi ces étapes, n'hésitez pas à contacter notre support.</p>
+<p>L'équipe CashPay</p>

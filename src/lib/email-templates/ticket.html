@@ -1,0 +1,49 @@
+
+<h1 style="font-size: 24px; color: #000E38; margin-top: 0;">Votre billet pour {{eventName}}</h1>
+<p style="margin:0; color: #495057;">Bonjour {{userName}}, merci pour votre achat ! Voici votre billet électronique.</p>
+
+<div style="margin: 20px auto; padding: 20px; border: 1px solid #dee2e6; border-radius: 8px; max-width: 400px; background-color: #f8f9fa;">
+    <div style="text-align: center; border-bottom: 1px dashed #ced4da; padding-bottom: 15px; margin-bottom: 15px;">
+        {{#if eventImageUrl}}
+            <img src="{{eventImageUrl}}" alt="Affiche de l'événement" style="max-width: 100%; height: auto; border-radius: 4px; margin-bottom: 15px;">
+        {{/if}}
+        <h2 style="font-size: 18px; margin: 0; color: #000E38;">{{eventName}}</h2>
+        <p style="font-size: 14px; color: #495057; margin: 5px 0 0;">par {{organizerName}}</p>
+    </div>
+
+    <div style="text-align: center; margin: 20px 0;">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data={{ticketCode}}" alt="QR Code" style="width: 150px; height: 150px; margin: 0 auto;">
+        <p style="font-family: monospace; font-size: 12px; color: #495057; letter-spacing: 1px; margin-top: 10px;">{{ticketCode}}</p>
+    </div>
+
+    <div style="border-top: 1px dashed #ced4da; padding-top: 15px;">
+        <table width="100%" cellpadding="5" style="font-size: 13px;">
+            <tr>
+                <td style="color: #495057;">Billet :</td>
+                <td style="text-align: right; font-weight: bold;">{{ticketType}}</td>
+            </tr>
+             <tr>
+                <td style="color: #495057;">Date :</td>
+                <td style="text-align: right; font-weight: bold;">{{eventDate}} à {{eventTime}}</td>
+            </tr>
+             <tr>
+                <td style="color: #495057;">Lieu :</td>
+                <td style="text-align: right; font-weight: bold;">{{location}}</td>
+            </tr>
+             <tr>
+                <td style="color: #495057;">Détenteur :</td>
+                <td style="text-align: right; font-weight: bold;">{{userName}}</td>
+            </tr>
+        </table>
+    </div>
+</div>
+
+<p style="text-align: center; font-size: 12px; color: #868e96;">Veuillez présenter ce billet (imprimé ou sur votre téléphone) à l'entrée de l'événement.</p>
+
+<table width="100%" border="0" cellspacing="0" cellpadding="0">
+    <tr>
+        <td align="center" style="padding-top: 20px;">
+            <a href="{{buttonUrl}}" class="button" style="background-color: #FF6600; color: #ffffff !important; padding: 12px 25px; border-radius: 5px; text-decoration: none; font-weight: bold; display: inline-block;">Voir tous mes billets</a>
+        </td>
+    </tr>
+</table>

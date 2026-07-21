@@ -1,0 +1,26 @@
+<h1>{{title}}</h1>
+<p>{{greeting}}</p>
+<p>{{message}}</p>
+<div style="background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 20px; margin: 20px 0;">
+    <h3 style="margin-top: 0; color: #000E38;">Détails de la Transaction</h3>
+    <table width="100%" cellpadding="5">
+        <tr>
+            <td style="color: #495057;">Montant :</td>
+            <td style="text-align: right; font-weight: bold;">{{amount}}</td>
+        </tr>
+        <tr>
+            <td style="color: #495057;">Frais :</td>
+            <td style="text-align: right; font-weight: bold;">{{fee}}</td>
+        </tr>
+        <tr style="border-top: 1px solid #ced4da;">
+            <td style="padding-top: 10px; font-weight: bold;">Total :</td>
+            <td style="padding-top: 10px; text-align: right; font-weight: bold;">{{total}}</td>
+        </tr>
+        <tr>
+            <td style="color: #495057;">Référence :</td>
+            <td style="text-align: right; font-family: monospace;">{{reference}}</td>
+        </tr>
+    </table>
+</div>
+<a href="{{buttonUrl}}" class="button">{{buttonText}}</a>
+<p>{{signature}}</p>

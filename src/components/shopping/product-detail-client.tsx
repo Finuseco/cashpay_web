@@ -1,0 +1,638 @@
+
+'use client';
+
+import { useState, useMemo, useEffect } from 'react';
+import Image from 'next/image';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Minus, Plus, ShoppingCart, MessageSquare, Heart, Store, AlertCircle, Sparkles, Star, Share2, Facebook, Twitter, Phone, MessageCircle, Send, Loader2, ArrowLeft, ChevronRight, Users as UsersIcon, X, Maximize2, Download, ThumbsUp, Forward, Info, ShieldCheck, FileText, Music, Play, Barcode, ShieldAlert, User as UserIcon } from 'lucide-react';
+import type { Product, User, CartItem, PromotionalPackage, Currency, Conversation, Group } from '@/lib/types';
+import { useAlertDialog } from '@/hooks/use-alert-dialog';
+import Link from 'next/link';
+import { cn, currentPrice } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
+import { updateUserCart, toggleUserWishlistItem, getUserWishlist } from '@/lib/actions/shopping.actions';
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
+import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { getExchangeRatesForCountry } from '@/lib/actions/exchange.actions';
+import { getUserCurrencies } from '@/lib/actions/currency.actions';
+import { countryToCode } from '@/lib/utils';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { getConversationsForUser, shareProductToChat } from '@/lib/actions/message.actions';
+import { getUserGroups } from '@/lib/actions/group.actions';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useToast } from '@/hooks/use-toast';
+import { Separator } from '../ui/separator';
+import { Textarea } from '../ui/textarea';
+import { getCommentsForProduct, postComment, type Comment } from '@/lib/actions/comment.actions';
+import { formatDistanceToNow } from 'date-fns';
+import { fr } from 'date-fns/locale';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Book3D } from './book-3d';
+
+const ShareDialog = ({ product, user }: { product: Product, user: User | null }) => {
+    const { toast } = useToast();
+    const { openAlert } = useAlertDialog();
+    const [conversations, setConversations] = useState<Conversation[]>([]);
+    const [groups, setGroups] = useState<Group[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isSharing, setIsSharing] = useState<string | null>(null);
+
+    const productUrl = `${window.location.origin}/shopping/${product.id}`;
+    const shareText = `Découvrez ce produit sur JoJo Shopping : ${product.name} pour seulement $${product.sellingPrice.toFixed(2)} !`;
+
+    useEffect(() => {
+        if (user) {
+            setIsLoading(true);
+            Promise.all([
+                getConversationsForUser(user.id),
+                getUserGroups(user.id)
+            ]).then(([convs, grps]) => {
+                setConversations(convs);
+                setGroups(grps);
+                setIsLoading(false);
+            });
+        }
+    }, [user]);
+
+    const handleOnChatShare = async (targetId: string | number, type: 'conversation' | 'group') => {
+        if (!user) return;
+        setIsSharing(`${type}-${targetId}`);
+        const result = await shareProductToChat({
+            senderId: user.id,
+            targetId,
+            targetType: type,
+            product
+        });
+        setIsSharing(null);
+
+        if (result.success) {
+            toast({ title: "Produit partagé", description: "L'article a été envoyé dans la discussion.", variant: 'success' });
+        } else {
+            openAlert({ title: "Erreur", description: result.error || "Échec du partage.", variant: 'error' });
+        }
+    };
+
+    const handleSocialShare = (platform: 'facebook' | 'twitter' | 'whatsapp') => {
+        const url = encodeURIComponent(productUrl);
+        const text = encodeURIComponent(shareText);
+        let shareLink = '';
+
+        switch (platform) {
+            case 'facebook': shareLink = `https://www.facebook.com/sharer/sharer.php?u=${url}`; break;
+            case 'twitter': shareLink = `https://twitter.com/intent/tweet?text=${text}&url=${url}`; break;
+            case 'whatsapp': shareLink = `https://api.whatsapp.com/send?text=${text}%20${url}`; break;
+        }
+
+        window.open(shareLink, '_blank', 'width=600,height=400');
+    };
+
+    return (
+        <DialogContent className="sm:max-w-md bg-zinc-900 border-zinc-800 text-white p-0 overflow-hidden">
+            <DialogHeader className="p-6 pb-0">
+                <DialogTitle>Partager ce produit</DialogTitle>
+                <DialogDescription className="text-zinc-400">Faites découvrir cet article à vos amis.</DialogDescription>
+            </DialogHeader>
+            
+            <div className="p-6 space-y-6">
+                <div className="grid grid-cols-3 gap-4">
+                    <Button variant="outline" className="flex-col h-20 gap-2 bg-blue-600/10 border-blue-600/30 hover:bg-blue-600/20 text-blue-400" onClick={() => handleSocialShare('facebook')}>
+                        <Facebook className="h-6 w-6"/>
+                        <span className="text-[10px]">Facebook</span>
+                    </Button>
+                    <Button variant="outline" className="flex-col h-20 gap-2 bg-sky-500/10 border-sky-500/30 hover:bg-sky-500/20 text-sky-400" onClick={() => handleSocialShare('twitter')}>
+                        <Twitter className="h-6 w-6"/>
+                        <span className="text-[10px]">Twitter</span>
+                    </Button>
+                    <Button variant="outline" className="flex-col h-20 gap-2 bg-green-600/10 border-green-600/30 hover:bg-green-600/20 text-green-400" onClick={() => handleSocialShare('whatsapp')}>
+                        <MessageCircle className="h-6 w-6"/>
+                        <span className="text-[10px]">WhatsApp</span>
+                    </Button>
+                </div>
+
+                <Separator className="bg-zinc-800" />
+
+                <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Partager sur OnChat</h4>
+                    {isLoading ? (
+                        <div className="flex justify-center p-4"><Loader2 className="animate-spin h-6 w-6 text-primary"/></div>
+                    ) : (
+                        <ScrollArea className="h-64 pr-4">
+                            <div className="space-y-2">
+                                {conversations.map(c => (
+                                    <div key={c.id} className="flex items-center gap-3 p-2 hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer" onClick={() => handleOnChatShare(c.id, 'conversation')}>
+                                        <Avatar className="h-8 w-8"><AvatarImage src={c.contact.profile_photo || ''}/><AvatarFallback>{c.contact.first_name?.[0]}</AvatarFallback></Avatar>
+                                        <span className="text-sm font-medium">{c.contact.full_name}</span>
+                                        {isSharing === `conversation-${c.id}` && <Loader2 className="ml-auto animate-spin h-3 w-3"/>}
+                                    </div>
+                                ))}
+                                {groups.map(g => (
+                                    <div key={g.id} className="flex items-center gap-3 p-2 hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer" onClick={() => handleOnChatShare(g.id, 'group')}>
+                                        <div className="h-8 w-8 rounded-full bg-zinc-700 flex items-center justify-center"><UsersIcon className="h-4 w-4"/></div>
+                                        <span className="text-sm font-medium">{g.name} (Groupe)</span>
+                                        {isSharing === `group-${g.id}` && <Loader2 className="ml-auto animate-spin h-3 w-3"/>}
+                                    </div>
+                                ))}
+                            </div>
+                        </ScrollArea>
+                    )}
+                </div>
+            </div>
+        </DialogContent>
+    );
+};
+
+export function ProductDetailClient({ 
+    product, 
+    user: initialUser, 
+    initialCart,
+}: { 
+    product: Product, 
+    user: User | null,
+    initialCart: CartItem[],
+}) {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [quantity, setQuantity] = useState(1);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const { openAlert } = useAlertDialog();
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
+  const [cart, setCart] = useState<CartItem[]>(initialCart);
+  const [localCurrency, setLocalCurrency] = useState<Currency | null>(null);
+  const [exchangeRate, setExchangeRate] = useState<number | null>(null);
+  const [user, setUser] = useState<User | null>(initialUser);
+  
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [isPostingComment, setIsPostingComment] = useState(false);
+  const [isLoadingComments, setIsLoadingComments] = useState(true);
+
+  const isOwner = user?.id.toString() === product.seller.id;
+  const isSellerInactive = product.sellerSubscriptionStatus === 'inactive';
+  const isProductBlocked = !product.isPublic;
+  const isBook = product.categoryId === 'cat-livre';
+  
+  useEffect(() => {
+    const fetchUserData = async () => {
+        const fetchedUser = user || await getAuthenticatedUser();
+        if (fetchedUser) {
+            setUser(fetchedUser);
+            const wishlist = await getUserWishlist(fetchedUser.id);
+            setIsFavorite(wishlist.some(item => item.id === product.id));
+
+            const currencies = await getUserCurrencies(fetchedUser.id);
+            const local = currencies.find(c => c.code !== 'USD' && c.code !== 'EUR');
+            setLocalCurrency(local || null);
+
+            const countryCode = fetchedUser.country ? countryToCode(fetchedUser.country) : null;
+            if (countryCode && product.sellingPrice > 0) {
+                 const rates = await getExchangeRatesForCountry(countryCode);
+                 const rateObject = rates.find(r => r.from_currency === product.currency && r.to_currency === local?.code); 
+                 if (rateObject) {
+                     setExchangeRate(rateObject.rate);
+                 }
+            }
+        }
+    }
+    fetchUserData();
+  }, [user, product.id, product.sellingPrice, product.currency]);
+
+  useEffect(() => {
+      setIsLoadingComments(true);
+      getCommentsForProduct(product.id).then(data => {
+          setComments(data);
+          setIsLoadingComments(false);
+      });
+  }, [product.id]);
+
+  const productImages = useMemo(() => {
+    return product.images && product.images.length > 0 ? product.images : ['https://placehold.co/600x600.png'];
+  }, [product.images]);
+  
+  const pricePerItem = useMemo(() => {
+    return currentPrice(product, quantity);
+  }, [quantity, product]);
+
+  const totalPrice = useMemo(() => {
+      return pricePerItem * quantity;
+  }, [pricePerItem, quantity]);
+
+  const handleAddToCart = async () => {
+    if (!user) {
+        router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`);
+        return;
+    }
+
+    if (isSellerInactive || isProductBlocked) {
+        openAlert({ title: "Action impossible", description: "Ce produit n'est plus disponible à la vente pour le moment.", variant: 'warning' });
+        return;
+    }
+
+    if (product.stock < quantity) {
+        openAlert({
+            title: 'Stock insuffisant',
+            description: `Désolé, il ne reste que ${product.stock} unité(s) de ce produit.`,
+            variant: 'warning',
+        });
+        return;
+    }
+
+    const existingItem = cart.find(item => item.id === product.id);
+    const newQuantity = (existingItem?.quantity || 0) + quantity;
+
+    const result = await updateUserCart(user.id, product.id, newQuantity);
+    if (result.success && result.cart) {
+        setCart(result.cart);
+        window.dispatchEvent(new Event('jojo-cart-updated'));
+        openAlert({ title: 'Ajouté au panier', description: `"${product.name}" a été ajouté à votre panier.`, variant: 'success' });
+    } else {
+      openAlert({ title: 'Erreur', description: "Impossible d'ajouter au panier.", variant: 'error' });
+    }
+  };
+
+  const handleBuyNow = async () => {
+      if (!user) {
+          router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`);
+          return;
+      }
+      
+      if (isSellerInactive || isProductBlocked) {
+        openAlert({ title: "Action impossible", description: "Ce produit n'est plus disponible à la vente pour le moment.", variant: 'warning' });
+        return;
+      }
+
+       if (product.stock < quantity) {
+        openAlert({
+            title: 'Stock insuffisant',
+            description: `Désolé, il ne reste que ${product.stock} unité(s) de ce produit.`,
+            variant: 'warning',
+        });
+        return;
+      }
+      const result = await updateUserCart(user.id, product.id, quantity);
+      if (result.success) {
+          window.dispatchEvent(new Event('jojo-cart-updated'));
+          router.push('/shopping/cart');
+      } else {
+          openAlert({ title: 'Erreur', description: "Impossible d'initier l'achat.", variant: 'error' });
+      }
+  };
+
+  const handleFavoriteToggle = async () => {
+    if (!user) {
+        router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`);
+        return;
+    }
+    
+    setIsTogglingFavorite(true);
+    const result = await toggleUserWishlistItem(user.id, product.id);
+    setIsTogglingFavorite(false);
+
+    if (result.success) {
+        setIsFavorite(result.isFavorite);
+        toast({
+            title: result.isFavorite ? "Ajouté aux favoris" : "Retiré des favoris",
+            description: result.isFavorite ? `"${product.name}" a été ajouté à votre liste de souhaits.` : `"${product.name}" a été retiré de votre liste de souhaits.`,
+            variant: 'success'
+        });
+    } else {
+        openAlert({ title: "Erreur", description: result.error || "Une erreur est survenue.", variant: 'error' });
+    }
+  }
+
+  const handlePostComment = async () => {
+      if (!user || !newComment.trim()) return;
+      setIsPostingComment(true);
+      const result = await postComment({
+          productId: product.id,
+          user,
+          text: newComment
+      });
+      setIsPostingComment(false);
+
+      if (result.success && result.comment) {
+          setComments(prev => [result.comment!, ...prev]);
+          setNewComment('');
+      } else {
+          openAlert({ title: 'Erreur', description: result.error || "Impossible de poster votre commentaire.", variant: 'error' });
+      }
+  };
+
+  const changeQuantity = (amount: number) => {
+    setQuantity(prev => {
+        const newQuantity = prev + amount;
+        if (newQuantity < 1) return 1;
+        if (newQuantity > product.stock) return product.stock;
+        return newQuantity;
+    });
+  }
+
+  return (
+    <main className="flex-1 pb-32">
+      <div className="relative w-full aspect-square bg-muted flex items-center justify-center overflow-hidden">
+        <Button variant="ghost" size="icon" className="absolute top-4 left-4 z-10 bg-black/30 hover:bg-black/50 rounded-full text-white" onClick={() => router.back()}><ArrowLeft/></Button>
+        
+        <Dialog>
+            <DialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="absolute top-4 right-4 z-10 bg-black/30 hover:bg-black/50 rounded-full text-white"><Share2/></Button>
+            </DialogTrigger>
+            <ShareDialog product={product} user={user} />
+        </Dialog>
+
+        {isProductBlocked ? (
+            <div className="absolute inset-0 bg-zinc-900 flex flex-col items-center justify-center text-center p-8 gap-4">
+                <ShieldAlert className="h-20 w-20 text-red-500 opacity-50" />
+                <p className="text-white font-bold text-lg uppercase tracking-wider">Image non conforme ou produit suspendu</p>
+                <p className="text-zinc-400 text-sm">Ce contenu a été masqué par les administrateurs pour non-respect de la politique du marché.</p>
+            </div>
+        ) : isBook ? (
+            <Book3D 
+                frontCover={productImages[0]} 
+                backCover={productImages[1]} 
+                className="w-full h-full" 
+                editionType={product.details?.editionType}
+                title={product.name}
+                author={product.details?.author}
+                isbn={product.details?.isbn13}
+            />
+        ) : (
+            <>
+                <Image
+                    src={productImages[selectedImageIndex]}
+                    alt={product.name}
+                    fill
+                    className="object-cover"
+                    data-ai-hint="product image"
+                />
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+                    {productImages.map((_, index) => (
+                        <button
+                            key={index}
+                            onClick={() => setSelectedImageIndex(index)}
+                            className={cn("h-2 w-2 rounded-full bg-white/50 transition-all", selectedImageIndex === index && "w-6 bg-white")}
+                        />
+                    ))}
+                </div>
+            </>
+        )}
+      </div>
+
+      <div className="p-4 space-y-6">
+        {isSellerInactive && (
+            <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-800">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle className="font-bold">VENTES SUSPENDUES</AlertTitle>
+                <AlertDescription>
+                    La boutique de ce vendeur est temporairement hors ligne (abonnement expiré). Vous ne pouvez pas commander cet article pour le moment.
+                </AlertDescription>
+            </Alert>
+        )}
+
+        <div className="space-y-1">
+            <div className="flex items-baseline justify-between">
+                <div className="flex items-baseline gap-2">
+                    <p className="text-3xl font-black text-primary">${totalPrice.toFixed(2)}</p>
+                    {pricePerItem < product.sellingPrice && <p className="text-base text-muted-foreground line-through">${(product.sellingPrice * quantity).toFixed(2)}</p>}
+                </div>
+                <div className="flex items-center gap-1 text-yellow-500">
+                    <Star className="h-4 w-4 fill-yellow-500"/>
+                    <span className="text-sm font-bold">4.8</span>
+                </div>
+            </div>
+             {localCurrency && exchangeRate && (
+                <p className="text-sm text-muted-foreground font-medium">
+                    ≈ {(totalPrice * exchangeRate).toLocaleString('fr-FR', { style: 'currency', currency: localCurrency.code, minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </p>
+            )}
+            <h1 className="text-xl font-bold mt-2">{product.name}</h1>
+        </div>
+          
+        <div className="flex items-center gap-2">
+            <Badge variant={product.stock > 0 ? "secondary" : "destructive"} className="h-6">
+                {product.stock > 0 ? `${product.stock} en stock` : 'Épuisé'}
+            </Badge>
+            {product.isPublic && <Badge variant="outline" className="border-primary text-primary">Market Public</Badge>}
+            {product.details?.editionType === 'cashpay' && (
+                <Badge className="bg-[#000E38] text-white flex items-center gap-1">
+                    <ShieldCheck className="h-3 w-3 text-orange-500"/> Édition CashPay
+                </Badge>
+            )}
+        </div>
+        
+        {isOwner && (
+            <Alert variant="destructive" className="bg-red-50 border-red-200">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <AlertTitle className="text-red-800">C'est votre produit</AlertTitle>
+                <AlertDescription className="text-red-700">
+                    Vous ne pouvez pas acheter un produit que vous vendez vous-même.
+                </AlertDescription>
+            </Alert>
+        )}
+
+        {product.promotionalPackages && product.promotionalPackages.length > 0 && (
+          <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
+            <h4 className="font-bold flex items-center gap-2 text-orange-700"><Sparkles className="h-4 w-4"/>Offres de gros</h4>
+            <ul className="text-sm space-y-1 text-orange-800">
+              {product.promotionalPackages.map((pkg, index) => (
+                <li key={index} className="flex justify-between items-center">
+                  <span>Achetez {pkg.minQuantity}+ unités</span>
+                  <span className="font-bold">${pkg.price.toFixed(2)} / unité</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        
+        <div className="space-y-4">
+            <div className="space-y-1">
+                <h3 className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Présentation</h3>
+                <p className="text-sm leading-relaxed text-zinc-700">
+                    {product.description || 'Aucune description disponible pour cet article.'}
+                </p>
+            </div>
+
+            {product.details?.conclusion && (
+                <div className="space-y-1 p-4 bg-zinc-50 rounded-xl border-l-4 border-primary">
+                    <h3 className="font-bold text-xs uppercase tracking-widest text-primary flex items-center gap-2">
+                        <Info className="h-3 w-3"/> Mot de l'auteur
+                    </h3>
+                    <p className="text-sm italic text-zinc-600">"{product.details.conclusion}"</p>
+                </div>
+            )}
+        </div>
+
+        {isBook && product.details && (
+            <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-4 text-sm p-4 bg-muted/30 rounded-xl">
+                    <div><p className="text-zinc-500">Langue</p><p className="font-bold">{product.details.language}</p></div>
+                    <div><p className="text-zinc-500">Pages</p><p className="font-bold">{product.details.pageCount}</p></div>
+                    <div><p className="text-zinc-500">Éditeur</p><p className="font-bold">{product.details.publisher}</p></div>
+                    <div><p className="text-zinc-500">ISBN-13</p><p className="font-mono text-xs">{product.details.isbn13 || 'N/A'}</p></div>
+                </div>
+
+                <div className="p-4 border rounded-xl space-y-3">
+                    <div className="flex items-center gap-3">
+                        <Avatar className="h-14 w-14 border-2 border-primary">
+                            <AvatarImage src={product.details.authorImage || ''}/>
+                            <AvatarFallback><UserIcon/></AvatarFallback>
+                        </Avatar>
+                        <div>
+                            <p className="text-xs text-muted-foreground uppercase font-bold">À propos de l'auteur</p>
+                            <p className="font-bold text-lg">{product.details.author}</p>
+                        </div>
+                    </div>
+                    <p className="text-sm text-zinc-600 leading-relaxed">{product.details.authorBio}</p>
+                </div>
+            </div>
+        )}
+
+        {isBook && (
+            <div className="space-y-4">
+                 <div className="p-4 rounded-xl border-2 border-dashed flex flex-col items-center gap-3 bg-zinc-50">
+                    <div className="flex items-center gap-4">
+                        <div className="flex flex-col items-center gap-1">
+                            <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center text-red-600"><FileText className="h-5 w-5"/></div>
+                            <span className="text-[10px] font-bold">PDF</span>
+                        </div>
+                        {product.details?.audioUrl && (
+                            <div className="flex flex-col items-center gap-1">
+                                <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"><Music className="h-5 w-5"/></div>
+                                <span className="text-[10px] font-bold">AUDIO</span>
+                            </div>
+                        )}
+                    </div>
+                    <p className="text-xs text-center text-zinc-500">Ces fichiers seront disponibles en téléchargement sécurisé immédiatement après votre achat dans votre espace "Mes Commandes".</p>
+                </div>
+            </div>
+        )}
+        
+        <div className="flex items-center justify-between py-2 border-y">
+          <p className="font-bold text-sm">Quantité</p>
+          <div className="flex items-center border rounded-lg bg-zinc-50">
+              <Button variant="ghost" size="icon" className="h-10 w-10" onClick={() => changeQuantity(-1)}><Minus className="h-4 w-4"/></Button>
+              <Input type="text" value={quantity} readOnly className="w-12 text-center border-0 focus-visible:ring-0 h-10 p-0 bg-transparent font-bold"/>
+              <Button variant="ghost" size="icon" className="h-10 w-10" onClick={() => changeQuantity(1)}><Plus className="h-4 w-4"/></Button>
+          </div>
+        </div>
+        
+        <Link href={`/shopping/seller/${product.seller.id}`} className="flex items-center gap-3 p-4 border rounded-xl hover:bg-zinc-50 transition-colors">
+            <div className="h-12 w-12 bg-primary/10 rounded-lg flex items-center justify-center">
+                <Store className="h-7 w-7 text-primary" />
+            </div>
+            <div className="flex-1">
+                <p className="font-bold text-foreground flex items-center gap-2">
+                  {product.boutiqueName || 'Magasin Certifié'}
+                  <Image src="/images/badge/shopping-verified.png" alt="Vendeur Vérifié" width={80} height={20} className="h-4 w-auto" />
+                </p>
+                <p className="text-xs text-muted-foreground">Visiter la boutique du vendeur</p>
+            </div>
+            <ChevronRight className="h-5 w-5 text-muted-foreground"/>
+        </Link>
+
+        <div className="pt-6 space-y-6">
+            <h3 className="font-bold text-lg flex items-center gap-2">
+                <MessageSquare className="h-5 w-5"/> Commentaires ({comments.length})
+            </h3>
+            
+            <div className="space-y-4">
+                {user ? (
+                    <div className="flex gap-3 items-start">
+                        <Avatar className="h-10 w-10 shrink-0">
+                            <AvatarImage src={user.profile_photo || ''}/>
+                            <AvatarFallback>{user.first_name?.[0]}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 space-y-2">
+                            <Textarea 
+                                placeholder="Donnez votre avis sur ce produit..." 
+                                className="min-h-[100px] resize-none"
+                                value={newComment}
+                                onChange={e => setNewComment(e.target.value)}
+                            />
+                            <div className="flex justify-end">
+                                <Button size="sm" onClick={handlePostComment} disabled={isPostingComment || !newComment.trim()}>
+                                    {isPostingComment ? <Loader2 className="h-4 w-4 animate-spin mr-2"/> : <Send className="h-4 w-4 mr-2"/>}
+                                    Publier
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <Alert>
+                        <Info className="h-4 w-4" />
+                        <AlertTitle>Connectez-vous pour commenter</AlertTitle>
+                        <AlertDescription>
+                            Vous devez être connecté pour partager votre expérience avec ce produit.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                <div className="space-y-6 mt-8">
+                    {isLoadingComments ? (
+                        [...Array(2)].map((_, i) => (
+                            <div key={i} className="flex gap-3">
+                                <Skeleton className="h-10 w-10 rounded-full" />
+                                <div className="space-y-2 flex-1">
+                                    <Skeleton className="h-4 w-1/4" />
+                                    <Skeleton className="h-12 w-full" />
+                                </div>
+                            </div>
+                        ))
+                    ) : comments.length > 0 ? (
+                        comments.map(comment => (
+                            <div key={comment.id} className="flex gap-3">
+                                <Avatar className="h-10 w-10 shrink-0">
+                                    <AvatarImage src={comment.author_photo || ''} />
+                                    <AvatarFallback>{comment.author_name[0]}</AvatarFallback>
+                                </Avatar>
+                                <div className="space-y-1 flex-1">
+                                    <div className="flex items-center justify-between">
+                                        <p className="font-bold text-sm">{comment.author_name}</p>
+                                        <span className="text-[10px] text-muted-foreground">{formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: fr })}</span>
+                                    </div>
+                                    <p className="text-sm text-zinc-700 leading-relaxed bg-zinc-50 p-3 rounded-2xl rounded-tl-none">
+                                        {comment.text}
+                                    </p>
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="text-center py-10 text-muted-foreground border-2 border-dashed rounded-xl">
+                            <p>Aucun commentaire pour le moment. Soyez le premier à donner votre avis !</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+      </div>
+
+      <footer className="fixed bottom-16 left-0 right-0 z-10 bg-background border-t p-3 flex items-center gap-3">
+        <Button variant="ghost" className="flex flex-col h-auto p-1 gap-1" onClick={handleFavoriteToggle} disabled={isTogglingFavorite}>
+            {isTogglingFavorite ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground"/> : <Heart className={cn("h-6 w-6 transition-all", isFavorite && "fill-red-500 text-red-500")} />}
+            <span className="text-[10px] font-medium">Favoris</span>
+        </Button>
+        <Button asChild variant="ghost" className="flex flex-col h-auto p-1 gap-1">
+            <Link href={`/feedback?contactId=${product.seller.id}`}>
+                <MessageSquare className="h-6 w-6 text-zinc-600"/>
+                <span className="text-[10px] font-medium">Chat</span>
+            </Link>
+        </Button>
+        <Button asChild variant="ghost" className="flex flex-col h-auto p-1 gap-1">
+            <Link href={`/shopping/seller/${product.seller.id}`}>
+                <Store className="h-6 w-6"/>
+                <span className="text-[10px] font-medium">Magasin</span>
+            </Link>
+        </Button>
+        <Button size="lg" variant="outline" className="flex-1 border-primary text-primary hover:bg-primary/5 h-12 font-bold" onClick={handleAddToCart} disabled={isOwner || product.stock === 0 || isSellerInactive}>
+            Ajouter au panier
+        </Button>
+        <Button size="lg" className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 h-12 font-bold shadow-lg" onClick={handleBuyNow} disabled={isOwner || product.stock === 0 || isSellerInactive}>
+            Acheter
+        </Button>
+      </footer>
+    </main>
+  );
+}
+

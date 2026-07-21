@@ -1,0 +1,35 @@
+<h1 style="font-size: 24px; color: #000E38; margin-top: 0;">Alerte de Sécurité : Nouvelle Connexion</h1>
+<p>{{greeting}},</p>
+<p>Nous vous informons qu'une nouvelle connexion à votre compte CashPay a été détectée. Si c'était bien vous, vous pouvez ignorer cet e-mail. Si vous ne reconnaissez pas cette activité, veuillez sécuriser votre compte immédiatement.</p>
+<div style="background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px; margin: 20px 0; font-size: 14px;">
+    <h3 style="margin-top: 0; color: #000E38;">Détails de la Connexion</h3>
+    <table width="100%" cellpadding="8">
+        <tr>
+            <td style="color: #495057; width: 120px;"><strong>Date et Heure :</strong></td>
+            <td>{{loginTime}}</td>
+        </tr>
+        <tr>
+            <td style="color: #495057;"><strong>Appareil :</strong></td>
+            <td>{{deviceType}}</td>
+        </tr>
+        <tr>
+            <td style="color: #495057;"><strong>OS :</strong></td>
+            <td>{{operatingSystem}}</td>
+        </tr>
+        <tr>
+            <td style="color: #495057;"><strong>Navigateur :</strong></td>
+            <td>{{browser}}</td>
+        </tr>
+        <tr>
+            <td style="color: #495057;"><strong>Adresse IP :</strong></td>
+            <td>{{ipAddress}}</td>
+        </tr>
+        <tr>
+            <td style="color: #495057;"><strong>Pays :</strong></td>
+            <td>{{location}}</td>
+        </tr>
+    </table>
+</div>
+<p>Si vous ne reconnaissez pas cette connexion, cliquez sur le bouton ci-dessous pour changer votre mot de passe et vérifier l'activité de votre compte.</p>
+<a href="{{buttonUrl}}" class="button" style="background-color: #dc3545;">Sécuriser Mon Compte</a>
+<p>{{signature}}</p>

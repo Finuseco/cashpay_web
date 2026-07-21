@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{subject}}</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif; background-color: #f8f9fa; color: #343a40; }
+        .container { max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #dee2e6; }
+        .header { background-color: #000E38; padding: 30px; text-align: center; }
+        .content { padding: 30px 40px; }
+        .content h1 { color: #000E38; font-size: 24px; margin-top: 0; }
+        .content p { line-height: 1.6; }
+        .contact-section { padding: 20px 40px; background-color: #ffffff; border-top: 1px solid #dee2e6; text-align: center; }
+        .contact-section h3 { margin-top: 0; color: #000E38; font-size: 16px; }
+        .contact-section a { color: #000E38; text-decoration: none; font-weight: 500; }
+        .footer { background-color: #f1f3f5; padding: 20px 40px; text-align: center; font-size: 12px; color: #868e96; }
+        .footer a { color: #000E38; text-decoration: none; }
+        .button { display: inline-block; background-color: #FF6600; color: #ffffff !important; padding: 12px 25px; border-radius: 5px; text-decoration: none; font-weight: bold; margin: 20px 0; }
+        .code { background-color: #e9ecef; padding: 15px; text-align: center; font-size: 28px; font-weight: bold; letter-spacing: 5px; border-radius: 5px; color: #000E38; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="https://www.cashpay-all.com/logos/logo-white.png" alt="CashPay Logo" width="150" style="max-width: 150px;">
+        </div>
+        <div class="content">
+            {{{body}}}
+        </div>
+        <div class="contact-section">
+            <h3>Besoin d'aide ?</h3>
+            <table width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size: 14px; color: #495057;">
+                <tr>
+                    <td align="center" style="padding: 5px;">
+                        📞 <a href="tel:+243853868021">+243 853 868 021</a>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center" style="padding: 5px;">
+                        ✉️ <a href="mailto:info@cashpay-all.com">info@cashpay-all.com</a> | <a href="mailto:service@cashpay-all.com">service@cashpay-all.com</a>
+                    </td>
+                </tr>
+            </table>
+        </div>
+        <div class="footer">
+            <p>&copy; {{year}} CashPay - Un service de FINUSECO SARL. Tous droits réservés.</p>
+            <p>
+                <a href="https://www.cashpay-all.com/about">À propos</a> &bull;
+                <a href="https://www.cashpay-all.com/faq">FAQ</a> &bull;
+                <a href="https://www.cashpay-all.com/settings">Paramètres</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<h1 style="font-size: 24px; color: #000E38; margin-top: 0;">Nouveau Membre dans votre Groupe</h1>
+<p>Bonjour Partenaire {{partnerName}},</p>
+<p>Un nouveau membre a rejoint l'un de vos groupes de garantie LoanMe.</p>
+
+<div style="background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 20px; margin: 20px 0; font-size: 14px;">
+    <h3 style="margin-top: 0; color: #000E38;">Détails</h3>
+    <table width="100%" cellpadding="8">
+        <tr>
+            <td style="color: #495057; width: 120px;"><strong>Nom du Membre :</strong></td>
+            <td><strong>{{memberName}}</strong></td>
+        </tr>
+         <tr>
+            <td style="color: #495057; width: 120px;"><strong>ID Portefeuille :</strong></td>
+            <td><span style="font-family: monospace;">{{memberWalletId}}</span></td>
+        </tr>
+        <tr>
+            <td style="color: #495057;"><strong>Groupe :</strong></td>
+            <td>{{groupName}}</td>
+        </tr>
+    </table>
+</div>
+
+<p>Vous pouvez maintenant inclure ce membre dans votre prochaine demande de prêt de groupe.</p>
+
+<a href="{{dashboardUrl}}" class="button">Aller au tableau de bord LoanMe</a>
+<p>{{signature}}</p>

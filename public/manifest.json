@@ -1,0 +1,21 @@
+{
+  "name": "CashPay",
+  "short_name": "CashPay",
+  "description": "Your digital financial services solution.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000e38",
+  "theme_color": "#FF6600",
+  "icons": [
+    {
+      "src": "/logos/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/logos/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

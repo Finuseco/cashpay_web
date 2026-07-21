@@ -1,0 +1,1 @@
+export const UBA_BANK_CODE = "033150001";
