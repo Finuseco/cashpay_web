@@ -5,12 +5,12 @@ const config = {
   env: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
   app: {
-    port: process.env.PORT || 3000,
-    googleCallbackUrl: process.env.GOOGLE_LOGIN_CALLBACK_URL || 'http://localhost:8002/api/auth/google/callback/login',
-    googleDriveCallbackUrl: process.env.GOOGLE_DRIVE_CALLBACK_URL || 'http://localhost:8002/api/auth/google/callback/drive',
-    zoomCallbackUrl: process.env.ZOOM_OAUTH_REDIRECT_URI || 'http://localhost:8002/api/auth/zoom/callback',
-    nextPublicAppUrl: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:8002',
-    adServerUrl: process.env.NEXT_PUBLIC_AD_SERVER_URL || 'http://localhost:8089',
+    port: process.env.PORT || 8002,
+    googleCallbackUrl: process.env.GOOGLE_LOGIN_CALLBACK_URL || 'http://app.cashpay-all.com/api/auth/google/callback/login',
+    googleDriveCallbackUrl: process.env.GOOGLE_DRIVE_CALLBACK_URL || 'app.cashpay-all.com/api/auth/google/callback/drive',
+    zoomCallbackUrl: process.env.ZOOM_OAUTH_REDIRECT_URI || 'http://app.cashpay-all.com/api/auth/zoom/callback',
+    nextPublicAppUrl: process.env.NEXT_PUBLIC_APP_URL || 'app.cashpay-all.com',
+    adServerUrl: process.env.NEXT_PUBLIC_AD_SERVER_URL || 'ads.cashpay-all.com',
   },
   jwt: {
     secret: process.env.JWT_SECRET,

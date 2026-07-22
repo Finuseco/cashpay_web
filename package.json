@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 8002",
-    "start": "next start",
+    "start": "next start -p 8002",
+    "build": "next build",
     "lint": "next lint",
     "generate-vapid": "node -e \"const webpush = require('web-push'); const vapidKeys = webpush.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY=' + vapidKeys.publicKey); console.log('VAPID_PRIVATE_KEY=' + vapidKeys.privateKey);\""
   },
@@ -36,7 +36,6 @@
     "@radix-ui/react-tooltip": "^1.1.2",
     "@tanstack/react-table": "^8.19.3",
     "@yudiel/react-qr-scanner": "^2.0.4",
-    "@yudiel/react-qrcode.react": "^3.1.0",
     "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
