@@ -1,4 +1,4 @@
-# Firebase Studio
+# CashPay All App
 
 This is a NextJS starter.
 
