@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useTranslation } from "react-i18next";
@@ -19,31 +18,42 @@ export function SettingsClient({ user }: { user: User | null }) {
     setIsClient(true);
   }, []);
 
+  if (!isClient) return null;
+
   return (
-    <Tabs defaultValue="appearance" className="w-full">
-      <TabsList className="grid w-full grid-cols-3">
-        <TabsTrigger value="appearance">
-          <Palette className="mr-2 h-4 w-4" />
-          {isClient ? t('settingsAppearanceTab') : 'Appearance'}
+    <Tabs defaultValue="security" className="w-full">
+      <TabsList className="grid w-full grid-cols-3 h-12 bg-muted/50 p-1 mb-6 rounded-xl">
+        <TabsTrigger value="appearance" className="text-xs font-bold uppercase tracking-tighter">
+          <Palette className="mr-1.5 h-3.5 w-3.5 hide-mobile" />
+          {t('settingsAppearanceTab', 'Style')}
         </TabsTrigger>
-        <TabsTrigger value="security">
-          <Shield className="mr-2 h-4 w-4" />
-          {isClient ? t('settingsSecurityTab') : 'Security'}
+        <TabsTrigger value="security" className="text-xs font-bold uppercase tracking-tighter">
+          <Shield className="mr-1.5 h-3.5 w-3.5 hide-mobile" />
+          {t('settingsSecurityTab', 'Sécurité')}
         </TabsTrigger>
-        <TabsTrigger value="billing">
-            <Repeat className="mr-2 h-4 w-4" />
+        <TabsTrigger value="billing" className="text-xs font-bold uppercase tracking-tighter">
+            <Repeat className="mr-1.5 h-3.5 w-3.5 hide-mobile" />
             Paiements
         </TabsTrigger>
       </TabsList>
-      <TabsContent value="appearance">
+      
+      <TabsContent value="appearance" className="mt-0 outline-none animate-in fade-in duration-300">
         <AppearanceSettings />
       </TabsContent>
-      <TabsContent value="security">
+      
+      <TabsContent value="security" className="mt-0 outline-none animate-in fade-in duration-300">
         <SecuritySettings user={user} />
       </TabsContent>
-       <TabsContent value="billing">
+      
+      <TabsContent value="billing" className="mt-0 outline-none animate-in fade-in duration-300">
         <BillingAgreements user={user} />
       </TabsContent>
+
+      <style jsx global>{`
+        @media (max-width: 640px) {
+            .hide-mobile { display: none; }
+        }
+      `}</style>
     </Tabs>
   );
 }

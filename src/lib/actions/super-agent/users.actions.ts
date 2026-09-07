@@ -18,43 +18,63 @@ import crypto from 'crypto';
  */
 export async function searchCountryUsers(adminId: number, query: string): Promise<User[]> {
     try {
-        const { rows: adminRows } = await db.query('SELECT role, country, province FROM users WHERE id = $1::integer', [adminId]);
-        if (adminRows.length === 0) return [];
+        const { rows: adminRows } = await db.query(
+            `SELECT id, role, country, province, status FROM users WHERE id = $1::integer LIMIT 1`,
+            [adminId]
+        );
+        if (!adminRows.length) return [];
+
         const admin = adminRows[0];
+        const role = String(admin.role || '').trim();
+        if (!['SuperAgent', 'SubSuperAgent', 'Admin'].includes(role)) return [];
+        if (['Suspended', 'Blocked', 'Inactive', 'Disabled', 'Banned'].includes(String(admin.status || '').trim())) return [];
+        if (!admin.country) return [];
 
-        let sql = `SELECT * FROM users WHERE country = $1`;
         const params: any[] = [admin.country];
-        let paramIndex = 2;
+        let sql = `
+            SELECT u.*, COALESCE(w.balances, '{}'::jsonb) AS wallet_balances,
+                   COALESCE(w.commission_balance, '{}'::jsonb) AS wallet_commission_balance
+            FROM users u
+            LEFT JOIN wallets w ON w.user_id = u.id
+            WHERE LOWER(TRIM(u.country)) = LOWER(TRIM($1))`;
 
-        if (admin.role === 'SubSuperAgent' && admin.province) {
-            sql += ` AND province = $${paramIndex++}`;
+        if (role === 'SubSuperAgent' && admin.province) {
             params.push(admin.province);
+            sql += ` AND LOWER(TRIM(COALESCE(u.province,''))) = LOWER(TRIM($${params.length}))`;
         }
 
-        if (query && query.trim() !== '') {
-            const searchPattern = `%${query.trim()}%`;
-            // Pour plus de robustesse avec pg, on utilise un paramètre unique pour chaque condition si nécessaire
-            // ou on s'assure que le paramètre répété est bien géré.
-            sql += ` AND (full_name ILIKE $${paramIndex} OR id_wallet ILIKE $${paramIndex} OR phone ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
-            params.push(searchPattern);
+        const normalizedQuery = String(query || '').trim();
+        if (normalizedQuery) {
+            params.push(`%${normalizedQuery}%`);
+            const p = `$${params.length}`;
+            sql += ` AND (
+                COALESCE(u.full_name,'') ILIKE ${p}
+                OR COALESCE(u.first_name,'') ILIKE ${p}
+                OR COALESCE(u.last_name,'') ILIKE ${p}
+                OR COALESCE(u.id_wallet,'') ILIKE ${p}
+                OR COALESCE(u.phone,'') ILIKE ${p}
+                OR COALESCE(u.email,'') ILIKE ${p}
+                OR CAST(u.id AS TEXT) ILIKE ${p}
+            )`;
         }
 
-        sql += ` ORDER BY created_at DESC LIMIT 50`;
+        // Pas de LIMIT artificielle : le Super Agent doit pouvoir parcourir tout son territoire.
+        sql += ` ORDER BY u.created_at DESC NULLS LAST, u.id DESC`;
 
         const { rows } = await db.query(sql, params);
-        
-        // Sécurisation du mapping pour éviter qu'une ligne corrompue ne bloque toute la liste
-        return rows.map(row => {
+        return rows.map((row: any) => {
             try {
-                return formatUser(row);
+                const user = formatUser(row) as any;
+                user.balances = typeof row.wallet_balances === 'string' ? JSON.parse(row.wallet_balances) : (row.wallet_balances || {});
+                user.commission_balance = typeof row.wallet_commission_balance === 'string' ? JSON.parse(row.wallet_commission_balance) : (row.wallet_commission_balance || {});
+                return user;
             } catch (e) {
-                console.error("[searchCountryUsers] Error formatting user row:", row.id, e);
+                console.error('[searchCountryUsers] Error formatting user row:', row.id, e);
                 return null;
             }
         }).filter(Boolean) as User[];
-
     } catch (error) {
-        console.error("[searchCountryUsers] SQL Error:", error);
+        console.error('[searchCountryUsers] SQL Error:', error);
         return [];
     }
 }
@@ -64,6 +84,7 @@ export async function searchCountryUsers(adminId: number, query: string): Promis
  */
 export async function getClientKycDetails(targetUserId: number, adminId: number): Promise<any> {
     try {
+        await validateSuperAgentAccess(adminId, targetUserId);
         const { rows: userRows } = await db.query('SELECT signature_image, representative, phone, email, id_wallet, profile_photo FROM users WHERE id = $1::integer', [targetUserId]);
         if (userRows.length === 0) return null;
         
@@ -88,9 +109,10 @@ export async function updateClientProfilePhoto(targetUserId: number, adminId: nu
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
+        await validateSuperAgentAccess(adminId, targetUserId, connection);
         
         const { rows: adminRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1::integer', [adminId]);
-        if (!(await bcrypt.compare(adminPin, adminRows[0].pin_hash))) throw new Error("PIN Admin incorrect.");
+        if (!adminRows.length || !adminRows[0].pin_hash || !(await bcrypt.compare(adminPin, adminRows[0].pin_hash))) throw new Error("PIN Admin incorrect.");
 
         const savedPath = await saveBase64Image(base64Image, 'avatars', `user_upd_${targetUserId}_${Date.now()}`);
         if (!savedPath) throw new Error("Erreur lors de l'enregistrement de l'image.");
@@ -114,10 +136,11 @@ export async function upgradeToBusinessAccount(targetUserId: number, adminId: nu
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
+        await validateSuperAgentAccess(adminId, targetUserId, connection);
         
         // 1. Vérifier le PIN Admin
         const { rows: adminRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1::integer', [adminId]);
-        if (!(await bcrypt.compare(adminPin, adminRows[0].pin_hash))) throw new Error("PIN Admin incorrect.");
+        if (!adminRows.length || !adminRows[0].pin_hash || !(await bcrypt.compare(adminPin, adminRows[0].pin_hash))) throw new Error("PIN Admin incorrect.");
 
         // Génération des clés de production
         const apiKey = `cp_live_${crypto.randomBytes(12).toString('hex')}`;

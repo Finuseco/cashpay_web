@@ -130,3 +130,47 @@ export async function deleteLinkedAccount(userId: number, accountId: number): Pr
         return { success: false, error: error.message };
     }
 }
+
+export async function storeLinkedAccount(data: {
+    userId: number;
+    institutionName: string;
+    accountType: string;
+    accountNumberMask: string;
+    providerAccountId: string;
+    provider?: string;
+}): Promise<{ success: boolean; error?: string }> {
+    try {
+        await db.query(
+            `INSERT INTO linked_bank_accounts
+            (
+                user_id,
+                provider,
+                institution_name,
+                account_type,
+                account_number_mask,
+                provider_account_id,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES
+            ($1, $2, $3, $4, $5, $6, 'active', NOW(), NOW())`,
+            [
+                data.userId,
+                data.provider || 'mastercard',
+                data.institutionName,
+                data.accountType,
+                data.accountNumberMask,
+                data.providerAccountId
+            ]
+        );
+
+        return { success: true };
+
+    } catch (error: any) {
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}

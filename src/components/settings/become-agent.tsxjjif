@@ -1,0 +1,139 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { Briefcase, Loader2, ShieldCheck, RefreshCw } from 'lucide-react';
+import { useAlertDialog } from '@/hooks/use-alert-dialog';
+import type { User } from '@/lib/types';
+import { getAgentSubscription, subscribeAsAgent, type AgentSubscription } from '@/lib/actions/agent-application.actions';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
+
+const pinSchema = z.object({
+  pin: z.string().length(4, "Le PIN doit contenir 4 chiffres."),
+});
+
+export function BecomeAgentSection({ user }: { user: User | null }) {
+    const { openAlert } = useAlertDialog();
+    const [isClient, setIsClient] = useState(false);
+    const [subscription, setSubscription] = useState<AgentSubscription | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isPinOpen, setIsPinOpen] = useState(false);
+    const [selectedPlan, setSelectedPlan] = useState<'promo' | 'normal'>('normal');
+
+    const pinForm = useForm<z.infer<typeof pinSchema>>({ resolver: zodResolver(pinSchema) });
+
+    useEffect(() => {
+        setIsClient(true);
+    }, []);
+
+    const handleCheckStatus = async () => {
+        if (!user) return;
+        setIsLoading(true);
+        const sub = await getAgentSubscription(user.id);
+        setSubscription(sub);
+        setIsLoading(false);
+        if (!sub) {
+            toast({ title: "Aucun abonnement", description: "Vous n'êtes pas encore enregistré comme agent." });
+        }
+    };
+
+    const handleConfirmPin = async (values: z.infer<typeof pinSchema>) => {
+        if (!user) return;
+        setIsLoading(true);
+        const result = await subscribeAsAgent(user.id, selectedPlan, values.pin);
+        setIsLoading(false);
+
+        if (result.success) {
+            openAlert({ title: "Félicitations", description: "Votre statut d'agent est désormais actif.", variant: 'success' });
+            setIsPinOpen(false);
+            handleCheckStatus();
+        } else {
+            openAlert({ title: "Échec", description: result.error, variant: 'error' });
+        }
+    };
+
+    if (!isClient) return null;
+
+    if (subscription && subscription.status === 'active') {
+        return (
+            <div className="flex items-center justify-between p-4 bg-green-50 border border-green-200 rounded-xl">
+                <div className="flex items-center gap-3">
+                    <ShieldCheck className="h-6 w-6 text-green-600" />
+                    <p className="font-bold text-green-800">Agent CashPay Actif</p>
+                </div>
+                <Button variant="ghost" size="sm" onClick={handleCheckStatus} disabled={isLoading}>
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin"/> : <RefreshCw className="h-4 w-4"/>}
+                </Button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            <div className="space-y-4">
+                <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Choisir un plan d'activation</Label>
+                <RadioGroup value={selectedPlan} onValueChange={(v: any) => setSelectedPlan(v)} className="grid grid-cols-2 gap-4">
+                    <div className="relative">
+                        <RadioGroupItem value="promo" id="p-promo" className="sr-only peer" />
+                        <Label htmlFor="p-promo" className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5")}>
+                            <span className="font-black text-lg">$1</span>
+                            <span className="text-[9px] uppercase font-bold">Essai (1 mois)</span>
+                        </Label>
+                    </div>
+                    <div className="relative">
+                        <RadioGroupItem value="normal" id="p-normal" className="sr-only peer" />
+                        <Label htmlFor="p-normal" className={cn("flex flex-col items-center justify-center p-4 border-2 rounded-2xl cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5")}>
+                            <span className="font-black text-lg">$3</span>
+                            <span className="text-[9px] uppercase font-bold">Standard / mois</span>
+                        </Label>
+                    </div>
+                </RadioGroup>
+            </div>
+
+            <div className="flex gap-2">
+                <Button className="flex-1 h-12 font-bold" variant="gradient" onClick={() => setIsPinOpen(true)} disabled={isLoading}>
+                    ACTIVER MON COMPTE AGENT
+                </Button>
+                <Button variant="outline" size="icon" className="h-12 w-12" onClick={handleCheckStatus}>
+                    <RefreshCw className={cn("h-5 w-5", isLoading && "animate-spin")}/>
+                </Button>
+            </div>
+
+            <Dialog open={isPinOpen} onOpenChange={setIsPinOpen}>
+                <DialogContent className="max-w-xs bg-zinc-900 border-zinc-800 text-white p-6">
+                    <DialogHeader className="text-center">
+                        <DialogTitle>Validation PIN</DialogTitle>
+                    </DialogHeader>
+                    <Form {...pinForm}>
+                        <form onSubmit={pinForm.handleSubmit(handleConfirmPin)} className="space-y-6 pt-4 text-center">
+                            <FormField control={pinForm.control} name="pin" render={({ field }) => (
+                                <FormItem>
+                                    <FormControl>
+                                        <div className="flex justify-center">
+                                            <InputOTP maxLength={4} {...field}><InputOTPGroup><InputOTPSlot index={0}/><InputOTPSlot index={1}/><InputOTPSlot index={2}/><InputOTPSlot index={3}/></InputOTPGroup></InputOTP>
+                                        </div>
+                                    </FormControl>
+                                </FormItem>
+                            )}/>
+                            <Button type="submit" variant="gradient" className="w-full h-11" disabled={isLoading}>
+                                {isLoading ? <Loader2 className="animate-spin h-4 w-4" /> : "CONFIRMER LE PAIEMENT"}
+                            </Button>
+                        </form>
+                    </Form>
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+}
+
+function toast(arg0: { title: string; description: string; }) {
+    throw new Error('Function not implemented.');
+}

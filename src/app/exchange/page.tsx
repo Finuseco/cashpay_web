@@ -3,13 +3,12 @@ import { Suspense } from "react";
 import { getAuthenticatedUser } from "@/lib/actions/user.actions";
 import { getUserCurrencies } from "@/lib/actions/currency.actions";
 import { getExchangeRatesForCountry } from "@/lib/actions/exchange.actions";
-import { ExchangeClient } from "@/components/exchange/exchange-client";
+import { ExchangeClient } from "./exchange-client";
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { redirect } from "next/navigation";
 import { countryToCode, getCountryByCode } from '@/lib/utils';
-
 
 function ExchangeLoading() {
   return (
@@ -49,16 +48,22 @@ async function ExchangeContent() {
 
     const countryCode = user.country ? countryToCode(user.country) : null;
     const countryInfo = countryCode ? getCountryByCode(countryCode) : null;
-    const localCurrencyCode = countryInfo?.currency_code;
+    const localCurrencyCode = countryInfo?.currency_code || 'USD';
     
     const [currencies, exchangeRates] = await Promise.all([
         getUserCurrencies(user.id),
-        getExchangeRatesForCountry(countryCode)
+        getExchangeRatesForCountry(countryCode || 'GBL')
     ]);
 
-    return <ExchangeClient user={user} initialCurrencies={currencies} initialRates={exchangeRates} localCurrencyCode={localCurrencyCode} />
+    return (
+        <ExchangeClient 
+            user={user} 
+            initialCurrencies={currencies} 
+            initialRates={exchangeRates} 
+            localCurrencyCode={localCurrencyCode} 
+        />
+    );
 }
-
 
 export default function ExchangePage() {
   return (

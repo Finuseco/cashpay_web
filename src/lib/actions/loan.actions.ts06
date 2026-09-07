@@ -1,0 +1,543 @@
+'use server';
+
+import type { User, Loan } from '@/lib/types';
+import { sendSms } from '@/services/sms';
+import { sendEmail } from '@/services/email';
+import { sendWhatsAppTextMessage } from '@/services/whatsapp';
+import { createNotification } from './notification.actions';
+import { db } from '@/lib/db';
+import { handleDbError } from './helpers';
+import { format, addMonths, addDays } from 'date-fns';
+import { createTransaction } from './transaction.actions';
+import { calculateTransactionFee } from './wallet.actions';
+import { getAuthenticatedUser } from './user.actions';
+import { formatUser } from '../utils';
+import type { PoolClient } from 'pg';
+
+export type LoanRepaymentFrequency = 'weekly' | 'monthly';
+
+export interface LoanRepayment {
+    id: number;
+    amount: number;
+    type: 'repayment' | 'penalty';
+    payment_date: string;
+}
+
+export interface LoanInstallment {
+    id: number;
+    installment_number: number;
+    due_date: string;
+    amount: number;
+    penalty: number;
+    paid_amount: number;
+    remaining_amount: number;
+    status: 'pending' | 'partial' | 'overdue' | 'paid';
+}
+
+export interface LoanHistory extends Loan {
+    status: 'pending' | 'approved' | 'rejected' | 'repaid' | 'defaulted';
+    repayments: LoanRepayment[];
+    schedule?: LoanInstallment[];
+    monthly_payment?: number;
+    repayment_frequency?: LoanRepaymentFrequency;
+    installment_count?: number;
+    installment_amount?: number;
+}
+
+interface CreateLoanArgs {
+    user: User;
+    amount: number;
+    currency: string;
+    interestRate: number;
+    durationMonths: number;
+    purpose: string;
+    repaymentFrequency?: LoanRepaymentFrequency;
+    installmentCount?: number;
+}
+
+const money = (v: any) => Math.max(0, Number.parseFloat(String(v ?? 0)) || 0);
+const roundMoney = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+
+function resolveRepaymentPlan(durationMonths: number, frequency?: LoanRepaymentFrequency, installmentCount?: number) {
+    // One-month loans are weekly by design. Four weeks is the default; five is explicitly supported.
+    if (durationMonths === 1) {
+        const count = installmentCount == null ? 4 : Math.trunc(installmentCount);
+        if (count < 4 || count > 5) throw new Error('Pour un prêt d’un mois, le nombre d’échéances hebdomadaires doit être de 4 ou 5.');
+        return { frequency: 'weekly' as const, count };
+    }
+    const resolvedFrequency = frequency || 'monthly';
+    if (resolvedFrequency !== 'monthly') throw new Error('Les prêts de plus d’un mois utilisent actuellement des échéances mensuelles.');
+    const count = Math.trunc(installmentCount ?? durationMonths);
+    if (count !== durationMonths) throw new Error('Le nombre d’échéances mensuelles doit correspondre à la durée du prêt.');
+    return { frequency: 'monthly' as const, count };
+}
+
+async function ensureLoanPlanColumns(connection: any) {
+    await connection.query(`
+        ALTER TABLE loans
+          ADD COLUMN IF NOT EXISTS repayment_frequency VARCHAR(20) NOT NULL DEFAULT 'monthly',
+          ADD COLUMN IF NOT EXISTS installment_count INTEGER,
+          ADD COLUMN IF NOT EXISTS installment_amount NUMERIC(18,2)
+    `);
+}
+
+async function createLoanInstallmentSchedule(connection: PoolClient, loanId: number, approvalDate: Date, totalRepayment: number, frequency: LoanRepaymentFrequency, count: number) {
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS loan_installments (
+        id BIGSERIAL PRIMARY KEY,
+        loan_id INTEGER NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+        installment_number INTEGER NOT NULL,
+        due_date TIMESTAMPTZ NOT NULL,
+        amount NUMERIC(18,2) NOT NULL,
+        penalty_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+        paid_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        penalty_applied_on DATE,
+        last_penalty_date DATE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (loan_id, installment_number)
+      )
+    `);
+    await connection.query(`ALTER TABLE loan_installments ADD COLUMN IF NOT EXISTS last_penalty_date DATE`);
+    const installmentAmount = roundMoney(totalRepayment / count);
+    await connection.query(`DELETE FROM loan_installments WHERE loan_id = $1`, [loanId]);
+    let allocated = 0;
+    for (let n = 1; n <= count; n++) {
+        const amount = n === count ? roundMoney(totalRepayment - allocated) : installmentAmount;
+        allocated = roundMoney(allocated + amount);
+        const dueDate = frequency === 'weekly' ? addDays(approvalDate, n * 7) : addMonths(approvalDate, n);
+        await connection.query(`
+            INSERT INTO loan_installments
+              (loan_id, installment_number, due_date, amount, penalty_amount, paid_amount, status)
+            VALUES ($1,$2,$3,$4,0,0,'pending')
+        `, [loanId, n, dueDate, amount]);
+    }
+    return installmentAmount;
+}
+
+async function ensureLoanInstallments(connection: PoolClient, loan: any) {
+    await connection.query(`
+        CREATE TABLE IF NOT EXISTS loan_installments (
+          id BIGSERIAL PRIMARY KEY,
+          loan_id INTEGER NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+          installment_number INTEGER NOT NULL,
+          due_date TIMESTAMPTZ NOT NULL,
+          amount NUMERIC(18,2) NOT NULL,
+          penalty_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+          paid_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+          status VARCHAR(20) NOT NULL DEFAULT 'pending',
+          penalty_applied_on DATE,
+          last_penalty_date DATE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (loan_id, installment_number)
+        )
+    `);
+    await connection.query(`ALTER TABLE loan_installments ADD COLUMN IF NOT EXISTS last_penalty_date DATE`);
+    await ensureLoanPlanColumns(connection);
+    const { rows } = await connection.query('SELECT COUNT(*)::int AS count FROM loan_installments WHERE loan_id=$1', [loan.id]);
+    if (Number(rows[0]?.count) > 0) return;
+    if (!loan.approval_date || loan.status !== 'approved') return;
+    const frequency: LoanRepaymentFrequency = loan.repayment_frequency === 'weekly' ? 'weekly' : 'monthly';
+    const count = Math.trunc(Number(loan.installment_count || (frequency === 'weekly' ? 4 : loan.duration)));
+    const total = money(loan.amount) * (1 + (money(loan.interest_rate) / 100) * Number(loan.duration));
+    await createLoanInstallmentSchedule(connection, Number(loan.id), new Date(loan.approval_date), total, frequency, count);
+}
+
+async function notifyLoanUser(user: any, subject: string, message: string, data: Record<string, any> = {}) {
+    const tasks: Promise<any>[] = [];
+    if (user?.phone) {
+        tasks.push(sendSms(String(user.phone), message));
+        tasks.push(sendWhatsAppTextMessage(String(user.phone), message));
+    }
+    if (user?.email) {
+        tasks.push(sendEmail(String(user.email), subject, 'general', {
+            title: subject,
+            greeting: `Bonjour ${user.first_name || user.full_name || 'Client'},`,
+            message: message.replace(/\n/g, '<br/>'),
+            buttonText: 'Voir mes prêts',
+            buttonUrl: `${process.env.NEXT_PUBLIC_APP_URL}/loan/history`,
+            signature: "L'équipe CashPay"
+        }));
+    }
+    if (user?.id) {
+        tasks.push(createNotification(Number(user.id), subject, message, 'new_message', data));
+    }
+    await Promise.allSettled(tasks);
+}
+
+export async function getLoanOffer(userId: number, currency: string): Promise<{
+    eligible: boolean;
+    reason?: string;
+    currency: string;
+    balance: number;
+    guaranteeRate: number;
+    interestRate?: number;
+    durations: number[];
+}> {
+    try {
+        const normalizedCurrency = String(currency || '').toUpperCase();
+        const { rows: userRows } = await db.query(`
+            SELECT u.*, w.balances
+            FROM users u LEFT JOIN wallets w ON w.user_id=u.id
+            WHERE u.id=$1 LIMIT 1
+        `, [userId]);
+        if (!userRows.length) return { eligible: false, reason: 'Client introuvable.', currency: normalizedCurrency, balance: 0, guaranteeRate: 0.20, durations: [] };
+
+        const user = userRows[0];
+        const balances = typeof user.balances === 'string' ? JSON.parse(user.balances) : (user.balances || {});
+        const balance = money(balances[normalizedCurrency]);
+        const { rows: activeRows } = await db.query(`
+            SELECT id,status FROM loans
+            WHERE user_id=$1 AND status IN ('pending','approved')
+            ORDER BY request_date DESC LIMIT 1
+        `, [userId]);
+        if (activeRows.length) {
+            return { eligible: false, reason: activeRows[0].status === 'pending'
+                ? `Vous avez déjà une demande de prêt #${activeRows[0].id} en cours.`
+                : `Vous avez déjà un prêt actif #${activeRows[0].id}.`, currency: normalizedCurrency, balance, guaranteeRate: 0.20, durations: [] };
+        }
+
+        const { rows: historyRows } = await db.query(`
+            SELECT interest_rate FROM loans
+            WHERE user_id=$1 AND status='repaid'
+            ORDER BY request_date DESC LIMIT 1
+        `, [userId]);
+        const envRate = Number(process.env.LOAN_DEFAULT_INTEREST_RATE);
+        const interestRate = money(historyRows[0]?.interest_rate) || (Number.isFinite(envRate) ? envRate : 0);
+        if (interestRate <= 0) {
+            return { eligible: false, reason: 'Aucune offre de prêt n’est actuellement configurée pour votre compte.', currency: normalizedCurrency, balance, guaranteeRate: 0.20, durations: [] };
+        }
+
+        const repaidCount = Number((await db.query(`SELECT COUNT(*)::int AS count FROM loans WHERE user_id=$1 AND status='repaid'`, [userId])).rows[0]?.count || 0);
+        const configured = String(process.env.LOAN_DURATION_OPTIONS || '').split(',').map(x => Math.trunc(Number(x))).filter(x => [1,3,6,12,24].includes(x));
+        const defaults = repaidCount <= 0 ? [1] : repaidCount === 1 ? [1,3] : repaidCount === 2 ? [1,3,6] : repaidCount === 3 ? [1,3,6,12] : [1,3,6,12,24];
+        const durations = [...new Set((configured.length ? configured : defaults).filter(x => x >= 1))].sort((a,b)=>a-b);
+        return { eligible: true, currency: normalizedCurrency, balance, guaranteeRate: 0.20, interestRate, durations };
+    } catch (error) {
+        await handleDbError(error, 'checking loan eligibility');
+        return { eligible: false, reason: 'Service LoanMe indisponible.', currency: String(currency || '').toUpperCase(), balance: 0, guaranteeRate: 0.20, durations: [] };
+    }
+}
+
+export async function createLoanApplication(args: CreateLoanArgs): Promise<{ success: boolean; error?: string }> {
+    const { user, amount, currency, interestRate, durationMonths, purpose } = args;
+    const connection = await db.getConnection();
+    try {
+        const plan = resolveRepaymentPlan(durationMonths, args.repaymentFrequency, args.installmentCount);
+        const normalizedCurrency = String(currency || '').toUpperCase();
+        const requestedAmount = roundMoney(amount);
+        if (requestedAmount <= 0) throw new Error('Montant de prêt invalide.');
+
+        await connection.query('BEGIN');
+        const { rows: activeRows } = await connection.query(`
+            SELECT id,status FROM loans
+            WHERE user_id=$1 AND status IN ('pending','approved')
+            ORDER BY request_date DESC LIMIT 1 FOR UPDATE
+        `, [user.id]);
+        if (activeRows.length) {
+            throw new Error(activeRows[0].status === 'pending'
+                ? `Vous avez déjà une demande de prêt #${activeRows[0].id} en cours.`
+                : `Vous avez déjà un prêt actif #${activeRows[0].id}.`);
+        }
+
+        const { rows: walletRows } = await connection.query('SELECT balances FROM wallets WHERE user_id=$1::integer FOR UPDATE', [user.id]);
+        if (!walletRows.length) throw new Error('Portefeuille de l’utilisateur introuvable.');
+        const balances = typeof walletRows[0].balances === 'string' ? JSON.parse(walletRows[0].balances) : (walletRows[0].balances || {});
+        const balance = money(balances[normalizedCurrency]);
+        const guarantee = roundMoney(requestedAmount * 0.20);
+        if (balance + 0.005 < guarantee) {
+            throw new Error(`Solde de garantie insuffisant. Il faut au moins ${guarantee.toFixed(2)} ${normalizedCurrency} (20% du montant demandé). Votre solde est de ${balance.toFixed(2)} ${normalizedCurrency}.`);
+        }
+        const totalRepayment = roundMoney(requestedAmount * (1 + (interestRate / 100) * durationMonths));
+        const installmentAmount = roundMoney(totalRepayment / plan.count);
+        await ensureLoanPlanColumns(connection);
+        await connection.query(`
+          INSERT INTO loans
+            (user_id, wallet_id, amount, currency, interest_rate, duration, status,
+             monthly_payment, remaining_balance, request_date, repayment_frequency,
+             installment_count, installment_amount)
+          VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11,$12)
+        `, [user.id, user.id_wallet, requestedAmount, normalizedCurrency, interestRate, durationMonths,
+            installmentAmount, totalRepayment, new Date(), plan.frequency, plan.count, installmentAmount]);
+        await connection.query('COMMIT');
+
+        const msg = `CashPay: votre demande de prêt de ${requestedAmount.toFixed(2)} ${normalizedCurrency} a été enregistrée. Garantie vérifiée: ${guarantee.toFixed(2)} ${normalizedCurrency}.`;
+        await notifyLoanUser(user, 'Demande LoanMe enregistrée', msg, { type:'loan_application', amount:requestedAmount, currency:normalizedCurrency });
+        return { success: true };
+    } catch (error) {
+        await connection.query('ROLLBACK');
+        const dbError = await handleDbError(error, 'creating loan application');
+        return { success: false, error: dbError.error || (error as Error).message };
+    } finally { connection.release(); }
+}
+
+export async function getLoanForUser(userId: number): Promise<Loan | null> {
+    try {
+        const { rows } = await db.query(`
+            SELECT id, amount, remaining_balance, currency, interest_rate, duration,
+                   monthly_payment, repayment_frequency, installment_count, installment_amount,
+                   approval_date AS start_date,
+                   CASE WHEN repayment_frequency='weekly'
+                        THEN approval_date + (installment_count * interval '7 days')
+                        ELSE approval_date + (duration * interval '1 month') END AS end_date
+            FROM loans WHERE user_id=$1 AND status='approved'
+            ORDER BY request_date DESC LIMIT 1`, [userId]);
+        if (!rows.length) return null;
+        const loan = rows[0];
+        const totalAmount = money(loan.amount) * (1 + (money(loan.interest_rate) / 100 * Number(loan.duration)));
+        return {
+            id: loan.id, amount: totalAmount,
+            repaid_amount: totalAmount - money(loan.remaining_balance), currency: loan.currency,
+            interest_rate: loan.interest_rate,
+            start_date: format(new Date(loan.start_date), 'yyyy-MM-dd'),
+            end_date: format(new Date(loan.end_date), 'yyyy-MM-dd'),
+            remaining_balance: money(loan.remaining_balance), monthly_payment: money(loan.installment_amount || loan.monthly_payment),
+            repayment_frequency: loan.repayment_frequency, installment_count: loan.installment_count,
+            installment_amount: money(loan.installment_amount || loan.monthly_payment)
+        } as any;
+    } catch (error) { await handleDbError(error, 'fetching user loan'); return null; }
+}
+
+/** Execute all due installments. Safe to call from cron and from the LoanMe USSD entry. */
+export async function processLoanRepayments() {
+    const connection = await db.getConnection();
+    const events: Array<{user:any;subject:string;message:string;data:any}> = [];
+    try {
+        await connection.query('BEGIN');
+        await ensureLoanPlanColumns(connection);
+        await connection.query(`
+          CREATE TABLE IF NOT EXISTS loan_installments (
+            id BIGSERIAL PRIMARY KEY,
+            loan_id INTEGER NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+            installment_number INTEGER NOT NULL,
+            due_date TIMESTAMPTZ NOT NULL,
+            amount NUMERIC(18,2) NOT NULL,
+            penalty_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+            paid_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            penalty_applied_on DATE,
+            last_penalty_date DATE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (loan_id, installment_number)
+          )
+        `);
+        await connection.query(`ALTER TABLE loan_installments ADD COLUMN IF NOT EXISTS last_penalty_date DATE`);
+
+        const { rows: approvedLoans } = await connection.query(`
+          SELECT l.*, u.id AS u_id, u.full_name, u.phone, u.email, u.first_name, u.country, u.id_wallet, u.notifications_channel
+          FROM loans l JOIN users u ON u.id=l.user_id
+          WHERE l.status='approved' AND l.remaining_balance > 0
+          ORDER BY l.id FOR UPDATE OF l
+        `);
+
+        for (const loanData of approvedLoans) {
+            await ensureLoanInstallments(connection, loanData);
+            const { rows: due } = await connection.query(`
+              SELECT * FROM loan_installments
+              WHERE loan_id=$1 AND status <> 'paid' AND due_date <= NOW()
+              ORDER BY installment_number FOR UPDATE
+            `, [loanData.id]);
+            const user = formatUser(loanData);
+            const currency = String(loanData.currency).toUpperCase();
+
+            for (const inst of due) {
+                const baseOutstanding = roundMoney(money(inst.amount) + money(inst.penalty_amount) - money(inst.paid_amount));
+                if (baseOutstanding <= 0) {
+                    await connection.query(`UPDATE loan_installments SET status='paid', updated_at=NOW() WHERE id=$1`, [inst.id]);
+                    continue;
+                }
+
+                const currentBalanceRows = await connection.query('SELECT balances FROM wallets WHERE user_id=$1::integer FOR UPDATE', [user.id]);
+                const balances = typeof currentBalanceRows.rows[0]?.balances === 'string' ? JSON.parse(currentBalanceRows.rows[0].balances) : (currentBalanceRows.rows[0]?.balances || {});
+                let available = money(balances[currency]);
+                let payable = Math.min(baseOutstanding, available);
+
+                if (payable > 0) {
+                    // Respect transaction fees, if LR is configured with one, and use the maximum affordable principal.
+                    let low = 0, high = payable;
+                    for (let n = 0; n < 12; n++) {
+                        const mid = roundMoney((low + high) / 2);
+                        const fee = money(await calculateTransactionFee(mid, currency, 'LR' as any, user.country, connection));
+                        if (mid + fee <= available + 0.005) low = mid; else high = roundMoney(mid - 0.01);
+                    }
+                    payable = roundMoney(Math.max(0, low));
+                }
+
+                if (payable > 0) {
+                    const tx = await createTransaction({
+                        user, typeCode: 'LR' as any, amount: payable, currency,
+                        description: `Remboursement automatique prêt #${loanData.id} — échéance ${inst.installment_number}`,
+                        metadata: { loan_id: loanData.id, installment_id: Number(inst.id), installment_number: Number(inst.installment_number), method: 'automatic' },
+                        connection
+                    });
+                    if (tx.success) {
+                        const oldPaid = money(inst.paid_amount);
+                        const newPaid = roundMoney(oldPaid + payable);
+                        const remainingAfter = roundMoney(money(inst.amount) + money(inst.penalty_amount) - newPaid);
+                        const status = remainingAfter <= 0.005 ? 'paid' : 'overdue';
+                        await connection.query(`UPDATE loan_installments SET paid_amount=$1,status=$2,updated_at=NOW() WHERE id=$3`, [newPaid, status, inst.id]);
+                        await connection.query(`UPDATE loans SET remaining_balance=GREATEST(0,remaining_balance-$1) WHERE id=$2`, [payable, loanData.id]);
+                        await connection.query(`INSERT INTO loan_repayments (loan_id,amount,type,transaction_id) VALUES ($1,$2,'repayment',$3)`, [loanData.id, payable, tx.transactionId || null]);
+                        available = roundMoney(available - payable - money(tx.fee));
+                        events.push({user, subject:'Remboursement LoanMe automatique', message:`CashPay: ${payable.toFixed(2)} ${currency} ont été prélevés automatiquement pour l’échéance ${inst.installment_number} du prêt #${loanData.id}.${remainingAfter > 0.005 ? ` Reste: ${remainingAfter.toFixed(2)} ${currency}.` : ' Échéance soldée.'} Réf: ${tx.reference || 'N/A'}.`, data:{loan_id:loanData.id,installment_id:Number(inst.id),transaction_id:tx.transactionId,reference:tx.reference,type:'loan_auto_repayment'}});
+                        if (remainingAfter <= 0.005) continue;
+                    }
+                }
+
+                const { rows: freshRows } = await connection.query('SELECT * FROM loan_installments WHERE id=$1 FOR UPDATE', [inst.id]);
+                if (!freshRows.length) continue;
+                const current = freshRows[0];
+                const remainingBeforePenalty = roundMoney(money(current.amount) + money(current.penalty_amount) - money(current.paid_amount));
+                if (remainingBeforePenalty <= 0.005) continue;
+                let penaltyApplied = 0;
+
+                const lastPenalty = current.last_penalty_date ? new Date(current.last_penalty_date) : null;
+                const canApplyPenalty = !lastPenalty || lastPenalty.getTime() <= addDays(new Date(), -7).getTime();
+                if (canApplyPenalty) {
+                    const penalty = money(await calculateTransactionFee(remainingBeforePenalty, currency, 'PENALTY', user.country, connection));
+                    if (penalty > 0) {
+                        penaltyApplied = penalty;
+                        await connection.query(`UPDATE loan_installments SET penalty_amount=penalty_amount+$1,status='overdue',penalty_applied_on=COALESCE(penalty_applied_on,CURRENT_DATE),last_penalty_date=CURRENT_DATE,updated_at=NOW() WHERE id=$2`, [penalty, inst.id]);
+                        await connection.query(`UPDATE loans SET remaining_balance=remaining_balance+$1 WHERE id=$2`, [penalty, loanData.id]);
+                        await connection.query(`INSERT INTO loan_repayments (loan_id,amount,type) VALUES ($1,$2,'penalty')`, [loanData.id, penalty]);
+                        events.push({user,subject:'Pénalité LoanMe',message:`CashPay: une pénalité de ${penalty.toFixed(2)} ${currency} a été appliquée sur l’échéance ${inst.installment_number} du prêt #${loanData.id}. Reste dû: ${roundMoney(remainingBeforePenalty+penalty).toFixed(2)} ${currency}.`,data:{loan_id:loanData.id,installment_id:Number(inst.id),type:'loan_penalty',amount:penalty}});
+                    }
+                }
+
+                const remainingAfterPenalty = roundMoney(remainingBeforePenalty + penaltyApplied);
+                await connection.query(`UPDATE loan_installments SET status='overdue',updated_at=NOW() WHERE id=$1 AND status <> 'paid'`, [inst.id]);
+                events.push({user,subject:'Échéance LoanMe impayée',message:`CashPay Alerte: l’échéance ${inst.installment_number} du prêt #${loanData.id} reste impayée. Montant restant: ${remainingAfterPenalty.toFixed(2)} ${currency}.`,data:{loan_id:loanData.id,installment_id:Number(inst.id),type:'loan_overdue',amount:remainingAfterPenalty}});
+            }
+        }
+
+        await connection.query(`UPDATE loans SET status='repaid' WHERE status='approved' AND remaining_balance <= 0`);
+        await connection.query('COMMIT');
+        for (const event of events) await notifyLoanUser(event.user,event.subject,event.message,event.data);
+        return { success: true, processed: events.length };
+    } catch (error) {
+        await connection.query('ROLLBACK');
+        console.error('[Auto Loan Recoup] Critical failure:', error);
+        return { success: false, error: 'Failed to process automated repayments.' };
+    } finally { connection.release(); }
+}
+
+export async function approveLoanRequest(loanId: number, adminUserId: number): Promise<{ success: boolean; error?: string }> {
+    const connection = await db.getConnection();
+    try {
+        await connection.query('BEGIN');
+        await ensureLoanPlanColumns(connection);
+        const { rows: loanRows } = await connection.query(`SELECT l.*,u.* FROM loans l JOIN users u ON l.user_id=u.id WHERE l.id=$1 AND l.status='pending'`, [loanId]);
+        if (!loanRows.length) throw new Error('Demande de prêt non trouvée ou déjà traitée.');
+        const loan = loanRows[0];
+        const user: User = loan as unknown as User;
+        const plan = resolveRepaymentPlan(Number(loan.duration), loan.repayment_frequency, loan.installment_count);
+        const totalRepayment = roundMoney(money(loan.amount) * (1 + (money(loan.interest_rate) / 100 * Number(loan.duration))));
+        const installmentAmount = roundMoney(totalRepayment / plan.count);
+
+        await connection.query(`UPDATE loans SET status='approved',approval_date=NOW(),remaining_balance=$1,repayment_frequency=$2,installment_count=$3,installment_amount=$4,monthly_payment=$4 WHERE id=$5`, [totalRepayment, plan.frequency, plan.count, installmentAmount, loanId]);
+        const transactionResult = await createTransaction({ user, typeCode:'LP', amount:money(loan.amount), currency:loan.currency, description:`Décaissement du prêt #${loanId}`, metadata:{loan_id:loanId,approved_by:adminUserId}, connection });
+        if (!transactionResult.success || !transactionResult.transactionId) throw new Error(transactionResult.error || 'Échec du décaissement des fonds du prêt.');
+        await createLoanInstallmentSchedule(connection, loanId, new Date(), totalRepayment, plan.frequency, plan.count);
+        await connection.query('COMMIT');
+        await notifyLoanUser(user, 'Votre prêt LoanMe est approuvé', `CashPay: Bonne nouvelle ! Votre prêt de ${loan.amount} ${loan.currency} a été approuvé et les fonds ont été ajoutés à votre portefeuille. Première échéance dans ${plan.frequency === 'weekly' ? '7 jours' : '1 mois'}.`, { type:'loan_approved', loan_id:loanId, transaction_id:transactionResult.transactionId });
+        return { success:true };
+    } catch (error:any) {
+        await connection.query('ROLLBACK');
+        const dbError = await handleDbError(error, 'approving loan');
+        return { success:false,error:dbError.error||error.message };
+    } finally { connection.release(); }
+}
+
+/** Manual/early repayment. The oldest outstanding installment is always paid first. */
+export async function repayLoan(userId:number, loanId:number, requestedAmount:number):Promise<{success:boolean;error?:string;paid?:number;remaining?:number}> {
+    const connection = await db.getConnection();
+    try {
+        await connection.query('BEGIN');
+        const { rows: loanRows } = await connection.query(`SELECT l.*,u.* FROM loans l JOIN users u ON u.id=l.user_id WHERE l.id=$1 AND l.user_id=$2 AND l.status='approved' FOR UPDATE`, [loanId,userId]);
+        if(!loanRows.length) throw new Error('Prêt introuvable ou non remboursable.');
+        const loan=loanRows[0];
+        await ensureLoanInstallments(connection,loan);
+        const amount=roundMoney(requestedAmount);
+        if(amount<=0) throw new Error('Montant de remboursement invalide.');
+        const max=money(loan.remaining_balance);
+        if(amount>max+0.01) throw new Error(`Le montant dépasse la dette restante (${max.toFixed(2)} ${loan.currency}).`);
+        const user:User=loan as unknown as User;
+        const tx=await createTransaction({user,typeCode:'LR',amount,currency:loan.currency,description:`Remboursement manuel prêt #${loanId}`,metadata:{loan_id:loanId,method:'manual',requested_amount:amount},connection});
+        if(!tx.success) throw new Error(tx.error||'Débit du compte impossible.');
+
+        let left=amount;
+        const {rows:insts}=await connection.query(`SELECT * FROM loan_installments WHERE loan_id=$1 AND status <> 'paid' ORDER BY due_date,installment_number FOR UPDATE`,[loanId]);
+        for(const inst of insts){
+            if(left<=0) break;
+            const outstanding=roundMoney(money(inst.amount)+money(inst.penalty_amount)-money(inst.paid_amount));
+            if(outstanding<=0) continue;
+            const pay=Math.min(left,outstanding);
+            const newPaid=roundMoney(money(inst.paid_amount)+pay);
+            const status=newPaid+0.005>=money(inst.amount)+money(inst.penalty_amount)?'paid':(new Date(inst.due_date)<=new Date()?'overdue':'partial');
+            await connection.query(`UPDATE loan_installments SET paid_amount=$1,status=$2,updated_at=NOW() WHERE id=$3`,[newPaid,status,inst.id]);
+            left=roundMoney(left-pay);
+        }
+        await connection.query(`UPDATE loans SET remaining_balance=GREATEST(0,remaining_balance-$1) WHERE id=$2`,[amount,loanId]);
+        await connection.query(`INSERT INTO loan_repayments (loan_id,amount,type,transaction_id) VALUES ($1,$2,'repayment',$3)`,[loanId,amount,tx.transactionId||null]);
+        await connection.query(`UPDATE loans SET status='repaid' WHERE id=$1 AND remaining_balance<=0`,[loanId]);
+        const {rows:remainingRows}=await connection.query('SELECT remaining_balance FROM loans WHERE id=$1',[loanId]);
+        await connection.query('COMMIT');
+        await notifyLoanUser(user, 'Remboursement LoanMe effectué', `CashPay: votre remboursement de ${amount.toFixed(2)} ${loan.currency} a été effectué. Dette restante: ${money(remainingRows[0]?.remaining_balance).toFixed(2)} ${loan.currency}.`, { type:'loan_repayment', loan_id:loanId, transaction_id:tx.transactionId, reference:tx.reference });
+        return {success:true,paid:amount,remaining:money(remainingRows[0]?.remaining_balance)};
+    }catch(error:any){await connection.query('ROLLBACK');return {success:false,error:error?.message||'Remboursement impossible.'};}
+    finally{connection.release();}
+}
+
+export async function getLoanHistory(userId:number):Promise<LoanHistory[]> {
+    try {
+        await db.query(`
+          CREATE TABLE IF NOT EXISTS loan_installments (
+            id BIGSERIAL PRIMARY KEY,
+            loan_id INTEGER NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+            installment_number INTEGER NOT NULL,
+            due_date TIMESTAMPTZ NOT NULL,
+            amount NUMERIC(18,2) NOT NULL,
+            penalty_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+            paid_amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            penalty_applied_on DATE,
+            last_penalty_date DATE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (loan_id, installment_number)
+          )
+        `);
+        await db.query(`ALTER TABLE loan_installments ADD COLUMN IF NOT EXISTS last_penalty_date DATE`);
+        const {rows:loans}=await db.query('SELECT * FROM loans WHERE user_id=$1 ORDER BY request_date DESC',[userId]);
+        const history:LoanHistory[]=[];
+        for(const loan of loans){
+            const {rows:repayments}=await db.query('SELECT * FROM loan_repayments WHERE loan_id=$1 ORDER BY payment_date ASC',[loan.id]);
+            const {rows:scheduleRows}=await db.query('SELECT * FROM loan_installments WHERE loan_id=$1 ORDER BY installment_number ASC',[loan.id]);
+            const totalAmount=money(loan.amount)*(1+(money(loan.interest_rate)/100*Number(loan.duration)));
+            const repaidAmount=repayments.filter(r=>r.type==='repayment').reduce((s,r)=>s+money(r.amount),0);
+            const schedule:LoanInstallment[]=scheduleRows.map(r=>({id:Number(r.id),installment_number:Number(r.installment_number),due_date:new Date(r.due_date).toISOString(),amount:money(r.amount),penalty:money(r.penalty_amount),paid_amount:money(r.paid_amount),remaining_amount:roundMoney(money(r.amount)+money(r.penalty_amount)-money(r.paid_amount)),status:r.status}));
+            history.push({id:loan.id,amount:totalAmount,repaid_amount:repaidAmount,currency:loan.currency,interest_rate:loan.interest_rate,monthly_payment:money(loan.installment_amount||loan.monthly_payment),installment_amount:money(loan.installment_amount||loan.monthly_payment),repayment_frequency:loan.repayment_frequency,installment_count:loan.installment_count,start_date:format(new Date(loan.approval_date||loan.request_date),'yyyy-MM-dd'),end_date:schedule.length?format(new Date(schedule[schedule.length-1].due_date),'yyyy-MM-dd'):format(new Date(loan.approval_date||loan.request_date).setMonth(new Date(loan.approval_date||loan.request_date).getMonth()+Number(loan.duration)),'yyyy-MM-dd'),remaining_balance:money(loan.remaining_balance),status:loan.status,repayments:repayments.map(r=>({id:r.id,amount:money(r.amount),type:r.type,payment_date:new Date(r.payment_date).toISOString()})),schedule} as any);
+        }
+        return history;
+    }catch(error){await handleDbError(error,'fetching loan history');return[];}
+}
+
+export async function sendLoanRepaymentReminders():Promise<{success:boolean;message:string;error?:string}> {
+    try {
+        const {rows}=await db.query(`
+          SELECT l.id,l.currency,u.phone,u.email,u.first_name,li.installment_number,
+                 (li.amount+li.penalty_amount-li.paid_amount) AS outstanding,li.due_date
+          FROM loan_installments li JOIN loans l ON l.id=li.loan_id JOIN users u ON u.id=l.user_id
+          WHERE l.status='approved' AND li.status<>'paid' AND li.due_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE+INTERVAL '3 days'
+          ORDER BY li.due_date
+        `);
+        for(const loan of rows){
+            const msg=`CashPay Rappel: votre échéance ${loan.installment_number} du prêt #${loan.id} de ${money(loan.outstanding).toFixed(2)} ${loan.currency} est due le ${format(new Date(loan.due_date),'yyyy-MM-dd')}.`;
+            await notifyLoanUser(loan,'Rappel LoanMe',msg,{type:'loan_reminder',loan_id:loan.id,installment_number:loan.installment_number});
+        }
+        return {success:true,message:`Sent ${rows.length} loan repayment reminders.`};
+    }catch(error){const dbError=await handleDbError(error,'sending loan reminders');return{success:false,message:'Failed to send reminders.',error:dbError.error||'An unknown error occurred'};}
+}

@@ -21,7 +21,7 @@ import { requestInternationalTransfer } from '@/lib/actions/transfer.actions';
 import { verifyCurrentUserPin } from '@/lib/actions/auth.actions';
 import { Loader2, ArrowLeft, Send, CheckCircle, UserCheck, ShieldAlert, ArrowDown, Info } from "lucide-react";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { Separator } from '@/components/ui/separator';
+import { Separator } from '../ui/separator';
 import { Form, FormControl, FormField, FormMessage, FormItem, FormLabel } from '@/components/ui/form';
 import {
   Select,
@@ -137,19 +137,19 @@ export function InternationalTransferSendForm({ user, currencies, countries, pro
 
   useEffect(() => {
     const calculateFeeAndBalance = async () => {
-        if (amountNum > 0 && watchedPaymentCurrency && watchedDestinationCountry) {
-            const countryCode = watchedDestinationCountry;
+        if (amountNum > 0 && watchedPaymentCurrency && user.country) {
+            const countryCode = user.country;
             const calculatedFee = await calculateTransactionFee(amountNum, watchedPaymentCurrency, 'INTL_SEND', countryCode);
             setFee(calculatedFee);
 
-            const balance = parseFloat((currencies.find(c => c.code === watchedPaymentCurrency)?.balance || '0').replace(/,/g, ''));
+            const balance = parseFloat(String(currencies.find(c => c.code === watchedPaymentCurrency)?.balance || '0').replace(/,/g, ''));
             if (balance < (amountNum + calculatedFee)) {
                 setInsufficientBalance(`Solde insuffisant. Requis: ${(amountNum + calculatedFee).toFixed(2)} ${watchedPaymentCurrency}, disponible: ${balance.toFixed(2)} ${watchedPaymentCurrency}`);
             } else {
                 setInsufficientBalance(null);
             }
 
-            // Calculate recipient amount
+            // Calculate recipient amount based on destination country
             const destCountryInfo = countries.find(c => c.code === watchedDestinationCountry);
             const destCurrency = destCountryInfo?.currency_code;
             if (destCurrency && destCurrency !== watchedPaymentCurrency) {
@@ -174,7 +174,7 @@ export function InternationalTransferSendForm({ user, currencies, countries, pro
         }
     }
     calculateFeeAndBalance();
-  }, [watchedAmount, watchedPaymentCurrency, watchedDestinationCountry, currencies, amountNum, exchangeRates]);
+  }, [watchedAmount, watchedPaymentCurrency, watchedDestinationCountry, currencies, user.country, amountNum, exchangeRates]);
 
   const handleDetailsSubmit = async (values: z.infer<typeof detailsSchema>) => {
     if (insufficientBalance) {

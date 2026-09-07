@@ -1,34 +1,27 @@
 
 import { NextResponse } from 'next/server';
-import { handleUssdRequest } from '@/lib/actions/ussd.actions';
+import { handleUssdRequest } from '@/lib/ussd/ussd.router';
 
 /**
- * POINT D'ENTRÉE PRODUCTION USSD
- * Endpoint: web.cashpay-all.com/ussd
- * Reçoit les requêtes POST des passerelles GSM (Airtel, Orange, Vodacom, MTN).
+ * @fileoverview Endpoint API USSD public.
+ * Sert de passerelle vers le Router Souverain.
  */
 export async function POST(request: Request) {
     try {
         const formData = await request.formData();
-        
-        // Paramètres standards USSD
         const sessionId = formData.get('sessionId') as string;
-        const phoneNumber = formData.get('phoneNumber') as string; // MSISDN de l'utilisateur
-        const text = formData.get('text') as string || ''; // Chaîne de commande USSD
+        const phoneNumber = formData.get('phoneNumber') as string;
+        const text = formData.get('text') as string || "";
 
         if (!sessionId || !phoneNumber) {
-            return new NextResponse('Invalid request parameters', { status: 400 });
+            return new Response("Missing parameters", { status: 400 });
         }
 
-        // Appel du moteur USSD souverain
         const response = await handleUssdRequest(sessionId, phoneNumber, text);
-
-        // Retourne la réponse brute (CON/END) attendue par la passerelle
-        return new NextResponse(response, {
-            headers: { 'Content-Type': 'text/plain' }
+        return new Response(response, {
+            headers: { 'Content-Type': 'text/plain' },
         });
     } catch (error) {
-        console.error("[USSD GATEWAY] Fatal Error:", error);
-        return new NextResponse('END Erreur technique temporaire. Réessayez plus tard.', { status: 500 });
+        return new Response("Internal Server Error", { status: 500 });
     }
 }

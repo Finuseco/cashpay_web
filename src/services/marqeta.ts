@@ -1,30 +1,30 @@
 /**
- * @fileoverview Service de communication avec l'API Marqeta Core et DIVA.
+ * @fileoverview Service de communication avec l'API FYATU Core et DIVA.
  * Ce service gère l'émission, les webhooks, les détails réseau et les commandes par lots.
  */
 
 import config from '@/config';
 import crypto from 'crypto';
 
-const { baseUrl, appToken, adminAccessToken, webhookSecret } = config.marqeta;
+const { baseUrl, appToken, adminAccessToken, webhookSecret } = config.fyatu;
 
-export class MarqetaError extends Error {
+export class FYATUError extends Error {
     errorCode: string;
     status: number;
 
     constructor(message: string, errorCode: string, status: number) {
         super(message);
-        this.name = 'MarqetaError';
+        this.name = 'FYATUError';
         this.errorCode = errorCode;
         this.status = status;
     }
 }
 
 /**
- * Effectue une requête autorisée vers l'API Marqeta.
+ * Effectue une requête autorisée vers l'API FYATU.
  * Si les identifiants sont absents, renvoie un message de maintenance.
  */
-async function marqetaRequest(
+async function fyatuRequest(
     endpoint: string, 
     method: string = 'GET', 
     body?: any, 
@@ -73,7 +73,7 @@ async function marqetaRequest(
         const data = await response.json();
 
         if (!response.ok) {
-            throw new MarqetaError(data.error_message || "Erreur de communication fournisseur", data.error_code, response.status);
+            throw new FYATUError(data.error_message || "Erreur de communication fournisseur", data.error_code, response.status);
         }
 
         return data;
@@ -86,7 +86,7 @@ async function marqetaRequest(
 }
 
 /**
- * Valide la signature HMAC-SHA256 des webhooks Marqeta.
+ * Valide la signature HMAC-SHA256 des webhooks FYATU.
  */
 export async function validateWebhookSignature(payload: string, signature: string): Promise<boolean> {
     if (!webhookSecret) return false;
@@ -106,9 +106,9 @@ export async function validateWebhookSignature(payload: string, signature: strin
  * Crée ou met à jour un utilisateur dans l'écosystème fournisseur.
  * Le 'token' est notre identifiant unique (user_cp_ID).
  */
-export async function createOrUpdateMarqetaUser(userData: { token: string; firstName: string; lastName: string; email: string }) {
+export async function createOrUpdateFYATUUser(userData: { token: string; firstName: string; lastName: string; email: string }) {
     try {
-        return await marqetaRequest('/users', 'POST', {
+        return await fyatuRequest('/users', 'POST', {
             token: userData.token,
             first_name: userData.firstName,
             last_name: userData.lastName,
@@ -117,7 +117,7 @@ export async function createOrUpdateMarqetaUser(userData: { token: string; first
         });
     } catch (e: any) {
         if (e.status === 409) {
-            return await marqetaRequest(`/users/${userData.token}`, 'PUT', {
+            return await fyatuRequest(`/users/${userData.token}`, 'PUT', {
                 first_name: userData.firstName,
                 last_name: userData.lastName,
                 email: userData.email
@@ -136,7 +136,7 @@ export async function transitionUserState(
     reason: string = 'Status updated by CashPay Admin',
     reasonCode: string = '00'
 ) {
-    return marqetaRequest('/usertransitions', 'POST', {
+    return fyatuRequest('/usertransitions', 'POST', {
         user_token: userToken,
         state,
         reason_code: reasonCode,
@@ -147,14 +147,14 @@ export async function transitionUserState(
 /**
  * Récupère les détails d'un utilisateur fournisseur.
  */
-export async function getMarqetaUser(userToken: string) {
-    return marqetaRequest(`/users/${userToken}`);
+export async function getFYATUUser(userToken: string) {
+    return fyatuRequest(`/users/${userToken}`);
 }
 
 // --- Fonctions Carte ---
 
-export async function issueMarqetaCard(args: { userToken: string; cardProductToken: string }, idempotencyKey?: string) {
-    return marqetaRequest('/cards', 'POST', {
+export async function issueFYATUCard(args: { userToken: string; cardProductToken: string }, idempotencyKey?: string) {
+    return fyatuRequest('/cards', 'POST', {
         user_token: args.userToken,
         card_product_token: args.cardProductToken,
     }, { idempotencyKey });
@@ -164,7 +164,7 @@ export async function issueMarqetaCard(args: { userToken: string; cardProductTok
  * Assigne une carte physique spécifique à un utilisateur.
  */
 export async function issuePhysicalCardToUser(args: { userToken: string; cardProductToken: string; cardToken?: string }, idempotencyKey?: string) {
-    return marqetaRequest('/cards', 'POST', {
+    return fyatuRequest('/cards', 'POST', {
         user_token: args.userToken,
         card_product_token: args.cardProductToken,
         token: args.cardToken, 
@@ -174,15 +174,15 @@ export async function issuePhysicalCardToUser(args: { userToken: string; cardPro
     }, { idempotencyKey });
 }
 
-export async function getMarqetaCard(cardToken: string) {
-    return marqetaRequest(`/cards/${cardToken}`);
+export async function getFYATUCard(cardToken: string) {
+    return fyatuRequest(`/cards/${cardToken}`);
 }
 
 /**
  * Met à jour une carte existante (métadonnées, fulfillment, etc.)
  */
-export async function updateMarqetaCard(cardToken: string, data: any) {
-    return marqetaRequest(`/cards/${cardToken}`, 'PUT', data);
+export async function updateFYATUCard(cardToken: string, data: any) {
+    return fyatuRequest(`/cards/${cardToken}`, 'PUT', data);
 }
 
 /**
@@ -194,7 +194,7 @@ export async function transitionCardState(
     reason: string = 'User requested',
     reasonCode: string = '00'
 ) {
-    return marqetaRequest('/cardtransitions', 'POST', {
+    return fyatuRequest('/cardtransitions', 'POST', {
         card_token: cardToken,
         state,
         reason_code: reasonCode,
@@ -203,26 +203,26 @@ export async function transitionCardState(
 }
 
 export async function getSensitiveCardData(cardToken: string) {
-    return marqetaRequest(`/cards/${cardToken}/showpan`, 'GET', undefined, { queryParams: { show_cvv2: true } });
+    return fyatuRequest(`/cards/${cardToken}/showpan`, 'GET', undefined, { queryParams: { show_cvv2: true } });
 }
 
 /**
  * Définit le code PIN d'une carte chez le fournisseur.
  */
 export async function setCardPin(cardToken: string, pin: string, idempotencyKey: string, ipAddress: string) {
-    const tokenResult = await marqetaRequest('/pins/controltokens', 'POST', { card_token: cardToken }, { idempotencyKey, ipAddress });
-    return marqetaRequest(`/pins`, 'POST', {
+    const tokenResult = await fyatuRequest('/pins/controltokens', 'POST', { card_token: cardToken }, { idempotencyKey, ipAddress });
+    return fyatuRequest(`/pins`, 'POST', {
         control_token: tokenResult.control_token,
         pin: pin
     }, { idempotencyKey, ipAddress });
 }
 
 export async function update3DSConfiguration(cardToken: string, active: boolean) {
-    return marqetaRequest(`/cards/${cardToken}/3dssecure`, 'PUT', { active });
+    return fyatuRequest(`/cards/${cardToken}/3dssecure`, 'PUT', { active });
 }
 
 export async function getInAppProvisioningData(cardToken: string, deviceType: 'APPLE_PAY' | 'GOOGLE_PAY', deviceId: string) {
-    return marqetaRequest(`/cards/${cardToken}/provisioningdata`, 'POST', {
+    return fyatuRequest(`/cards/${cardToken}/provisioningdata`, 'POST', {
         device_type: deviceType,
         device_id: deviceId
     });
@@ -231,7 +231,7 @@ export async function getInAppProvisioningData(cardToken: string, deviceType: 'A
 // --- Bulk Card Orders ---
 
 export async function createBulkCardOrder(args: { cardProductToken: string, quantity: number }, token: string) {
-    return marqetaRequest('/bulkissuances', 'POST', {
+    return fyatuRequest('/bulkissuances', 'POST', {
         token,
         card_product_token: args.cardProductToken,
         quantity: args.quantity,
@@ -242,25 +242,25 @@ export async function createBulkCardOrder(args: { cardProductToken: string, quan
 }
 
 export async function getBulkCardOrder(token: string) {
-    return marqetaRequest(`/bulkissuances/${token}`);
+    return fyatuRequest(`/bulkissuances/${token}`);
 }
 
 export async function listBulkCardOrders(count: number = 10) {
-    return marqetaRequest('/bulkissuances', 'GET', undefined, { queryParams: { count } });
+    return fyatuRequest('/bulkissuances', 'GET', undefined, { queryParams: { count } });
 }
 
 // --- Diva Activity & Balances ---
 
 export async function getCardActivity(cardToken: string, count: number = 20) {
-    return marqetaRequest(`/cards/${cardToken}/activity`, 'GET', undefined, { queryParams: { count } });
+    return fyatuRequest(`/cards/${cardToken}/activity`, 'GET', undefined, { queryParams: { count } });
 }
 
 export async function getCardActivityNetworkDetails(cardToken: string, activityToken: string) {
-    return marqetaRequest(`/cards/${cardToken}/activity/${activityToken}/networkdetails`);
+    return fyatuRequest(`/cards/${cardToken}/activity/${activityToken}/networkdetails`);
 }
 
 export async function getProgramFundingBalances() {
-    return marqetaRequest('/fundingsources/program');
+    return fyatuRequest('/fundingsources/program');
 }
 
 /**

@@ -1,0 +1,113 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useTranslation } from "react-i18next";
+import { 
+    KeyRound, Globe, Usb, BellRing, Terminal, 
+    ShieldCheck, FileCode, Bot, Briefcase
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { BecomeAgentSection } from './become-agent';
+import { AiAssistantSettings } from './ai-assistant-settings';
+import { getGoogleOauthUrl } from '@/services/google';
+import Link from 'next/link';
+import type { User } from '@/lib/types';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ChangePinForm } from './change-pin-form';
+
+const SettingsRow = ({ icon: Icon, title, description, children }: { icon: React.ElementType, title: string, description: string, children: React.ReactNode }) => (
+    <div className="flex items-center justify-between py-4 border-b last:border-0 border-zinc-100">
+        <div className="flex items-center gap-4">
+          <div className="h-10 w-10 rounded-full bg-muted/50 flex items-center justify-center shrink-0">
+            <Icon className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-sm truncate">{title}</p>
+            <p className="text-xs text-muted-foreground truncate">{description}</p>
+          </div>
+        </div>
+        <div className="shrink-0 ml-4">
+            {children}
+        </div>
+    </div>
+);
+
+export function SecuritySettings({ user }: { user: User | null }) {
+  const { t } = useTranslation();
+  const [isClient, setIsClient] = useState(false);
+  const [isPinDialogOpen, setIsPinDialogOpen] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  if (!isClient || !user) {
+      return <div className="p-8 text-center text-muted-foreground">Chargement de la zone sécurisée...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* 1. SECTION IDENTITÉ (STATIQUE) */}
+      <Card className="border-none shadow-sm overflow-hidden">
+        <CardHeader className="bg-muted/30"><CardTitle className="text-lg">Accès & Authentification</CardTitle></CardHeader>
+        <CardContent className="px-6">
+           <SettingsRow icon={KeyRound} title="Code PIN Secret" description="Validation de vos paiements et transferts.">
+                <Button variant="outline" size="sm" onClick={() => setIsPinDialogOpen(true)}>Modifier</Button>
+           </SettingsRow>
+           <SettingsRow icon={Globe} title="Compte Google" description="Liez votre compte pour une connexion rapide.">
+                <Button variant="outline" size="sm" onClick={async () => { window.location.href = await getGoogleOauthUrl(); }}>Lier</Button>
+           </SettingsRow>
+           <SettingsRow icon={Usb} title="Coffre-fort USB" description="Gestion des certificats de valeur matériels.">
+                <Button asChild variant="outline" size="sm"><Link href="/cpk">Ouvrir</Link></Button>
+           </SettingsRow>
+        </CardContent>
+      </Card>
+      
+      {/* 2. SECTION AGENT (ACTION MANUELLE) */}
+      <Card className="border-none shadow-sm overflow-hidden">
+        <CardHeader className="bg-muted/30">
+            <CardTitle className="text-lg flex items-center gap-2">
+                <Briefcase className="h-5 w-5" /> Statut Professionnel
+            </CardTitle>
+        </CardHeader>
+        <CardContent className="px-6 py-6">
+            <BecomeAgentSection user={user} />
+        </CardContent>
+      </Card>
+
+      {/* 3. SECTION ASSISTANT IA (ACTION MANUELLE) */}
+      <Card className="border-none shadow-sm overflow-hidden">
+          <CardHeader className="bg-muted/30">
+            <CardTitle className="text-lg flex items-center gap-2">
+                <Bot className="h-5 w-5" /> Assistant Répondeur
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-6 py-6">
+              <AiAssistantSettings user={user} />
+          </CardContent>
+      </Card>
+      
+      {/* 4. OUTILS DÉVELOPPEUR */}
+      <Card className="border-none shadow-sm overflow-hidden opacity-80">
+          <CardHeader className="bg-muted/30"><CardTitle className="text-lg">Laboratoire Souverain</CardTitle></CardHeader>
+          <CardContent className="px-6">
+              <SettingsRow icon={Terminal} title="Simulateur USSD" description="Tester les menus GSM *2704#">
+                 <Button asChild variant="ghost" size="sm" className="text-primary font-bold"><Link href="/ussd-simulator">Lancer</Link></Button>
+              </SettingsRow>
+               <SettingsRow icon={FileCode} title="CashPay Reader" description="Lecteur de certificats .cpk">
+                 <Button asChild variant="ghost" size="sm" className="text-primary font-bold"><Link href="/reader">Lancer</Link></Button>
+              </SettingsRow>
+          </CardContent>
+      </Card>
+
+      {/* MODAL PIN */}
+      <Dialog open={isPinDialogOpen} onOpenChange={setIsPinDialogOpen}>
+          <DialogContent className="max-w-xs bg-zinc-900 border-zinc-800 text-white p-6">
+              <DialogHeader className="text-center"><DialogTitle>Nouveau code PIN</DialogTitle></DialogHeader>
+              <ChangePinForm onFormSubmit={() => setIsPinDialogOpen(false)} />
+          </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

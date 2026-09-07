@@ -1,22 +1,21 @@
-
 'use server';
 
-import config from '@/config';
-import type { User } from '@/lib/types';
 import crypto from 'crypto';
 
 /**
- * @fileoverview Service de communication avec l'API PayPal Live.
- * Spécialisé uniquement pour les paiements via compte PayPal (Balance/Redirect).
- * La gestion des cartes bancaires est transférée au service Jenga (Equity Bank).
+ * @fileoverview Service de communication avec l'API PayPal v2 (Mode Live/Sandbox).
+ * Gère l'authentification OAuth2 et l'exécution des virements sortants (Payouts).
  */
 
-const PAYPAL_API_URL = (process.env.PAYPAL_API_URL || 'https://api-m.paypal.com').replace(/\/$/, '');
+const PAYPAL_API_URL = process.env.NODE_ENV === 'production' 
+    ? 'https://api-m.paypal.com' 
+    : 'https://api-m.sandbox.paypal.com';
+
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
 const PAYPAL_SECRET = process.env.PAYPAL_SECRET;
 
 /**
- * Effectue une requête fetch robuste avec gestion du parsing.
+ * Utilitaire pour effectuer des requêtes fetch sécurisées vers PayPal.
  */
 async function safeFetch(url: string, options: RequestInit) {
     const response = await fetch(url, options);
@@ -39,11 +38,12 @@ async function safeFetch(url: string, options: RequestInit) {
 }
 
 /**
- * Obtient un jeton d'accès OAuth2 pour l'API PayPal Live.
+ * Obtient un jeton d'accès OAuth2 pour l'API PayPal.
+ * Les identifiants sont récupérés depuis les variables d'environnement.
  */
 async function getPayPalAccessToken(): Promise<string> {
-    if (!PAYPAL_CLIENT_ID || !PAYPAL_SECRET) {
-        throw new Error('Identifiants PayPal non configurés.');
+    if (!PAYPAL_CLIENT_ID || !PAYPAL_SECRET || PAYPAL_CLIENT_ID.includes('YOUR_')) {
+        throw new Error('Identifiants PayPal non configurés ou en mode simulation.');
     }
 
     const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_SECRET}`).toString('base64');
@@ -62,42 +62,41 @@ async function getPayPalAccessToken(): Promise<string> {
 }
 
 /**
- * Crée une commande PayPal (Order) V2 - Mode redirection standard.
+ * Exécute un virement sortant (Payout) vers un compte PayPal tiers.
+ * 
+ * @param email L'adresse email du compte PayPal destinataire.
+ * @param amount Le montant à envoyer.
+ * @param currency La devise (ex: USD, EUR).
+ * @param reference La référence unique de transaction interne.
  */
-export async function createPayPalOrder(amount: number, currency: string, user: User, method: 'paypal_email') {
+export async function executePayPalPayout(email: string, amount: number, currency: string, reference: string) {
     const accessToken = await getPayPalAccessToken();
-    const amountStr = amount.toFixed(2);
-    const paypalCurrency = currency.toUpperCase() === 'USD' ? 'USD' : 'EUR';
-
-    const payload: any = {
-        intent: 'CAPTURE',
-        purchase_units: [{
-            reference_id: `CP_DEP_${Date.now()}_${user.id}`,
-            amount: {
-                currency_code: paypalCurrency,
-                value: amountStr,
-            },
-            description: `Approvisionnement de compte CashPay pour ${user.full_name}`,
-        }],
-        payment_source: {
-            paypal: {
-                experience_context: {
-                    brand_name: "CashPay",
-                    shipping_preference: "NO_SHIPPING",
-                    user_action: "PAY_NOW",
-                    return_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?status=success`,
-                    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?status=cancel`
-                }
+    
+    const payload = {
+        sender_batch_header: {
+            sender_batch_id: `Payout_${reference}_${Date.now()}`,
+            email_subject: "Vous avez reçu un paiement de CashPay All",
+            email_message: "Vos fonds ont été transférés avec succès sur votre compte PayPal via notre réseau souverain."
+        },
+        items: [
+            {
+                recipient_type: "EMAIL",
+                amount: {
+                    value: amount.toFixed(2),
+                    currency: currency.toUpperCase()
+                },
+                note: `Retrait CashPay Réf: ${reference}`,
+                sender_item_id: reference,
+                receiver: email
             }
-        }
+        ]
     };
 
-    return await safeFetch(`${PAYPAL_API_URL}/v2/checkout/orders`, {
+    return await safeFetch(`${PAYPAL_API_URL}/v1/payments/payouts`, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
-            'PayPal-Request-Id': crypto.randomUUID(),
         },
         body: JSON.stringify(payload),
     });

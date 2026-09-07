@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, Suspense } from "react";
@@ -32,8 +31,10 @@ function AuthCheckPageContent() {
   const { t } = useTranslation();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
+    setIsClient(true);
     const fetchUser = async () => {
         const fetchedUser = await getAuthenticatedUser();
         if (fetchedUser) {
@@ -61,14 +62,18 @@ function AuthCheckPageContent() {
        <footer className="w-full max-w-md z-10 mt-auto py-4">
           <Separator className="my-4 bg-white/20" />
           <div className="text-center text-xs text-white/70 w-full">
-            <p>{t('copyrightText', { year: new Date().getFullYear() })} {t('copyrightAllRightsReserved')}</p>
-            <div className="mt-2 flex gap-4 justify-center items-center">
-                <Link href="#" className="hover:text-white">{t('loginTermsAndConditions', 'Terms & Conditions')}</Link>
-                <Separator orientation="vertical" className="h-4 bg-white/50" />
-                <Link href="/developer" className="hover:text-white">{t('loginDevelopers', 'Developers')}</Link>
-                <Separator orientation="vertical" className="h-4 bg-white/50" />
-                <LanguageSwitcher />
-            </div>
+            {isClient ? (
+                <>
+                    <p>{t('copyrightText', { year: new Date().getFullYear() })} {t('copyrightAllRightsReserved')}</p>
+                    <div className="mt-2 flex gap-4 justify-center items-center">
+                        <Link href="#" className="hover:text-white">{t('loginTermsAndConditions', 'Terms & Conditions')}</Link>
+                        <Separator orientation="vertical" className="h-4 bg-white/50" />
+                        <a href="https://developer.cashpay-all.com" target="_blank" rel="noopener noreferrer" className="hover:text-white">{t('loginDevelopers', 'Developers')}</a>
+                        <Separator orientation="vertical" className="h-4 bg-white/50" />
+                        <LanguageSwitcher />
+                    </div>
+                </>
+            ) : <p>&nbsp;</p>}
           </div>
       </footer>
     </main>
@@ -77,7 +82,7 @@ function AuthCheckPageContent() {
 
 export default function AuthCheckPage() {
     return (
-        <Suspense>
+        <Suspense fallback={<AuthCheckLoading/>}>
             <AuthCheckPageContent/>
         </Suspense>
     )

@@ -3,21 +3,22 @@
 
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, XCircle, Loader2, ShieldCheck, AlertCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, Info } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { checkMpesaTransactionStatus } from '@/lib/actions/transaction.actions';
 import { cn } from '@/lib/utils';
 import { Logo } from '@/components/logo';
 import { useTranslation } from 'react-i18next';
 
-type PaymentStatus = 'initiating' | 'pending_confirmation' | 'success' | 'failed' | 'timeout';
+type PaymentStatus = 'pending_confirmation' | 'success' | 'failed';
 
 interface DepositStatusDialogProps {
     open: boolean;
     reference: string | null;
+    instructions: string | null;
     onClose: () => void;
     onSuccess: () => void;
+    checkStatusAction: (reference: string) => Promise<{success: boolean, status: string, message: string}>;
 }
 
 const AnimatedCircles = () => (
@@ -40,80 +41,82 @@ const AnimatedCircles = () => (
     </div>
 );
 
-export function DepositStatusDialog({ open, reference, onClose, onSuccess }: DepositStatusDialogProps) {
+export function DepositStatusDialog({ open, reference, instructions, onClose, onSuccess, checkStatusAction }: DepositStatusDialogProps) {
     const { t } = useTranslation();
-    const [status, setStatus] = useState<PaymentStatus>('initiating');
+    const [status, setStatus] = useState<PaymentStatus>('pending_confirmation');
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
-    const [timer, setTimer] = useState(0);
+    const [isChecking, setIsChecking] = useState(false);
 
     useEffect(() => {
-        let interval: NodeJS.Timeout;
-        
-        if (open && reference && (status === 'initiating' || status === 'pending_confirmation')) {
-            interval = setInterval(async () => {
-                setTimer(prev => prev + 3);
-                
-                if (timer > 180) {
-                    setStatus('timeout');
-                    clearInterval(interval);
-                    return;
-                }
-
-                try {
-                    const result = await checkMpesaTransactionStatus(reference);
-                    if (result.success && result.message.includes('Completed')) {
-                        setStatus('success');
-                        clearInterval(interval);
-                        setTimeout(() => {
-                            onSuccess();
-                        }, 3000);
-                    } else if (result.message.includes('Failed') || result.message.includes('Cancelled')) {
-                        setStatus('failed');
-                        setErrorMessage(result.message);
-                        clearInterval(interval);
-                    } else {
-                        setStatus('pending_confirmation');
-                    }
-                } catch (e) {
-                    console.error("Polling error:", e);
-                }
-            }, 3000);
+        if (open) {
+            setStatus('pending_confirmation');
+            setErrorMessage(null);
         }
+    }, [open]);
 
-        return () => {
-            if (interval) clearInterval(interval);
-        };
-    }, [open, reference, status, timer, onSuccess]);
+    const handleCheckStatus = async () => {
+        if (!reference) return;
+
+        setIsChecking(true);
+        setErrorMessage(null);
+
+        try {
+            const result = await checkStatusAction(reference);
+            if (result.success && result.status.toLowerCase() === 'completed') {
+                setStatus('success');
+            } else if (result.status.toLowerCase() === 'failed') {
+                setStatus('failed');
+                setErrorMessage(result.message || t('depositFailedMessage'));
+            } else { // Still Pending
+                 setErrorMessage(result.message || t('depositStatusStillPending'));
+            }
+        } catch (e: any) {
+            setStatus('failed');
+            setErrorMessage(e.message || t('depositFailedMessage'));
+        } finally {
+            setIsChecking(false);
+        }
+    };
+    
+    useEffect(() => {
+        if (status === 'success') {
+            const timer = setTimeout(() => onSuccess(), 1500);
+            return () => clearTimeout(timer);
+        }
+    }, [status, onSuccess]);
 
     const renderContent = () => {
         switch (status) {
-            case 'initiating':
             case 'pending_confirmation':
                 return (
-                    <motion.div 
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="text-center space-y-4"
-                    >
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center space-y-4">
                         <AnimatedCircles />
                         <div className="space-y-2">
                             <h3 className="text-xl font-bold text-foreground">{t('depositStatusValidating')}</h3>
-                            <p className="text-sm text-muted-foreground px-6">
-                                {t('depositStatusInstructions')}
-                            </p>
+                            {instructions ? (
+                                <div className="p-4 bg-primary/5 rounded-lg text-sm text-primary-foreground">
+                                    <p className="font-bold mb-2">{t('paymentInstructions')}</p>
+                                    <p className="text-base font-mono bg-background/50 p-3 rounded-md">{instructions}</p>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-muted-foreground px-6">{t('depositStatusInstructions')}</p>
+                            )}
                         </div>
-                        <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-primary uppercase tracking-widest pt-4">
-                            <ShieldCheck className="h-4 w-4" /> {t('depositStatusSecure')}
+                        <div className="pt-4 flex flex-col gap-2">
+                            <Button onClick={handleCheckStatus} disabled={isChecking}>
+                                {isChecking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                {t('depositStatusCheckButton')}
+                            </Button>
+                             {errorMessage && (
+                                <p className="text-xs text-yellow-600 flex items-center justify-center gap-2"><Info className="h-4 w-4"/> {errorMessage}</p>
+                            )}
+                            <Button onClick={onClose} variant="ghost" size="sm">{t('depositStatusCancel')}</Button>
                         </div>
                     </motion.div>
                 );
             case 'success':
                 return (
-                    <motion.div 
-                        initial={{ opacity: 0, scale: 0.5 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="text-center space-y-4 py-6"
-                    >
+                    <motion.div initial={{ opacity: 0, scale: 0.5 }} animate={{ opacity: 1, scale: 1 }} className="text-center space-y-4 py-6">
                         <div className="h-20 w-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
                             <CheckCircle2 className="h-12 w-12 text-green-600" />
                         </div>
@@ -126,11 +129,7 @@ export function DepositStatusDialog({ open, reference, onClose, onSuccess }: Dep
                 );
             case 'failed':
                 return (
-                    <motion.div 
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="text-center space-y-4 py-6"
-                    >
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center space-y-4 py-6">
                         <div className="h-20 w-20 bg-red-100 rounded-full flex items-center justify-center mx-auto">
                             <XCircle className="h-12 w-12 text-red-600" />
                         </div>
@@ -138,40 +137,29 @@ export function DepositStatusDialog({ open, reference, onClose, onSuccess }: Dep
                             <h3 className="text-xl font-bold text-red-600">{t('depositStatusFailedTitle')}</h3>
                             <p className="text-sm text-zinc-500">{errorMessage || t('depositFailedMessage')}</p>
                         </div>
-                        <Button onClick={onClose} variant="outline" className="w-full mt-4">{t('depositStatusCloseRetry')}</Button>
-                    </motion.div>
-                );
-            case 'timeout':
-                return (
-                    <motion.div 
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="text-center space-y-4 py-6"
-                    >
-                        <div className="h-20 w-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto">
-                            <AlertCircle className="h-12 w-12 text-amber-600" />
-                        </div>
-                        <div className="space-y-1">
-                            <h3 className="text-xl font-bold text-amber-600">{t('depositStatusTimeoutTitle')}</h3>
-                            <p className="text-sm text-zinc-500">{t('depositStatusTimeoutDesc')}</p>
-                        </div>
-                        <div className="flex flex-col gap-2 pt-4">
-                            <Button onClick={() => setStatus('pending_confirmation')} variant="default">{t('depositStatusContinueWaiting')}</Button>
-                            <Button onClick={onClose} variant="ghost">{t('depositStatusCheckLater')}</Button>
+                        <div className="pt-4 flex flex-col gap-2">
+                            <Button onClick={handleCheckStatus} disabled={isChecking}>
+                                {isChecking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                {t('depositStatusRetryCheck')}
+                            </Button>
+                            <Button onClick={onClose} variant="outline">{t('depositStatusClose')}</Button>
                         </div>
                     </motion.div>
                 );
+            default: return null;
         }
     };
 
     return (
-        <Dialog open={open} onOpenChange={(val) => !val && status !== 'success' && status !== 'initiating' && onClose()}>
-            <DialogContent className="max-w-[320px] sm:max-w-md p-6 overflow-hidden rounded-2xl border-none shadow-2xl">
+        <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
+            <DialogContent className="max-w-md p-6 overflow-hidden rounded-2xl border-none shadow-2xl">
                 <div className="flex justify-center mb-2">
                     <Logo className="w-32" />
                 </div>
                 <AnimatePresence mode="wait">
-                    {renderContent()}
+                    <div key={status}>
+                        {renderContent()}
+                    </div>
                 </AnimatePresence>
             </DialogContent>
         </Dialog>

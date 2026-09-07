@@ -2,7 +2,7 @@
 'use server';
 
 import { type NextRequest } from 'next/server';
-import { handleUssdRequest } from '@/lib/actions/ussd.actions';
+import { handleUssdRequest } from '@/lib/ussd/ussd.router';
 
 /**
  * Point d'entrée HTTP pour les passerelles Telco USSD.

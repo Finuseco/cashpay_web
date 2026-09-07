@@ -1,0 +1,143 @@
+'use client';
+
+import React, { useRef, useState, useEffect } from 'react';
+import type { User } from '@/lib/types';
+import { Logo } from '@/components/logo';
+import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
+import { Download, ShieldCheck, Wallet, Phone, Mail, CheckCircle, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import Image from 'next/image';
+import jsPDF from 'jspdf';
+import { Card } from '@/components/ui/card';
+
+const CertificateLayout = ({ user }: { user: User }) => {
+    return (
+        <div className="p-8 bg-white text-zinc-900 font-sans border-8 border-primary/5">
+            <div className="text-center mb-8">
+                <Logo className="w-48 mx-auto" />
+                <div className="mt-4 flex items-center justify-center gap-2">
+                    <ShieldCheck className="h-5 w-5 text-green-600" />
+                    <p className="text-sm font-black uppercase tracking-[0.2em] text-zinc-500">Certificat d'Identité Souveraine</p>
+                </div>
+            </div>
+
+            <div className="space-y-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                    <div className="space-y-6">
+                        <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-100">
+                             <h2 className="text-[10px] font-black text-primary uppercase tracking-widest mb-3">Titulaire du compte</h2>
+                             <p className="text-xl font-bold">{user.full_name}</p>
+                             <p className="text-sm text-zinc-500 mt-1">{user.profession || 'Utilisateur CashPay'}</p>
+                        </div>
+                        <div className="space-y-3 pl-2 text-sm">
+                            <div className="flex items-center gap-3"><Wallet className="h-4 w-4 text-primary" /><span className="font-mono font-bold text-lg">{user.id_wallet}</span></div>
+                            <div className="flex items-center gap-3"><Phone className="h-4 w-4 text-zinc-400" /><span>{user.phone}</span></div>
+                            <div className="flex items-center gap-3"><Mail className="h-4 w-4 text-zinc-400" /><span>{user.email}</span></div>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col items-center justify-center">
+                        <div className="relative h-40 w-40 rounded-full border-4 border-white shadow-2xl overflow-hidden bg-zinc-100">
+                            <Image src={user.profile_photo || ''} alt="Profile" fill className="object-cover" />
+                        </div>
+                        <p className="mt-4 text-[10px] font-bold text-green-600 uppercase tracking-widest bg-green-50 px-3 py-1 rounded-full border border-green-200">Compte Actif</p>
+                    </div>
+                </div>
+
+                <Separator className="bg-zinc-200" />
+
+                <div className="grid grid-cols-2 gap-8 text-sm">
+                    <div><h4 className="text-[9px] font-black text-zinc-400 uppercase mb-1">Résidence</h4><p className="font-semibold">{user.address}, {user.city}</p><p className="text-xs text-zinc-500">{user.province}, {user.country}</p></div>
+                    <div><h4 className="text-[9px] font-black text-zinc-400 uppercase mb-1">Naissance</h4><p className="font-semibold">{user.birth_date}</p><p className="text-xs text-zinc-500">Lieu: {user.birth_place}</p></div>
+                </div>
+
+                <div className="pt-10 flex justify-between items-end">
+                    <div className="space-y-4">
+                        <div className="h-16 w-32 border-b-2 border-zinc-200 flex items-center justify-center italic text-zinc-300">Cachet Agence</div>
+                        <p className="text-[9px] font-black text-zinc-400 uppercase">Visa de conformité FINUSECO</p>
+                    </div>
+                    <div className="text-right space-y-4">
+                        {user.signature_image && (
+                            <div className="relative h-16 w-40 ml-auto">
+                                <img src={user.signature_image} alt="Signature" className="h-full w-full object-contain" />
+                            </div>
+                        )}
+                        <p className="text-[10px] font-bold uppercase border-t border-zinc-200 pt-2">Signature titulaire</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div className="mt-12 text-center">
+                <p className="text-[8px] text-zinc-400 leading-relaxed uppercase">
+                    Ce document est une preuve de votre identité souveraine au sein de l'écosystème CashPay All.
+                </p>
+                <p className="text-[10px] font-bold text-primary mt-2">ID Session: {Date.now().toString(36).toUpperCase()}</p>
+            </div>
+        </div>
+    );
+};
+
+export function RegistrationCertificate({ user }: { user: User }) {
+    const router = useRouter();
+    const pdfRef = useRef<HTMLDivElement>(null);
+    const [isGenerating, setIsGenerating] = useState(false);
+
+    const handleGeneratePdf = async () => {
+        const element = pdfRef.current;
+        if (!element) return;
+        
+        setIsGenerating(true);
+        const html2canvas = (await import('html2canvas')).default;
+    
+        const canvas = await html2canvas(element, { scale: 3, useCORS: true });
+        const imgData = canvas.toDataURL('image/png');
+        
+        const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const canvasAspectRatio = canvas.width / canvas.height;
+        
+        const finalWidth = pdfWidth - 20;
+        const finalHeight = finalWidth / canvasAspectRatio;
+
+        pdf.addImage(imgData, 'PNG', 10, 10, finalWidth, finalHeight);
+        pdf.save(`CashPay_Identite_${user.id_wallet}.pdf`);
+        setIsGenerating(false);
+    };
+
+    return (
+        <div className="p-4 flex flex-col items-center">
+            <div className="hidden">
+                <div ref={pdfRef} style={{ width: '210mm' }}>
+                    <CertificateLayout user={user} />
+                </div>
+            </div>
+
+            <div className="text-center mb-8">
+                <div className="h-20 w-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-xl">
+                    <CheckCircle className="h-10 w-10 text-white"/>
+                </div>
+                <h1 className="text-3xl font-black text-white uppercase">Bienvenue {user.first_name} !</h1>
+                <p className="text-white/70 mt-2">Votre identité CashPay a été activée.</p>
+            </div>
+            
+            <div className="mb-10 w-full max-w-lg">
+                 <Card className="rounded-3xl overflow-hidden shadow-2xl border-none">
+                    <CertificateLayout user={user} />
+                 </Card>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-4 w-full max-w-lg">
+                <Button onClick={handleGeneratePdf} variant="outline" className="flex-1 h-16 text-lg font-bold border-white/20 text-white rounded-2xl" disabled={isGenerating}>
+                    {isGenerating ? <Loader2 className="animate-spin mr-2"/> : <Download className="mr-2"/>} PDF
+                </Button>
+                <Button onClick={() => {
+                     sessionStorage.setItem('pin-verified-session', 'true');
+                     router.push('/dashboard');
+                 }} className="flex-1 h-16 text-xl font-black shadow-xl rounded-2xl" variant="gradient">
+                    Démarrer
+                </Button>
+            </div>
+        </div>
+    );
+}

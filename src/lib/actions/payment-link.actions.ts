@@ -1,3 +1,4 @@
+
 'use server';
 
 import { db } from '@/lib/db';
@@ -25,39 +26,46 @@ export interface PaymentLink {
 }
 
 /**
- * Crée un nouveau lien de paiement.
+ * Crée un nouveau lien de paiement souverain.
+ * Assure la conversion correcte des types de données pour PostgreSQL.
  */
 export async function createPaymentLink(data: any): Promise<{ success: boolean; linkId?: number; error?: string }> {
     const user = await getAuthenticatedUser();
-    if (!user) return { success: false, error: "Non authentifié." };
+    if (!user) return { success: false, error: "Identification requise." };
 
     try {
-        let finalImageUrl = data.imageUrl;
+        let finalImageUrl = data.imageUrl || null;
         if (finalImageUrl && finalImageUrl.startsWith('data:image')) {
-            finalImageUrl = await saveBase64Image(finalImageUrl, 'payment-links', `link_${user.id}_${Date.now()}`);
+            const path = await saveBase64Image(finalImageUrl, 'payment-links', `link_${user.id}_${Date.now()}`);
+            finalImageUrl = path;
         }
 
-        const payload = {
-            user_id: user.id,
-            title: data.title,
-            description: data.description,
-            amount: data.isFixed ? data.amount : null,
-            is_fixed: data.isFixed,
-            currency: data.currency || 'USD',
-            category: data.category,
-            image_url: finalImageUrl,
-            status: 'active'
-        };
+        const amount = data.isFixed ? parseFloat(data.amount) : null;
+        const isFixed = Boolean(data.isFixed);
 
         const { rows } = await db.query(`
-            INSERT INTO payment_links (user_id, title, description, amount, is_fixed, currency, category, image_url, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
-        `, Object.values(payload));
+            INSERT INTO payment_links (
+                user_id, title, description, amount, is_fixed, 
+                currency, category, image_url, status, visit_count, collected_amount
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0) 
+            RETURNING id
+        `, [
+            user.id, 
+            data.title, 
+            data.description, 
+            amount, 
+            isFixed, 
+            data.currency || 'USD', 
+            data.category, 
+            finalImageUrl, 
+            'active'
+        ]);
 
         return { success: true, linkId: rows[0].id };
-    } catch (error) {
-        const dbError = await handleDbError(error, 'creating payment link');
-        return { success: false, error: dbError.error };
+    } catch (error: any) {
+        console.error("[createPaymentLink] SQL Error:", error.message);
+        return { success: false, error: "Erreur lors de l'enregistrement en base de données." };
     }
 }
 
@@ -103,7 +111,7 @@ export async function getPaymentLinkById(id: number): Promise<PaymentLink | null
         if (rows.length === 0) return null;
         const r = rows[0];
 
-        // Incrémenter le compteur de visites
+        // Incrémenter le compteur de visites de manière asynchrone
         db.query('UPDATE payment_links SET visit_count = visit_count + 1 WHERE id = $1', [id]).catch(console.error);
 
         return {

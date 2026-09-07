@@ -1,0 +1,3 @@
+# CashPay LoanMe: automatic repayment trigger every minute.
+# Configure CASH_PAY_APP_URL and INTERNAL_JOB_SECRET in the execution environment.
+* * * * * /var/www/cashpay-all/wallet/scripts/cron/loan-repayments.sh >> /var/log/cashpay-loan-repayments.log 2>&1

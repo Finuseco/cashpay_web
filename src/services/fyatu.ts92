@@ -1,0 +1,544 @@
+import config from '@/config';
+import crypto from 'crypto';
+
+const { baseUrl, appId, secretKey } = config.fyatu;
+
+export class FYATUError extends Error {
+    errorCode: string;
+    status: number;
+
+    constructor(
+        message: string,
+        errorCode = 'FYATU_ERROR',
+        status = 500
+    ) {
+        super(message);
+        this.name = 'FYATUError';
+        this.errorCode = errorCode;
+        this.status = status;
+    }
+}
+
+let cachedAccessToken: string | null = null;
+let cachedTokenExpiresAt = 0;
+
+async function getFYATUToken(): Promise<string> {
+    if (!appId || !secretKey) {
+        throw new FYATUError(
+            'Configuration FYATU manquante.',
+            'FYATU_AUTH_CONFIG',
+            500
+        );
+    }
+
+    const now = Date.now();
+
+    if (
+        cachedAccessToken &&
+        cachedTokenExpiresAt > now + 60000
+    ) {
+        return cachedAccessToken;
+    }
+
+    const response = await fetch(
+        `${baseUrl}/auth/token`,
+        {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                appId,
+                secretKey
+            }),
+            cache: 'no-store'
+        }
+    );
+
+    const data =
+        await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new FYATUError(
+            data?.message ||
+            data?.error ||
+            "Impossible d'obtenir le token FYATU.",
+            data?.code ||
+            data?.error_code ||
+            'FYATU_AUTH_ERROR',
+            response.status
+        );
+    }
+
+    const token =
+        data?.accessToken ||
+        data?.access_token ||
+        data?.token;
+
+    if (!token) {
+        throw new FYATUError(
+            "JWT FYATU manquant.",
+            'FYATU_TOKEN_MISSING',
+            502
+        );
+    }
+
+    cachedAccessToken = token;
+
+    const expiresIn = Number(
+        data?.expiresIn ||
+        data?.expires_in ||
+        86400
+    );
+
+    cachedTokenExpiresAt =
+        now + expiresIn * 1000;
+
+    return token;
+}
+
+async function fyatuRequest(
+    endpoint: string,
+    method = 'GET',
+    body?: any,
+    options: {
+        queryParams?: Record<string, any>;
+        idempotencyKey?: string;
+        ipAddress?: string;
+    } = {}
+): Promise<any> {
+    const token = await getFYATUToken();
+
+    let url = `${baseUrl}${endpoint}`;
+
+    if (options.queryParams) {
+        const params = new URLSearchParams();
+
+        for (const key in options.queryParams) {
+            const value =
+                options.queryParams[key];
+
+            if (
+                value !== undefined &&
+                value !== null
+            ) {
+                params.append(
+                    key,
+                    String(value)
+                );
+            }
+        }
+
+        const query = params.toString();
+
+        if (query) {
+            url += `?${query}`;
+        }
+    }
+
+    const headers: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+    };
+
+    if (options.idempotencyKey) {
+        headers['Idempotency-Key'] =
+            options.idempotencyKey;
+    }
+
+    if (options.ipAddress) {
+        headers['X-Forwarded-For'] =
+            options.ipAddress;
+    }
+
+    const response = await fetch(
+        url,
+        {
+            method,
+            headers,
+            body:
+                body !== undefined
+                    ? JSON.stringify(body)
+                    : undefined,
+            cache: 'no-store'
+        }
+    );
+
+    if (response.status === 204) {
+        return { success: true };
+    }
+
+    const data =
+        await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new FYATUError(
+            data?.message ||
+            data?.error ||
+            data?.error_message ||
+            'Erreur API FYATU.',
+            data?.code ||
+            data?.error_code ||
+            'FYATU_API_ERROR',
+            response.status
+        );
+    }
+
+    return data;
+}
+
+export async function validateWebhookSignature(
+    payload: string,
+    signature: string,
+    webhookSecret?: string
+): Promise<boolean> {
+    if (!webhookSecret || !signature) return false;
+
+    const hmac = crypto.createHmac(
+        'sha256',
+        webhookSecret
+    );
+
+    hmac.update(payload);
+
+    const expected = hmac.digest('base64');
+
+    try {
+        return crypto.timingSafeEqual(
+            Buffer.from(signature),
+            Buffer.from(expected)
+        );
+    } catch {
+        return false;
+    }
+}
+
+export async function createOrUpdateFYATUUser(
+    userData: {
+        token: string;
+        firstName: string;
+        lastName: string;
+        email: string;
+    }
+) {
+    try {
+        return await fyatuRequest(
+            '/users',
+            'POST',
+            {
+                token: userData.token,
+                first_name: userData.firstName,
+                last_name: userData.lastName,
+                email: userData.email,
+                active: true
+            }
+        );
+    } catch (e: any) {
+        if (e?.status === 409) {
+            return await fyatuRequest(
+                `/users/${userData.token}`,
+                'PUT',
+                {
+                    first_name: userData.firstName,
+                    last_name: userData.lastName,
+                    email: userData.email
+                }
+            );
+        }
+
+        throw e;
+    }
+}
+
+export async function transitionUserState(
+    userToken: string,
+    state: 'ACTIVE' | 'SUSPENDED' | 'CLOSED',
+    reason = 'Status updated by CashPay Admin',
+    reasonCode = '00'
+) {
+    return fyatuRequest(
+        '/usertransitions',
+        'POST',
+        {
+            user_token: userToken,
+            state,
+            reason_code: reasonCode,
+            reason
+        }
+    );
+}
+
+export async function getFYATUUser(
+    userToken: string
+) {
+    return fyatuRequest(
+        `/users/${userToken}`
+    );
+}
+
+export async function issueFYATUCard(
+    args: {
+        userToken: string;
+        cardProductToken: string;
+    },
+    idempotencyKey?: string
+) {
+    return fyatuRequest(
+        '/cards',
+        'POST',
+        {
+            user_token: args.userToken,
+            card_product_token:
+                args.cardProductToken
+        },
+        { idempotencyKey }
+    );
+}
+
+export async function issuePhysicalCardToUser(
+    args: {
+        userToken: string;
+        cardProductToken: string;
+        cardToken?: string;
+    },
+    idempotencyKey?: string
+) {
+    return fyatuRequest(
+        '/cards',
+        'POST',
+        {
+            user_token: args.userToken,
+            card_product_token:
+                args.cardProductToken,
+            ...(args.cardToken
+                ? { token: args.cardToken }
+                : {}),
+            fulfillment: {
+                shipping_method: 'LOCAL_DELIVERY'
+            }
+        },
+        { idempotencyKey }
+    );
+}
+
+export async function getFYATUCard(
+    cardToken: string
+) {
+    return fyatuRequest(
+        `/cards/${cardToken}`
+    );
+}
+
+export async function updateFYATUCard(
+    cardToken: string,
+    data: any
+) {
+    return fyatuRequest(
+        `/cards/${cardToken}`,
+        'PUT',
+        data
+    );
+}
+
+export async function transitionCardState(
+    cardToken: string,
+    state:
+        | 'ACTIVE'
+        | 'SUSPENDED'
+        | 'TERMINATED',
+    reason = 'User requested',
+    reasonCode = '00'
+) {
+    return fyatuRequest(
+        '/cardtransitions',
+        'POST',
+        {
+            card_token: cardToken,
+            state,
+            reason_code: reasonCode,
+            reason
+        }
+    );
+}
+
+export async function getSensitiveCardData(
+    cardToken: string
+) {
+    return fyatuRequest(
+        `/cards/${cardToken}/showpan`,
+        'GET',
+        undefined,
+        {
+            queryParams: {
+                show_cvv2: true
+            }
+        }
+    );
+}
+
+export async function setCardPin(
+    cardToken: string,
+    pin: string,
+    idempotencyKey: string,
+    ipAddress: string
+) {
+    const tokenResult =
+        await fyatuRequest(
+            '/pins/controltokens',
+            'POST',
+            {
+                card_token: cardToken
+            },
+            {
+                idempotencyKey,
+                ipAddress
+            }
+        );
+
+    return fyatuRequest(
+        '/pins',
+        'POST',
+        {
+            control_token:
+                tokenResult.control_token,
+            pin
+        },
+        {
+            idempotencyKey,
+            ipAddress
+        }
+    );
+}
+
+export async function update3DSConfiguration(
+    cardToken: string,
+    active: boolean
+) {
+    return fyatuRequest(
+        `/cards/${cardToken}/3dssecure`,
+        'PUT',
+        { active }
+    );
+}
+
+export async function getInAppProvisioningData(
+    cardToken: string,
+    deviceType:
+        | 'APPLE_PAY'
+        | 'GOOGLE_PAY',
+    deviceId: string
+) {
+    return fyatuRequest(
+        `/cards/${cardToken}/provisioningdata`,
+        'POST',
+        {
+            device_type: deviceType,
+            device_id: deviceId
+        }
+    );
+}
+
+export async function createBulkCardOrder(
+    args: {
+        cardProductToken: string;
+        quantity: number;
+    },
+    token: string
+) {
+    return fyatuRequest(
+        '/bulkissuances',
+        'POST',
+        {
+            token,
+            card_product_token:
+                args.cardProductToken,
+            quantity: args.quantity,
+            fulfillment: {
+                shipping_method: 'LOCAL_DELIVERY'
+            }
+        }
+    );
+}
+
+export async function getBulkCardOrder(
+    token: string
+) {
+    return fyatuRequest(
+        `/bulkissuances/${token}`
+    );
+}
+
+export async function listBulkCardOrders(
+    count = 10
+) {
+    return fyatuRequest(
+        '/bulkissuances',
+        'GET',
+        undefined,
+        {
+            queryParams: { count }
+        }
+    );
+}
+
+export async function getCardActivity(
+    cardToken: string,
+    count = 20
+) {
+    return fyatuRequest(
+        `/cards/${cardToken}/activity`,
+        'GET',
+        undefined,
+        {
+            queryParams: { count }
+        }
+    );
+}
+
+export async function getCardActivityNetworkDetails(
+    cardToken: string,
+    activityToken: string
+) {
+    return fyatuRequest(
+        `/cards/${cardToken}/activity/${activityToken}/networkdetails`
+    );
+}
+
+export async function getProgramFundingBalances() {
+    return fyatuRequest(
+        '/fundingsources/program'
+    );
+}
+
+export function formatJitResponse(
+    jitToken: string,
+    approve: boolean,
+    amount: number,
+    memo?: string
+) {
+    return {
+        jit_funding: {
+            token: jitToken,
+            method: approve
+                ? 'pgfs.authorization'
+                : 'pgfs.decline',
+            user_notified: true,
+            memo:
+                memo ||
+                (
+                    approve
+                        ? 'Approved by CashPay All'
+                        : 'Declined by CashPay All'
+                )
+        },
+        response: {
+            code: approve ? '0000' : '1001',
+            memo: approve
+                ? 'Success'
+                : 'Insufficient Funds',
+            amount
+        }
+    };
+}

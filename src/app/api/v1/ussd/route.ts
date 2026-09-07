@@ -1,6 +1,6 @@
 
 import { NextResponse } from 'next/server';
-import { handleUssdRequest } from '@/lib/actions/ussd.actions';
+import { handleUssdRequest } from '@/lib/ussd/ussd.router';
 
 /**
  * API Endpoint public pour les passerelles GSM (Airtel, MTN, Orange, etc.)

@@ -1,10 +1,10 @@
 
-"use client";
+'use client';
 
 import { useTranslation } from "react-i18next";
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { Wallet, CreditCard, QrCode, Smartphone, Tv, Globe, Repeat, Handshake, ScanLine, Send, Percent, PiggyBank, Gift, Clapperboard, Map, ShoppingCart, Plane, Server, NotebookPen, BrainCircuit, Landmark, Satellite, Receipt, MoreHorizontal, MessageCircle, FileText, Briefcase, Ticket, Radio, Newspaper, Megaphone, Users, Fuel, Link2, Usb } from "lucide-react";
+import { Wallet, CreditCard, QrCode, Smartphone, Tv, Globe, Repeat, Handshake, ScanLine, Send, Percent, PiggyBank, Gift, Clapperboard, Map, ShoppingCart, Plane, Server, NotebookPen, BrainCircuit, Landmark, Satellite, Receipt, MoreHorizontal, MessageCircle, FileText, Briefcase, Ticket, Radio, Newspaper, Megaphone, Users, Fuel, Link2Icon, UsbIcon } from "lucide-react";
 import type { LucideProps } from "lucide-react";
 import React from 'react';
 import { cn } from "@/lib/utils";
@@ -64,18 +64,15 @@ export function ActionGrid() {
         { href: "/deposit", labelKey: "actionGridDeposit", icon: Wallet },
         { href: "/send", labelKey: "actionGridSend", icon: Send },
         { href: "/pay", labelKey: "actionGridPay", icon: ScanLine },        
-        { href: "/cpk", labelKey: "CPK", icon: Usb },
+        { href: "/cpk", labelKey: "CPK", icon: UsbIcon },
         { href: "/feedback", labelKey: "actionGridOnchat", icon: MessageCircle },
     ];
     
      const allActions: ActionItem[] = [
         ...mainActions,
         { href: "/receive", labelKey: "actionGridReceive", icon: QrCode },
-        { href: "/payment-links", labelKey: "actionGridPaymentLink", icon: Link2 },
-        { href: "/fuel", labelKey: "actionGridFuel", icon: Fuel },
-        { href: "/mlm", labelKey: "actionGridMlm", icon: Users },
+        { href: "/payment-links", labelKey: "actionGridPaymentLink", icon: Link2Icon },
         { href: "/marketing/ads", labelKey: "actionGridAds", icon: Megaphone },
-        { href: "/africoin", labelKey: "actionGridAfriCoin", icon: '/logos/crypto/afc.png' },
         { href: "/bank-transfer", labelKey: "actionGridBankTransfer", icon: Landmark },
         { href: "/bills", labelKey: "actionGridBills", icon: Receipt },
         { href: "/shopping", labelKey: "actionGridShopping", icon: ShoppingCart },
@@ -93,15 +90,12 @@ export function ActionGrid() {
         { href: "/investment", labelKey: "actionGridDat", icon: PiggyBank },
         { href: "/referral", labelKey: "actionGridReferral", icon: Gift },
         { href: "/fees", labelKey: "actionGridFees", icon: Percent },
-        { href: "/loan", labelKey: "actionGridLoan", icon: Handshake },    
-        { href: "/cinema", labelKey: "actionGridCinema", icon: Clapperboard, onClick: handleComingSoon("NetOn Cinéma") },
-        { href: "/monpays", labelKey: "actionGridMonPays", icon: Map, onClick: handleComingSoon("MonPays") },
-        { href: "/podcast", labelKey: "pageTitlePodcast", icon: Radio },
+        { href: "/loan", labelKey: "actionGridLoan", icon: Handshake }, 
+        { href: "/monpays", labelKey: "actionGridMonPays", icon: Map },
         { href: "/news", labelKey: "pageTitleNews", icon: Newspaper },
 
     ];
     
-    // Create a unique list of all actions for the "See All" sheet
     const uniqueAllActions = allActions.reduce((acc, current) => {
         if (!acc.find(item => item.labelKey === current.labelKey)) {
             acc.push(current);

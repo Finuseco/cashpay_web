@@ -1,651 +1,674 @@
 
-
 'use client';
 
 import * as React from 'react';
-import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from 'react-hook-form';
 import * as z from 'zod';
-import { AnimatePresence, motion } from 'framer-motion';
-import { format } from 'date-fns';
-import { fr } from 'date-fns/locale';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useTranslation } from "react-i18next";
-import Cookies from 'js-cookie';
-import { debounce } from 'lodash';
-import Link from 'next/link';
-
 import { Button } from '@/components/ui/button';
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Camera, User, Mail, FileText, Briefcase, Globe, ShieldCheck, Loader2, FlipHorizontal, CheckCircle, AlertCircle, Wallet } from 'lucide-react';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { CalendarIcon, Save, Camera, UploadCloud, PenSquare, Loader2, CheckCircle, XCircle, RefreshCcw, Info, ArrowLeft, ArrowRight, VideoOff } from 'lucide-react';
-import { useAlertDialog } from '@/hooks/use-alert-dialog';
-import Image from 'next/image';
-import { registerUser, checkExistingUser } from "@/lib/actions/auth.actions";
-import { Logo } from "@/components/logo";
-import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
-import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
-import { generateProfilePhoto, validateProfilePhoto, validateSignature, extractIdInfo } from '@/lib/ai.actions';
-import type { GenerateProfilePhotoInput, ValidateProfilePhotoOutput, ValidateSignatureOutput, ExtractIdInfoOutput } from '@/ai/flows/types';
+import { format } from 'date-fns';
+import { fr, enUS } from 'date-fns/locale';
+import Webcam from 'react-webcam';
+import { useToast } from '@/components/ui/use-toast';
+import { registerNewAccount, checkAvailability, sendEmailOtp, verifyEmailOtp } from '@/lib/actions/signin.actions';
 import { RegistrationCertificate } from './registration-certificate';
 import type { User } from '@/lib/types';
-import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
-import { useToast } from '@/hooks/use-toast';
+import { useRouter } from 'next/navigation';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 
+const translations = {
+    fr: {
+        title: "Identité Souveraine CashPay",
+        description: "Finalisation de votre compte",
+        takePicture: "Prendre une photo",
+        uploadId: "Scan de la pièce d'identité (Recto)",
+        upload: "Importer",
+        capture: "Capturer",
+        close: "Fermer",
+        captureId: "Capturer la pièce d'identité",
+        captureSignature: "Capturer la signature",
+        signature: "Signature Autorisée",
+        signHere: "Importez ou capturez une image de votre signature",
+        clear: "Effacer",
+        accountType: "Type de Compte",
+        national: "National",
+        diaspora: "Diaspora",
+        business: "Business B2B",
+        companyName: "Nom de l'entreprise",
+        civilState: "État Civil",
+        firstName: "Prénom",
+        lastName: "Nom",
+        gender: "Genre",
+        male: "Homme",
+        female: "Femme",
+        maritalStatus: "État civil",
+        single: "Célibataire",
+        married: "Marié(e)",
+        divorced: "Divorcé(e)",
+        widowed: "Veuf/ve",
+        birthDate: "Date de naissance",
+        pickDate: "Choisir une date",
+        birthPlace: "Lieu de naissance",
+        contactResidence: "Contact & Résidence",
+        email: "Email",
+        invalidEmail: "Adresse email invalide.",
+        verify: "Vérifier",
+        emailVerified: "Email vérifié",
+        emailVerifying: "Vérification...",
+        emailAlreadyUsed: "Cet email est déjà utilisé.",
+        otpSent: "Un OTP a été envoyé. Veuillez vérifier votre email.",
+        otpInvalid: "Code invalide ou expiré.",
+        verifyOtp: "Valider l'OTP",
+        city: "Ville",
+        address: "Adresse complète",
+        identityProfession: "Identité & Profession",
+        monthlyIncome: "Revenu mensuel (USD)",
+        idType: "Type de pièce",
+        idTypePassport: "Passeport",
+        idTypeIdCard: "Carte d'identité",
+        idTypeDriverLicense: "Permis de conduire",
+        idNumber: "Numéro de pièce",
+        idNumberExists: "Ce numéro de pièce existe déjà.",
+        idNumberAvailable: "Numéro de pièce disponible.",
+        profession: "Profession",
+        nationality: "Nationalité",
+        guarantor: "Garant (Contact d'urgence)",
+        guarantorName: "Nom complet",
+        guarantorPhone: "Téléphone",
+        guarantorRelation: "Lien de parenté",
+        relationParent: "Parent",
+        relationSibling: "Frère / Sœur",
+        relationSpouse: "Conjoint(e)",
+        relationOther: "Autre",
+        submit: "Créer un compte",
+        submitting: "Création...",
+        errorTitle: "Erreur",
+        errorProfilePhoto: "Veuillez prendre une photo de profil.",
+        errorIdScan: "Veuillez fournir une image de votre pièce d'identité.",
+        errorSignature: "Veuillez fournir une image de votre signature.",
+        errorEmailNotVerified: "Veuillez vérifier votre adresse email.",
+        registrationFailed: "Échec de l'inscription",
+        registrationFailedMessage: "Veuillez vérifier les informations et réessayer.",
+        registrationSuccess: "Compte créé avec succès !",
+        welcomeMessage: "Bienvenue ! Votre ID portefeuille est {id_wallet}",
+    },
+    en: {
+        title: "CashPay Sovereign Identity",
+        description: "Finalize your account",
+        takePicture: "Take a picture",
+        uploadId: "ID Scan (Front)",
+        upload: "Upload",
+        capture: "Capture",
+        close: "Close",
+        captureId: "Capture ID Document",
+        captureSignature: "Capture Signature",
+        signature: "Authorized Signature",
+        signHere: "Upload or capture an image of your signature",
+        clear: "Clear",
+        accountType: "Account Type",
+        national: "National",
+        diaspora: "Diaspora",
+        business: "Business B2B",
+        companyName: "Company Name",
+        civilState: "Civil Status",
+        firstName: "First Name",
+        lastName: "Last Name",
+        gender: "Gender",
+        male: "Male",
+        female: "Female",
+        maritalStatus: "Marital Status",
+        single: "Single",
+        married: "Married",
+        divorced: "Divorced",
+        widowed: "Widowed",
+        birthDate: "Date of Birth",
+        pickDate: "Pick a date",
+        birthPlace: "Place of Birth",
+        contactResidence: "Contact & Residence",
+        email: "Email",
+        invalidEmail: "Invalid email address.",
+        verify: "Verify",
+        emailVerified: "Email verified",
+        emailVerifying: "Verifying...",
+        emailAlreadyUsed: "This email is already in use.",
+        otpSent: "An OTP has been sent. Please check your email.",
+        otpInvalid: "Invalid or expired code.",
+        verifyOtp: "Verify OTP",
+        city: "City",
+        address: "Full Address",
+        identityProfession: "Identity & Profession",
+        monthlyIncome: "Monthly Income (USD)",
+        idType: "ID Type",
+        idTypePassport: "Passport",
+        idTypeIdCard: "ID Card",
+        idTypeDriverLicense: "Driver's License",
+        idNumber: "ID Number",
+        idNumberExists: "This ID number already exists.",
+        idNumberAvailable: "ID number is available.",
+        profession: "Profession",
+        nationality: "Nationality",
+        guarantor: "Guarantor (Emergency Contact)",
+        guarantorName: "Full Name",
+        guarantorPhone: "Phone",
+        guarantorRelation: "Relationship",
+        relationParent: "Parent",
+        relationSibling: "Sibling",
+        relationSpouse: "Spouse",
+        relationOther: "Other",
+        submit: "Create account",
+        submitting: "Creating...",
+        errorTitle: "Error",
+        errorProfilePhoto: "Please take a profile picture.",
+        errorIdScan: "Please provide an image of your ID document.",
+        errorSignature: "Please provide an image of your signature.",
+        errorEmailNotVerified: "Please verify your email address.",
+        registrationFailed: "Registration Failed",
+        registrationFailedMessage: "Please check the information and try again.",
+        registrationSuccess: "Account created successfully!",
+        welcomeMessage: "Welcome! Your wallet ID is {id_wallet}",
+    }
+};
+
+const useTranslation = (lang: string) => {
+    const language = lang.startsWith('fr') ? 'fr' : 'en';
+    return (key: keyof typeof translations['en'], options?: { [key: string]: string | number }) => {
+        let text = translations[language][key] || key;
+        if (options) {
+            Object.keys(options).forEach(k => {
+                text = text.replace(`{${k}}`, String(options[k]));
+            });
+        }
+        return text;
+    };
+};
 
 const formSchema = z.object({
-  account_type: z.enum(['national', 'diaspora'], { required_error: "Le type de compte est requis." }),
-  profile_photo: z.string().min(1, "La photo de profil est requise."),
-  isAiGeneratedPhoto: z.boolean().default(false),
-  signature_image: z.string().min(1, "La signature est requise."),
-  first_name: z.string().min(2, "Le prénom est requis."),
-  last_name: z.string().min(2, "Le nom est requis."),
-  middle_name: z.string().optional(),
-  gender: z.enum(['male', 'female', 'other'], { required_error: "Le genre est requis." }),
-  marital_status: z.enum(['single', 'married', 'divorced', 'widowed'], { required_error: "Le statut marital est requis." }),
-  birth_date: z.date({ required_error: "La date de naissance est requise." }),
-  birth_place: z.string().min(2, "Le lieu de naissance est requis."),
-  nationality: z.string().min(2, "La nationalité est requise."),
-  email: z.string().email("Adresse email invalide.").optional().or(z.literal('')),
-  city: z.string().min(2, "La ville est requise."),
-  address: z.string().min(5, "L'adresse est requise."),
-  profession: z.string().min(2, "La profession est requise."),
-  activity_description: z.string().optional(),
-  income_per_month: z.coerce.number().optional(),
-  representative: z.object({
-      name: z.string().min(3, "Le nom du contact est requis.").optional(),
-      relation: z.string().min(3, "La relation est requise.").optional(),
-      contact: z.string().min(9, "Le téléphone du contact est requis.").optional(),
-  }).optional(),
-  id_type: z.enum(['national_id', 'passport', 'driver_license', 'biometric_passport', 'diplomatic_passport', 'consular_card'], { required_error: "Le type de pièce d'identité est requis." }),
-  id_number: z.string().min(5, "Le numéro de la pièce d'identité est requis."),
-  id_issued_date: z.date({ required_error: "La date d'émission est requise." }),
-  id_expiry_date: z.date({ required_error: "La date d'expiration est requise." }),
-  id_front_image: z.string().min(1, "L'image recto de la pièce d'identité est requise."),
-  id_back_image: z.string().optional(),
-  country: z.string(),
-  province: z.string().optional(),
+    account_type: z.enum(['national', 'diaspora', 'business']),
+    company_name: z.string().optional(),
+    first_name: z.string().min(2, "Le prénom est requis."),
+    last_name: z.string().min(2, "Le nom est requis."),
+    middle_name: z.string().optional(),
+    gender: z.enum(['male', 'female'], { required_error: "Le genre est requis." }),
+    marital_status: z.enum(['single', 'married', 'divorced', 'widowed'], { required_error: "L'état civil est requis." }),
+    birth_date: z.date({ required_error: "La date de naissance est requise." }),
+    birth_place: z.string().min(2, "Le lieu de naissance est requis."),
+    email: z.string().email("L'adresse email est invalide."),
+    city: z.string().min(2, "La ville est requise."),
+    address: z.string().min(5, "L'adresse est requise."),
+    id_type: z.enum(['passport', 'national_id', 'driver_license'], { required_error: "Le type de pièce est requis." }),
+    id_number: z.string().min(3, "Le numéro de pièce est requis."),
+    id_issued_date: z.date({ required_error: "La date d'émission de la pièce est requise." }),
+    id_expiry_date: z.date({ required_error: "La date d'expiration de la pièce est requise." }),
+    profession: z.string().min(2, "La profession est requise."),
+    nationality: z.string().min(2, "La nationalité est requise."),
+    income_per_month: z.coerce.number({ required_error: "Le revenu est requis." }).min(0, "Le revenu doit être un nombre positif ou nul."),
+    representative_name: z.string().min(2, "Le nom du garant est requis."),
+    representative_contact: z.string().min(5, "Le contact du garant est requis."),
+    representative_relation: z.enum(['parent', 'sibling', 'spouse', 'other'], { required_error: "Le lien de parenté est requis." }),
 });
 
-type VerificationStatus = 'idle' | 'loading' | 'success' | 'error';
-interface VerificationState {
-    status: VerificationStatus;
-    message: string | null;
+interface CompleteProfileFormProps {
+    phone: string;
+    countryCode: string;
+    countryName: string;
+    province: string;
+    referralCode: string | null;
+    lang: string;
 }
 
-const WebcamCapture = ({ onCapture, onOpenChange }: { onCapture: (dataUrl: string) => void; onOpenChange: (open: boolean) => void }) => {
-    const videoRef = React.useRef<HTMLVideoElement>(null);
-    const [hasCameraPermission, setHasCameraPermission] = React.useState<boolean | null>(null);
+export function CompleteProfileForm({ phone, countryCode, countryName, province, referralCode, lang: initialLang }: CompleteProfileFormProps) {
+    const [currentLang, setCurrentLang] = React.useState(initialLang);
+    const t = useTranslation(currentLang);
     const { toast } = useToast();
-    const { t } = useTranslation();
+      const [registeredUser, setRegisteredUser] = React.useState<User | null>(null);
+    const router = useRouter();
+    const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-    React.useEffect(() => {
-        const getCameraPermission = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                }
-                setHasCameraPermission(true);
-            } catch (error) {
-                console.error('Error accessing camera:', error);
-                setHasCameraPermission(false);
-            }
-        };
-        getCameraPermission();
-        
-        return () => {
-            // Cleanup: stop camera stream when component unmounts
-            if (videoRef.current && videoRef.current.srcObject) {
-                const stream = videoRef.current.srcObject as MediaStream;
-                stream.getTracks().forEach(track => track.stop());
-            }
-        };
-    }, []);
+    const [profilePhoto, setProfilePhoto] = React.useState<string | null>(null);
+    const [idFrontImage, setIdFrontImage] = React.useState<string | null>(null);
+    const [signatureData, setSignatureData] = React.useState<string | null>(null);
 
-    const handleCapture = () => {
-        if (videoRef.current) {
-            const canvas = document.createElement('canvas');
-            canvas.width = videoRef.current.videoWidth;
-            canvas.height = videoRef.current.videoHeight;
-            canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL('image/png');
-            onCapture(dataUrl);
-            onOpenChange(false);
-        }
+    const [cameraModal, setCameraModal] = React.useState<{ open: boolean; target: 'profile' | 'id' | 'signature' | null }>({ open: false, target: null });
+    const [facingMode, setFacingMode] = React.useState<'user' | 'environment'>('user');
+
+    const [emailState, setEmailState] = React.useState<{ status: 'idle' | 'pending' | 'verifying_otp' | 'verified' | 'error', message: string }>({ status: 'idle', message: '' });
+    const [idNumberState, setIdNumberState] = React.useState<{ status: 'idle' | 'pending' | 'verified' | 'error', message: string }>({ status: 'idle', message: '' });
+
+    const webcamRef = React.useRef<Webcam>(null);
+    const idInputRef = React.useRef<HTMLInputElement>(null);
+    const signatureInputRef = React.useRef<HTMLInputElement>(null);
+    
+    const form = useForm<z.infer<typeof formSchema>>({
+        resolver: zodResolver(formSchema),
+        defaultValues: {
+            account_type: 'national',
+            first_name: '',
+            last_name: '',
+            email: '',
+            id_number: '',
+            id_type: 'national_id',
+            id_issued_date: undefined,
+            id_expiry_date: undefined,
+            nationality: countryName.split(' ')[0] || '',
+            profession: '',
+            birth_place: '',
+            city: '',
+            address: '',
+            income_per_month: undefined,
+            representative_name: '',
+            representative_contact: '',
+            representative_relation: 'parent', 
+        },
+    });
+
+    const accountType = form.watch('account_type');
+
+    const openCamera = (target: 'profile' | 'id' | 'signature') => {
+        setFacingMode(target === 'profile' ? 'user' : 'environment');
+        setCameraModal({ open: true, target });
     };
 
-    return (
-        <DialogContent>
-            <DialogHeader>
-                <DialogTitle>{t('webcamCaptureTitle')}</DialogTitle>
-                <DialogDescription>{t('webcamCaptureDescription')}</DialogDescription>
-            </DialogHeader>
-            <div className="relative aspect-square w-full rounded-md overflow-hidden bg-zinc-900 border">
-                 <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                 {hasCameraPermission === false && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 bg-black/80">
-                        <VideoOff className="h-12 w-12 mb-4" />
-                        <p className="font-bold">{t('webcamAccessErrorTitle')}</p>
-                        <p className="text-sm text-zinc-400">{t('webcamAccessErrorDescription')}</p>
-                    </div>
-                )}
-            </div>
-            <DialogFooter>
-                <Button variant="outline" onClick={() => onOpenChange(false)}>{t('cancelButton')}</Button>
-                <Button onClick={handleCapture} disabled={!hasCameraPermission}>
-                    <Camera className="mr-2 h-4 w-4" />
-                    {t('webcamCaptureButton')}
-                </Button>
-            </DialogFooter>
-        </DialogContent>
-    );
-};
-
-
-const VerificationStatusIndicator = ({ state }: { state: VerificationState }) => {
-    if (state.status === 'idle') return null;
-    return (
-        <div className={cn('flex items-center gap-2 text-xs mt-2 transition-all', 
-            state.status === 'success' && 'text-green-600',
-            state.status === 'error' && 'text-destructive',
-        )}>
-            {state.status === 'loading' && <Loader2 className="h-4 w-4 animate-spin"/>}
-            {state.status === 'success' && <CheckCircle className="h-4 w-4"/>}
-            {state.status === 'error' && <XCircle className="h-4 w-4"/>}
-            <span className="font-medium">{state.message}</span>
-        </div>
-    );
-};
-
-
-const FileUpload = ({
-  label,
-  onFileSelect,
-  preview,
-  verificationState,
-  onRetry,
-  onCaptureClick,
-}: {
-  label: string;
-  onFileSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  preview: string | null | undefined;
-  verificationState: VerificationState;
-  onRetry: () => void;
-  onCaptureClick?: () => void;
-}) => {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const { t } = useTranslation();
-
-  return (
-    <div className="space-y-2">
-      <FormLabel>{label}</FormLabel>
-      <FormControl>
-        <>
-            <input
-                type="file"
-                ref={inputRef}
-                className="sr-only"
-                accept="image/*"
-                onChange={onFileSelect}
-            />
-            <div className={cn("relative flex justify-center items-center w-full h-32 px-4 transition bg-background border-2 border-dashed rounded-md appearance-none",
-                verificationState.status === 'success' && 'border-green-500',
-                verificationState.status === 'error' && 'border-destructive'
-            )}>
-                {preview ? (
-                <Image
-                    src={preview}
-                    alt="Preview"
-                    fill
-                    className="object-contain rounded-md p-2"
-                />
-                ) : (
-                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                        <UploadCloud className="w-8 h-8" />
-                        <span className="text-xs text-center">{t('fileUploadPrompt')}</span>
-                    </div>
-                )}
-                 {verificationState.status === 'loading' && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-md">
-                        <Loader2 className="h-8 w-8 animate-spin text-white"/>
-                    </div>
-                )}
-            </div>
-        </>
-      </FormControl>
-       <div className="flex gap-2 mt-2">
-            <Button type="button" variant="outline" size="sm" className="flex-1" onClick={() => inputRef.current?.click()}>
-                <UploadCloud className="h-4 w-4 mr-2" />
-                {t('uploadButton')}
-            </Button>
-            {onCaptureClick && (
-                <Button type="button" variant="outline" size="sm" className="flex-1" onClick={onCaptureClick}>
-                    <Camera className="h-4 w-4 mr-2" />
-                    {t('captureButton')}
-                </Button>
-            )}
-        </div>
-      <div className="flex items-center justify-between min-h-[20px]">
-        <VerificationStatusIndicator state={verificationState} />
-        {verificationState.status === 'error' && (
-            <Button type="button" size="sm" variant="ghost" onClick={onRetry} className="text-xs h-auto p-1">
-                <RefreshCcw className="h-3 w-3 mr-1"/>
-                {t('retryButton')}
-            </Button>
-        )}
-      </div>
-       {verificationState.status === 'error' && (
-            <Alert variant="destructive" className="mt-2 text-xs">
-                 <Info className="h-4 w-4" />
-                <AlertTitle>{t('verificationErrorTitle')}</AlertTitle>
-                <AlertDescription dangerouslySetInnerHTML={{ __html: t('verificationErrorDescription') }} />
-            </Alert>
-        )}
-      <FormMessage />
-    </div>
-  );
-};
-
-export function CompleteProfileForm() {
-    const { openAlert } = useAlertDialog();
-    const { t } = useTranslation();
-    const router = useRouter();
-    const searchParams = useSearchParams();
-    
-    const phone = searchParams.get("phone");
-    const countryCode = searchParams.get("country");
-    const countryName = searchParams.get("countryName");
-    const province = searchParams.get("province");
-    const referralCode = searchParams.get("ref");
-  
-    const [isSaving, setIsSaving] = React.useState(false);
-    const [currentStep, setCurrentStep] = React.useState(0);
-    const [completedSteps, setCompletedSteps] = React.useState<number[]>([]);
-    
-    const [photoVerification, setPhotoVerification] = React.useState<VerificationState>({ status: 'idle', message: null });
-    const [signatureVerification, setSignatureVerification] = React.useState<VerificationState>({ status: 'idle', message: null });
-    const [idVerification, setIdVerification] = React.useState<VerificationState>({ status: 'idle', message: null });
-    
-    const [idData, setIdData] = React.useState<{ fullName: string; idNumber: string} | null>(null);
-
-    const [isWebcamOpen, setIsWebcamOpen] = React.useState(false);
-  
-    const form = useForm<z.infer<typeof formSchema>>({
-      resolver: zodResolver(formSchema),
-      mode: 'onChange',
-      defaultValues: {
-        account_type: 'national',
-        first_name: '',
-        last_name: '',
-        middle_name: '',
-        birth_place: '',
-        nationality: 'Congolaise (RDC)',
-        email: '',
-        city: '',
-        address: '',
-        profession: '',
-        representative: { name: '', relation: '', contact: '' },
-        id_number: '',
-        country: countryName || '', // Use countryName for display
-        province: province || '',
-        profile_photo: '',
-        isAiGeneratedPhoto: false,
-        signature_image: '',
-        id_front_image: '',
-        id_back_image: '',
-      },
-    });
-  
-    const { watch, setError, clearErrors, trigger, setValue } = form;
-    const firstName = watch('first_name');
-    const lastName = watch('last_name');
-    const idNumber = watch('id_number');
-    const email = watch('email');
-    const profilePhotoPreview = watch('profile_photo');
-    const signaturePreview = watch('signature_image');
-    const idFrontPreview = watch('id_front_image');
-    
-    const debouncedCheck = React.useCallback(
-      debounce(async (value: string, field: 'email' | 'id_number') => {
-        if (!value) return;
-        const { exists } = await checkExistingUser(value);
-        if (exists) {
-          setError(field, { type: 'manual', message: t('valueExistsError') });
-        } else {
-          clearErrors(field);
+    const handleCapture = React.useCallback(() => {
+        const imageSrc = webcamRef.current?.getScreenshot();
+        if (imageSrc && cameraModal.target) {
+            if (cameraModal.target === 'profile') setProfilePhoto(imageSrc);
+            if (cameraModal.target === 'id') setIdFrontImage(imageSrc);
+            if (cameraModal.target === 'signature') setSignatureData(imageSrc);
+            setCameraModal({ open: false, target: null });
         }
-      }, 500),
-      [setError, clearErrors, t]
-    );
-  
-    React.useEffect(() => { if (email) debouncedCheck(email, 'email'); return () => debouncedCheck.cancel(); }, [email, debouncedCheck]);
-    React.useEffect(() => { if (idNumber) debouncedCheck(idNumber, 'id_number'); return () => debouncedCheck.cancel(); }, [idNumber, debouncedCheck]);
-  
-    const nameMatches = React.useMemo(() => {
-        if (!idData || !idData.fullName || !firstName || !lastName) return { match: true, message: null };
-        
-        const formNameParts = `${firstName} ${lastName}`.toLowerCase().split(' ').filter(Boolean);
-        const aiNameParts = idData.fullName.toLowerCase().split(' ').filter(Boolean);
-        
-        const matches = formNameParts.filter(part => aiNameParts.includes(part));
-        
-        const match = matches.length >= 2;
+    }, [webcamRef, cameraModal.target]);
 
-        return {
-            match,
-            message: match ? t('namesMatchSuccess') : t('namesMatchError', { idName: idData.fullName })
-        };
-    }, [firstName, lastName, idData, t]);
-  
-    const idNumberMatches = React.useMemo(() => {
-      if (!idData || !idData.idNumber || !idNumber) return { match: true, message: null };
-      const match = idNumber.replace(/\s/g, '') === idData.idNumber.replace(/\s/g, '');
-      return {
-          match,
-          message: match ? t('idNumberMatchSuccess') : t('idNumberMatchError', { idNumber: idData.idNumber })
-      };
-    }, [idNumber, idData, t]);
-  
-    const handleFileChange = React.useCallback(async ( event: React.ChangeEvent<HTMLInputElement>, fieldName: keyof z.infer<typeof formSchema>, verificationFunction?: (input: any) => Promise<any>, setVerificationState?: React.Dispatch<React.SetStateAction<VerificationState>>, dataKey?: 'photoDataUri' | 'signatureDataUri' | 'idCardDataUri' ) => {
+    const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>, setter: (data: string) => void) => {
         const file = event.target.files?.[0];
         if (file) {
-          if(setVerificationState) setVerificationState({ status: 'loading', message: t('verificationInProgress') });
-          const dataUrl = await new Promise<string>(resolve => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.readAsDataURL(file);
-          });
-          form.setValue(fieldName, dataUrl, { shouldValidate: true });
-          
-          if (verificationFunction && setVerificationState && dataKey) {
-              try {
-                  const result = await verificationFunction({ [dataKey]: dataUrl });
-                  let isValid = 'isValid' in result ? result.isValid : ('isDocumentValid' in result ? result.isDocumentValid : false);
-                  let message = result.reason ?? (isValid ? t('verificationSuccess') : t('verificationFailed'));
-                  if ('isDocumentValid' in result && !isValid) message = t('invalidIdDocumentError');
-                  
-                  setVerificationState({ status: isValid ? 'success' : 'error', message });
-                  if (isValid && 'fullName' in result && 'idNumber' in result) {
-                      setIdData({ fullName: result.fullName, idNumber: result.idNumber });
-                  }
-              } catch (e) {
-                  console.error(e);
-                  setVerificationState({ status: 'error', message: t('verificationAiError') });
-              }
-          }
+            const reader = new FileReader();
+            reader.onload = (e) => setter(e.target?.result as string);
+            reader.readAsDataURL(file);
         }
-      }, [form, t]);
-
-    const handleWebcamCapture = React.useCallback(async (dataUrl: string) => {
-        setValue('profile_photo', dataUrl, { shouldValidate: true });
-        setPhotoVerification({ status: 'loading', message: t('verificationInProgress') });
-        try {
-            const result = await validateProfilePhoto({ photoDataUri: dataUrl });
-            setPhotoVerification({ status: result.isValid ? 'success' : 'error', message: result.reason });
-        } catch (e) {
-            console.error(e);
-            setPhotoVerification({ status: 'error', message: t('verificationAiError') });
-        }
-    }, [setValue, setPhotoVerification, t]);
-    
-    const handleGeneratePhoto = async (gender: GenerateProfilePhotoInput['gender'], race: GenerateProfilePhotoInput['race']) => {
-      setPhotoVerification({ status: 'loading', message: t('generatingAvatar') });
-      try {
-          const result = await generateProfilePhoto({ gender, race, nationality: form.getValues('nationality') || 'africaine' });
-          if(result.photoDataUri) {
-              form.setValue('profile_photo', result.photoDataUri);
-              form.setValue('isAiGeneratedPhoto', true);
-              setPhotoVerification({ status: 'success', message: t('avatarGeneratedWarning') });
-          } else { throw new Error(t('avatarGenerationError')); }
-      } catch (e: any) {
-          console.error("Error generating AI photo:", e);
-          setPhotoVerification({ status: 'error', message: e.message || t('avatarGenerationError') });
-      }
-    }
-  
-    const [finalUserData, setFinalUserData] = React.useState<User | null>(null);
-
-    async function onSubmit(values: z.infer<typeof formSchema>) {
-        if (!phone || !countryCode || !countryName) {
-            openAlert({ variant: "error", title: t('error'), description: t('missingContactInfoError') });
-            return;
-        }
-        setIsSaving(true);
-        const result = await registerUser({ ...values, phone, country: countryName, countryCode, referralCode });
-        setIsSaving(false);
-        if (result.success && result.user) {
-            Cookies.set('cashpay-token', result.token, { expires: 7, secure: true, sameSite: 'strict' });
-            setFinalUserData(result.user);
-            setCurrentStep(steps.length); // Go to final certificate step
-        } else {
-            openAlert({ variant: "error", title: t('registerFailTitle'), description: (result as any).error });
-        }
-    }
-  
-    const steps = [
-      { name: t('stepIdentity'), fields: ['first_name', 'last_name', 'gender', 'marital_status', 'middle_name', 'account_type'], Component: Step1 },
-      { name: t('stepContact'), fields: ['birth_date', 'birth_place', 'nationality', 'email', 'city', 'address'], Component: Step2 },
-      { name: t('stepProfessional'), fields: ['profession', 'income_per_month', 'activity_description', 'representative.name', 'representative.relation', 'representative.contact'], Component: Step3 },
-      { name: t('stepVerification'), fields: ['id_type', 'id_number', 'id_issued_date', 'id_expiry_date', 'profile_photo', 'signature_image', 'id_front_image'], Component: Step4 },
-    ];
-
-    const nextStep = async () => {
-        const fields = steps[currentStep].fields as (keyof z.infer<typeof formSchema>)[];
-        const output = await trigger(fields, { shouldFocus: true });
-        if (!output) return;
-
-        setCompletedSteps(prev => [...prev, currentStep]);
-        setCurrentStep(prev => prev + 1);
     };
 
-    const prevStep = () => setCurrentStep(prev => prev - 1);
+    const handleVerifyEmail = async () => {
+        const email = form.getValues('email');
+        if (!z.string().email().safeParse(email).success) {
+            form.setError('email', { message: t('invalidEmail') });
+            return;
+        }
+        setEmailState({ status: 'pending', message: '' });
+        const availability = await checkAvailability('email', email);
+        if (!availability.available) {
+            setEmailState({ status: 'error', message: t('emailAlreadyUsed') });
+            form.setError('email', { message: t('emailAlreadyUsed') });
+            return;
+        }
+        const otpResult = await sendEmailOtp(email);
+        if (otpResult.success) {
+            setEmailState({ status: 'verifying_otp', message: t('otpSent') });
+        } else {
+            setEmailState({ status: 'error', message: otpResult.error || 'Failed to send OTP' });
+        }
+    };
+
+    const handleOtpVerification = async (otp: string) => {
+        const email = form.getValues('email');
+        const result = await verifyEmailOtp(email, otp);
+        if (result.success) {
+            setEmailState({ status: 'verified', message: t('emailVerified') });
+        } else {
+            setEmailState({ status: 'verifying_otp', message: result.error || t('otpInvalid') });
+            toast({ title: t('errorTitle'), description: result.error || t('otpInvalid'), variant: 'destructive' });
+        }
+    };
     
-    if (finalUserData) {
-        return <RegistrationCertificate user={finalUserData} />;
-    }
+    const handleVerifyIdNumber = async () => {
+        const idNumber = form.getValues('id_number');
+        if (idNumber.length < 3) {
+            form.setError('id_number', { message: 'Le numéro doit contenir au moins 3 caractères.'});
+            return;
+        }
+        setIdNumberState({ status: 'pending', message: '' });
+        const availability = await checkAvailability('id_number', idNumber);
+        if (availability.available) {
+            setIdNumberState({ status: 'verified', message: t('idNumberAvailable') });
+        } else {
+            setIdNumberState({ status: 'error', message: t('idNumberExists') });
+            form.setError('id_number', { message: t('idNumberExists') });
+        }
+    };
 
-    const CurrentStepComponent = steps[currentStep]?.Component;
-    const isLastFormStep = currentStep === steps.length - 1;
-    const allVerificationsPassed = photoVerification.status === 'success' && signatureVerification.status === 'success' && idVerification.status === 'success' && nameMatches.match && idNumberMatches.match;
+    async function onSubmit(values: z.infer<typeof formSchema>) {
+        if (!profilePhoto) { toast({ title: t('errorTitle'), description: t('errorProfilePhoto'), variant: 'destructive' }); return; }
+        if (!idFrontImage) { toast({ title: t('errorTitle'), description: t('errorIdScan'), variant: 'destructive' }); return; }
+        if (!signatureData) { toast({ title: t('errorTitle'), description: t('errorSignature'), variant: 'destructive' }); return; }
+        if (emailState.status !== 'verified') { toast({ title: t('errorTitle'), description: t('errorEmailNotVerified'), variant: 'destructive' }); return; }
+        if (accountType === 'business' && !values.company_name) { form.setError('company_name', { message: 'Le nom de l\'entreprise est requis' }); return; }
+        
+        setIsSubmitting(true);
+        try {
+              const registrationData = {
+                  ...values,
+                  phone,
+                  country: countryName,
+                  countryCode,
+                  province,
+                  referralCode,
+                  language: currentLang,
+                  birth_date: values.birth_date instanceof Date && Number.isFinite(values.birth_date.getTime()) ? format(values.birth_date, 'yyyy-MM-dd') : null,
+                  profile_photo: profilePhoto,
+                  id_front_image: idFrontImage,
+                  signature_image: signatureData,
+                  representative: {
+                      name: values.representative_name,
+                      contact: values.representative_contact,
+                      relation: values.representative_relation,
+                  },
+              };
 
-    return (
-       <Form {...form}>
-        <Dialog open={isWebcamOpen} onOpenChange={setIsWebcamOpen}>
-            <WebcamCapture onCapture={handleWebcamCapture} onOpenChange={setIsWebcamOpen} />
-        </Dialog>
+            const result = await registerNewAccount(registrationData);
 
-        <form onSubmit={form.handleSubmit(onSubmit)}>
-          <Card className="bg-card">
-            <CardHeader className="items-center text-center">
-                <Logo className="w-40 mb-4" />
-                <CardTitle>{t('completeProfileTitle')}</CardTitle>
-                 <div className="flex items-center gap-2 w-full max-w-sm pt-4">
-                    {steps.map((step, index) => (
-                        <React.Fragment key={step.name}>
-                            <div className="flex flex-col items-center gap-1">
-                                <div className={cn("h-8 w-8 rounded-full flex items-center justify-center font-bold transition-colors", currentStep === index ? 'bg-primary text-primary-foreground' : completedSteps.includes(index) ? 'bg-green-500 text-white' : 'bg-muted')}>
-                                    {completedSteps.includes(index) ? <CheckCircle className="h-5 w-5"/> : index + 1}
+              if (result.success && result.id_wallet) {
+                  toast({ title: t('registrationSuccess'), description: t('welcomeMessage', { id_wallet: result.id_wallet }), variant: 'success' });
+                  setRegisteredUser(result.user);
+              } else {
+                  throw new Error(result.error || t('registrationFailedMessage'));
+              }
+
+          } catch (error: any) {
+              toast({ title: t('registrationFailed'), description: error.message || t('registrationFailedMessage'), variant: 'destructive' });
+          } finally {
+              setIsSubmitting(false);
+          }
+      }
+
+        if (registeredUser) {
+            return <RegistrationCertificate user={registeredUser} />;
+        }
+
+      return (
+        <>
+            <Card className="w-full max-w-5xl mx-auto bg-gradient-to-br from-[#000E38] to-[#001E6C] text-white shadow-2xl rounded-3xl border-0 relative">
+                <div className="absolute top-4 right-4 z-10">
+                    <div className="flex items-center gap-1 rounded-full border border-white/20 bg-black/20 p-1 text-xs font-medium">
+                        <Button onClick={() => setCurrentLang('fr')} size="sm" className={cn("rounded-full h-6 px-3", currentLang === 'fr' ? 'bg-primary text-white' : 'bg-transparent text-white/70 hover:bg-white/10')}>FR</Button>
+                        <Button onClick={() => setCurrentLang('en')} size="sm" className={cn("rounded-full h-6 px-3", currentLang === 'en' ? 'bg-primary text-white' : 'bg-transparent text-white/70 hover:bg-white/10')}>EN</Button>
+                    </div>
+                </div>
+
+                <CardHeader className="text-center p-6 sm:p-10">
+                    <CardTitle className="text-3xl sm:text-4xl font-black uppercase tracking-tight">{t('title')}</CardTitle>
+                    <CardDescription className="text-white/60">{t('description')} • {countryName}</CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 sm:p-10">
+                      <Form {...form}>
+                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-10">
+                            
+                            <div className="flex flex-col items-center space-y-6">
+                                <div className="relative">
+                                    <Avatar className="h-32 w-32 border-4 border-primary ring-4 ring-primary/5">
+                                        <AvatarImage src={profilePhoto || ''} className="object-cover" />
+                                        <AvatarFallback className="bg-zinc-100 text-zinc-400"><User className="h-12 w-12" /></AvatarFallback>
+                                    </Avatar>
+                                    <Button type="button" onClick={() => openCamera('profile')} className="absolute bottom-0 right-0 h-10 w-10 rounded-full p-0 shadow-lg border-2 border-white bg-primary text-white"><Camera className="h-5 w-5" /></Button>
                                 </div>
-                                <p className="text-xs text-muted-foreground">{step.name}</p>
                             </div>
-                            {index < steps.length - 1 && <div className={cn("flex-1 h-1 rounded-full transition-colors", currentStep > index ? 'bg-green-500' : 'bg-muted')} />}
-                        </React.Fragment>
-                    ))}
-                </div>
-            </CardHeader>
-            <CardContent>
-                <AnimatePresence mode="wait">
-                    <motion.div
-                        key={currentStep}
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -20 }}
-                        transition={{ duration: 0.3 }}
-                    >
-                        {CurrentStepComponent && <CurrentStepComponent
-                            form={form}
-                            phone={phone}
-                            countryName={countryName}
-                            province={province}
-                            handleFileChange={handleFileChange}
-                            handleGeneratePhoto={handleGeneratePhoto}
-                            photoVerification={photoVerification}
-                            signatureVerification={signatureVerification}
-                            idVerification={idVerification}
-                            idData={idData}
-                            nameMatches={nameMatches}
-                            idNumberMatches={idNumberMatches}
-                            setPhotoVerification={setPhotoVerification}
-                            setSignatureVerification={setSignatureVerification}
-                            setIdVerification={setIdVerification}
-                            setIdData={setIdData}
-                            onCaptureClick={() => setIsWebcamOpen(true)}
-                        />}
-                    </motion.div>
-                </AnimatePresence>
-            </CardContent>
-            <CardFooter className="flex-col gap-4">
-                <div className="flex justify-between w-full">
-                    <Button type="button" variant="outline" onClick={prevStep} disabled={currentStep === 0}>
-                        <ArrowLeft className="mr-2 h-4 w-4" /> {t('backButton')}
-                    </Button>
-                    {isLastFormStep ? (
-                        <Button type="submit" variant="gradient" disabled={isSaving || !allVerificationsPassed}>
-                            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                            {t('completeProfileSubmitButton')}
-                        </Button>
-                    ) : (
-                        <Button type="button" onClick={nextStep}>
-                            {t('continueButton')} <ArrowRight className="ml-2 h-4 w-4" />
-                        </Button>
-                    )}
-                </div>
-                 <div className="text-center text-sm">
-                    {t('registerHasAccount')}{" "}
-                    <Link href="/login" className="font-semibold text-primary underline-offset-4 hover:underline">
-                    {t('registerSignInLink')}
-                    </Link>
-                </div>
-            </CardFooter>
-          </Card>
-        </form>
-      </Form>
-    );
-  }
 
-  // --- STEP COMPONENTS ---
-  
-const Step1 = ({ form }: { form: any }) => {
-    const { t } = useTranslation();
-    return (
-        <div className="space-y-6">
-            <FormField control={form.control} name="account_type" render={({ field }) => ( <FormItem><FormLabel>{t('accountTypeLabel')}</FormLabel><FormControl> <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex gap-4"> <FormItem className="flex items-center space-x-2"><FormControl> <RadioGroupItem value="national" /> </FormControl> <FormLabel className="font-normal">{t('accountTypeNational')}</FormLabel> </FormItem> <FormItem className="flex items-center space-x-2"> <FormControl> <RadioGroupItem value="diaspora" /> </FormControl> <FormLabel className="font-normal">{t('accountTypeDiaspora')}</FormLabel> </FormItem> </RadioGroup> </FormControl><FormMessage /></FormItem> )} />
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <FormField control={form.control} name="last_name" render={({ field }) => ( <FormItem><FormLabel>{t('lastNameLabel')}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                <FormField control={form.control} name="middle_name" render={({ field }) => ( <FormItem><FormLabel>{t('middleNameLabel')}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                <FormField control={form.control} name="first_name" render={({ field }) => ( <FormItem><FormLabel>{t('firstNameLabel')}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField control={form.control} name="gender" render={({ field }) => ( <FormItem><FormLabel>{t('genderLabel')}</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder={t('selectPlaceholder')}/></SelectTrigger></FormControl><SelectContent><SelectItem value="male">{t('genderMale')}</SelectItem><SelectItem value="female">{t('genderFemale')}</SelectItem><SelectItem value="other">{t('genderOther')}</SelectItem></SelectContent></Select><FormMessage /></FormItem> )}/>
-                <FormField control={form.control} name="marital_status" render={({ field }) => ( <FormItem><FormLabel>{t('maritalStatusLabel')}</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder={t('selectPlaceholder')}/></SelectTrigger></FormControl><SelectContent><SelectItem value="single">{t('maritalStatusSingle')}</SelectItem><SelectItem value="married">{t('maritalStatusMarried')}</SelectItem><SelectItem value="divorced">{t('maritalStatusDivorced')}</SelectItem><SelectItem value="widowed">{t('maritalStatusWidowed')}</SelectItem></SelectContent></Select><FormMessage /></FormItem> )}/>
-            </div>
-        </div>
-    );
-};
+                            <div className="space-y-6">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-primary border-l-4 border-primary pl-3">{t('accountType')}</h3>
+                                <FormField control={form.control} name="account_type" render={({ field }) => (
+                                    <FormItem><FormControl>
+                                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                            <div className="flex items-center space-x-2 border rounded-lg p-3 bg-white/5"><RadioGroupItem value="national" id="at-nat"/><Label htmlFor="at-nat" className="w-full">{t('national')}</Label></div>
+                                            <div className="flex items-center space-x-2 border rounded-lg p-3 bg-white/5"><RadioGroupItem value="diaspora" id="at-dia"/><Label htmlFor="at-dia" className="w-full">{t('diaspora')}</Label></div>
+                                            <div className="flex items-center space-x-2 border rounded-lg p-3 bg-white/5"><RadioGroupItem value="business" id="at-biz"/><Label htmlFor="at-biz" className="w-full">{t('business')}</Label></div>
+                                        </RadioGroup>
+                                    </FormControl></FormItem>
+                                )}/>
+                                {accountType === 'business' && (
+                                    <FormField control={form.control} name="company_name" render={({ field }) => (
+                                        <FormItem><FormLabel>{t('companyName')} *</FormLabel><FormControl><Input placeholder={t('companyName')} className="h-12 bg-white/5 border-white/10" {...field} /></FormControl><FormMessage/></FormItem>
+                                    )}/>
+                                )}
+                            </div>
 
-const Step2 = ({ form, phone, countryName, province }: { form: any, phone: string | null, countryName: string | null, province: string | null }) => {
-    const { t } = useTranslation();
-    return (
-        <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField control={form.control} name="birth_date" render={({ field }) => (<FormItem><FormLabel>{t('dobLabel')}</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4"/>{field.value ? format(field.value, "PPP", { locale: fr }) : <span>{t('chooseDate')}</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} captionLayout="dropdown-buttons" fromYear={1920} toYear={new Date().getFullYear()} /></PopoverContent></Popover><FormMessage /></FormItem>)}/>
-                <FormField control={form.control} name="birth_place" render={({ field }) => ( <FormItem><FormLabel>{t('pobLabel')}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                <FormField control={form.control} name="nationality" render={({ field }) => ( <FormItem><FormLabel>{t('nationalityLabel')}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                <FormField control={form.control} name="email" render={({ field }) => ( <FormItem><FormLabel>{t('emailLabel')}</FormLabel><FormControl><Input type="email" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <FormItem><FormLabel>{t('countryLabel')}</FormLabel><Input readOnly disabled value={countryName || ''} /></FormItem>
-                <FormItem><FormLabel>{t('provinceLabel')}</FormLabel><Input readOnly disabled value={province || ''} /></FormItem>
-                <FormItem><FormLabel>{t('phoneLabel')}</FormLabel><Input readOnly disabled value={phone || ''} /></FormItem>
-            </div>
-             <FormField control={form.control} name="city" render={({ field }) => ( <FormItem><FormLabel>{t('cityLabel')}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
-             <FormField control={form.control} name="address" render={({ field }) => ( <FormItem><FormLabel>{t('addressLabel')}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
-        </div>
-    );
-};
+                            <div className="space-y-6">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-primary border-l-4 border-primary pl-3">{t('civilState')}</h3>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                    <FormField control={form.control} name="first_name" render={({ field }) => ( <FormItem><FormLabel>{t('firstName')} *</FormLabel><FormControl><Input className="h-12 bg-white/5 border-white/10" {...field} /></FormControl><FormMessage/></FormItem> )}/>
+                                    <FormField control={form.control} name="last_name" render={({ field }) => ( <FormItem><FormLabel>{t('lastName')} *</FormLabel><FormControl><Input className="h-12 bg-white/5 border-white/10" {...field} /></FormControl><FormMessage/></FormItem> )}/>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                                    <FormField control={form.control} name="gender" render={({ field }) => (
+                                        <FormItem><FormLabel>{t('gender')} *</FormLabel><FormControl>
+                                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex gap-4">
+                                            <div className="flex items-center space-x-2 border rounded-lg p-3 flex-1 bg-white/5"><RadioGroupItem value="male" id="g-m"/><Label htmlFor="g-m" className="w-full">{t('male')}</Label></div>
+                                            <div className="flex items-center space-x-2 border rounded-lg p-3 flex-1 bg-white/5"><RadioGroupItem value="female" id="g-f"/><Label htmlFor="g-f" className="w-full">{t('female')}</Label></div>
+                                        </RadioGroup></FormControl><FormMessage /></FormItem>
+                                    )}/>
+                                    <FormField control={form.control} name="marital_status" render={({ field }) => (
+                                        <FormItem><FormLabel>{t('maritalStatus')} *</FormLabel><FormControl>
+                                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-2 gap-2">
+                                            <div className="flex items-center space-x-2 border rounded-lg p-2 bg-white/5"><RadioGroupItem value="single" id="ms-s"/><Label htmlFor="ms-s" className="text-xs w-full">{t('single')}</Label></div>
+                                            <div className="flex items-center space-x-2 border rounded-lg p-2 bg-white/5"><RadioGroupItem value="married" id="ms-m"/><Label htmlFor="ms-m" className="text-xs w-full">{t('married')}</Label></div>
+                                            <div className="flex items-center space-x-2 border rounded-lg p-2 bg-white/5"><RadioGroupItem value="divorced" id="ms-d"/><Label htmlFor="ms-d" className="text-xs w-full">{t('divorced')}</Label></div>
+                                            <div className="flex items-center space-x-2 border rounded-lg p-2 bg-white/5"><RadioGroupItem value="widowed" id="ms-w"/><Label htmlFor="ms-w" className="text-xs w-full">{t('widowed')}</Label></div>
+                                        </RadioGroup></FormControl><FormMessage /></FormItem>
+                                    )}/>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                    <FormField control={form.control} name="birth_date" render={({ field }) => (
+  <FormItem>
+    <FormLabel>{t('birthDate')} *</FormLabel>
+    <FormControl>
+      <Input
+        type="date"
+        className="h-12 bg-white/5 border-white/10"
+        value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
+        onChange={(e) => {
+          const value = e.target.value
+          field.onChange(value ? new Date(value + 'T00:00:00') : undefined)
+        }}
+        max={new Date().toISOString().split('T')[0]}
+        min="1920-01-01"
+      />
+    </FormControl>
+    <FormMessage />
+  </FormItem>
+)}/>
+                                    <FormField control={form.control} name="birth_place" render={({ field }) => ( <FormItem><FormLabel>{t('birthPlace')} *</FormLabel><FormControl><Input className="h-12 bg-white/5 border-white/10" {...field} /></FormControl><FormMessage/></FormItem> )}/>
+                                </div>
+                            </div>
 
-const Step3 = ({ form }: { form: any }) => {
-    const { t } = useTranslation();
-    return (
-        <div className="space-y-6">
-            <FormField control={form.control} name="profession" render={({ field }) => ( <FormItem><FormLabel>{t('professionLabel')}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
-            <FormField control={form.control} name="activity_description" render={({ field }) => ( <FormItem><FormLabel>{t('activityDescriptionLabel')}</FormLabel><FormControl><Textarea {...field} /></FormControl><FormMessage /></FormItem> )}/>
-            <FormField control={form.control} name="income_per_month" render={({ field }) => ( <FormItem><FormLabel>{t('monthlyIncomeLabel')}</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-            <div>
-                <h4 className="font-medium mb-2">{t('emergencyContactTitle')}</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     <FormField control={form.control} name="representative.name" render={({ field }) => ( <FormItem><FormLabel>{t('fullNameLabel')}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                     <FormField control={form.control} name="representative.relation" render={({ field }) => ( <FormItem><FormLabel>{t('relationshipLabel')}</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder={t('selectPlaceholder')} /></SelectTrigger></FormControl><SelectContent><SelectItem value="Famille">{t('relationshipFamily')}</SelectItem><SelectItem value="Ami">{t('relationshipFriend')}</SelectItem><SelectItem value="Conjoint">{t('relationshipSpouse')}</SelectItem><SelectItem value="Frère/Soeur">{t('relationshipSibling')}</SelectItem><SelectItem value="Parent">{t('relationshipParent')}</SelectItem></SelectContent></Select><FormMessage /></FormItem> )}/>
-                     <FormField control={form.control} name="representative.contact" render={({ field }) => ( <FormItem className="md:col-span-2"><FormLabel>{t('phoneLabel')}</FormLabel><FormControl><Input type="tel" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                </div>
-            </div>
-        </div>
-    );
-};
+                            <div className="space-y-6">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-primary border-l-4 border-primary pl-3">{t('contactResidence')}</h3>
+                                 <FormField control={form.control} name="email" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>{t('email')} *</FormLabel>
+                                        <div className="flex items-center gap-2">
+                                            <FormControl><div className="relative flex-grow">
+                                                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400"/>
+                                                <Input type="email" {...field} disabled={emailState.status === 'verified'} placeholder="votre@email.com" className="h-12 pl-10 bg-white/5 border-white/10" />
+                                            </div></FormControl>
+                                            {emailState.status !== 'verified' && (
+                                                <Button type="button" onClick={handleVerifyEmail} disabled={emailState.status === 'pending' || emailState.status === 'verifying_otp'}>{emailState.status === 'pending' ? <Loader2 className="h-4 w-4 animate-spin"/> : t('verify')}</Button>
+                                            )}
+                                            {emailState.status === 'verified' && <CheckCircle className="text-green-500" />}
+                                        </div>
+                                        <FormMessage />
+                                        {emailState.status === 'verifying_otp' && (
+                                            <div className="space-y-2 p-4 bg-white/10 rounded-lg mt-2">
+                                                <p className="text-sm text-center">{emailState.message}</p>
+                                                <InputOTP maxLength={6} onComplete={handleOtpVerification}>
+                                                    <div className="flex justify-center w-full"><InputOTPGroup>{[...Array(6)].map((_, i) => <InputOTPSlot key={i} index={i}/>)}</InputOTPGroup></div>
+                                                </InputOTP>
+                                            </div>
+                                        )}
+                                        {emailState.status === 'error' && <FormDescription className="text-red-500 flex items-center gap-1 mt-1"><AlertCircle className="h-4 w-4"/> {emailState.message}</FormDescription>}
+                                    </FormItem>
+                                )}/>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                    <FormField control={form.control} name="city" render={({ field }) => ( <FormItem><FormLabel>{t('city')} *</FormLabel><FormControl><Input className="h-12 bg-white/5 border-white/10" {...field} /></FormControl><FormMessage/></FormItem> )}/>
+                                    <FormField control={form.control} name="address" render={({ field }) => ( <FormItem><FormLabel>{t('address')} *</FormLabel><FormControl><Input className="h-12 bg-white/5 border-white/10" {...field} /></FormControl><FormMessage/></FormItem> )}/>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-6">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-primary border-l-4 border-primary pl-3">{t('identityProfession')}</h3>
+                                <FormField control={form.control} name="id_type" render={({ field }) => (
+                                    <FormItem><FormLabel>{t('idType')} *</FormLabel><FormControl>
+                                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                            <div className="flex items-center space-x-2 border rounded-lg p-3 bg-white/5"><RadioGroupItem value="national_id" id="id-card"/><Label htmlFor="id-card" className="w-full">{t('idTypeIdCard')}</Label></div>
+                                            <div className="flex items-center space-x-2 border rounded-lg p-3 bg-white/5"><RadioGroupItem value="passport" id="id-passport"/><Label htmlFor="id-passport" className="w-full">{t('idTypePassport')}</Label></div>
+                                            <div className="flex items-center space-x-2 border rounded-lg p-3 bg-white/5"><RadioGroupItem value="driver_license" id="id-license"/><Label htmlFor="id-license" className="w-full">{t('idTypeDriverLicense')}</Label></div>
+                                        </RadioGroup>
+                                    </FormControl><FormMessage /></FormItem>
+                                )}/>
+                                <FormField control={form.control} name="id_number" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>{t('idNumber')} *</FormLabel>
+                                        <div className="flex items-center gap-2">
+                                            <FormControl><div className="relative flex-grow">
+                                                <FileText className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400"/>
+                                                <Input {...field} disabled={idNumberState.status === 'verified'} className="h-12 pl-10 font-mono uppercase bg-white/5 border-white/10"/>
+                                            </div></FormControl>
+                                            {idNumberState.status !== 'verified' && <Button type="button" onClick={handleVerifyIdNumber} disabled={idNumberState.status === 'pending'}>{idNumberState.status === 'pending' ? <Loader2 className="h-4 w-4 animate-spin"/> : t('verify')}</Button>}
+                                            {idNumberState.status === 'verified' && <CheckCircle className="text-green-500" />}
+                                        </div>
+                                        <FormMessage />
+                                        {idNumberState.message && <FormDescription className={cn(idNumberState.status === 'error' && 'text-red-500', idNumberState.status === 'verified' && 'text-green-500', "flex items-center gap-1 mt-1")}>{idNumberState.status === 'error' ? <AlertCircle className="h-4 w-4"/> : <CheckCircle className="h-4 w-4"/>} {idNumberState.message}</FormDescription>}
+                                    </FormItem>
+                                )}/>
 
-const Step4 = ({ form, handleFileChange, handleGeneratePhoto, photoVerification, signatureVerification, idVerification, idData, nameMatches, idNumberMatches, setPhotoVerification, setSignatureVerification, setIdVerification, setIdData, onCaptureClick }: { form: any, handleFileChange: any, handleGeneratePhoto: any, photoVerification: VerificationState, signatureVerification: VerificationState, idVerification: VerificationState, idData: any, nameMatches: any, idNumberMatches: any, setPhotoVerification: any, setSignatureVerification: any, setIdVerification: any, setIdData: any, onCaptureClick: () => void }) => {
-    const { t } = useTranslation();
-    return (
-        <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-                <div>
-                    <FormField control={form.control} name="profile_photo" render={({ field }) => ( <FileUpload label={t('profilePhotoLabel')} preview={form.getValues('profile_photo')} onFileSelect={(e) => handleFileChange(e, 'profile_photo', validateProfilePhoto, setPhotoVerification, 'photoDataUri')} verificationState={photoVerification} onRetry={() => form.getValues('profile_photo') && validateProfilePhoto({ photoDataUri: form.getValues('profile_photo') }).then((res: ValidateProfilePhotoOutput) => setPhotoVerification({ status: res.isValid ? 'success' : 'error', message: res.reason }))} onCaptureClick={onCaptureClick} /> )} />
-                    {photoVerification.status === 'error' && ( <div className="mt-2 space-y-2 text-xs text-muted-foreground"><p>{t('aiPhotoAlternative')}</p><div className="flex gap-2"><Button type="button" size="sm" onClick={() => handleGeneratePhoto('homme', 'noir')}>{t('aiPhotoMale')}</Button><Button type="button" size="sm" onClick={() => handleGeneratePhoto('femme', 'noir')}>{t('aiPhotoFemale')}</Button></div></div> )}
-                </div>
-                <div>
-                    <FormField control={form.control} name="signature_image" render={({ field }) => ( <FileUpload label={t('signatureLabel')} preview={form.getValues('signature_image')} onFileSelect={(e) => handleFileChange(e, 'signature_image', validateSignature, setSignatureVerification, 'signatureDataUri')} verificationState={signatureVerification} onRetry={() => form.getValues('signature_image') && validateSignature({ signatureDataUri: form.getValues('signature_image') }).then((res: ValidateSignatureOutput) => setSignatureVerification({ status: res.isValid ? 'success' : 'error', message: res.reason }))} /> )} />
-                </div>
-            </div>
-            <Separator />
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <FormField control={form.control} name="id_type" render={({ field }) => ( <FormItem><FormLabel>{t('idTypeLabel')}</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder={t('selectPlaceholder')}/></SelectTrigger></FormControl><SelectContent><SelectItem value="national_id">{t('idTypeNational')}</SelectItem><SelectItem value="passport">{t('idTypePassport')}</SelectItem><SelectItem value="driver_license">{t('idTypeDriverLicense')}</SelectItem><SelectItem value="biometric_passport">{t('idTypeBiometricPassport')}</SelectItem><SelectItem value="diplomatic_passport">{t('idTypeDiplomaticPassport')}</SelectItem><SelectItem value="consular_card">{t('idTypeConsularCard')}</SelectItem></SelectContent></Select><FormMessage /></FormItem> )}/>
-                 <FormField control={form.control} name="id_number" render={({ field }) => ( <FormItem><FormLabel>{t('idNumberLabel')}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                 <FormField control={form.control} name="id_issued_date" render={({ field }) => ( <FormItem><FormLabel>{t('issueDateLabel')}</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4"/>{field.value ? format(field.value, "PPP", { locale: fr }) : <span>{t('chooseDate')}</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} captionLayout="dropdown-buttons" fromYear={1920} toYear={new Date().getFullYear()} /></PopoverContent></Popover><FormMessage /></FormItem> )}/>
-                 <FormField control={form.control} name="id_expiry_date" render={({ field }) => ( <FormItem><FormLabel>{t('expiryDateLabel')}</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4"/>{field.value ? format(field.value, "PPP", { locale: fr }) : <span>{t('chooseDate')}</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} captionLayout="dropdown-buttons" fromYear={new Date().getFullYear()} toYear={new Date().getFullYear() + 20}/></PopoverContent></Popover><FormMessage /></FormItem> )}/>
-            </div>
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField control={form.control} name="id_front_image" render={({ field }) => ( <FileUpload label={t('idFrontLabel')} preview={form.getValues('id_front_image')} onFileSelect={(e) => handleFileChange(e, 'id_front_image', extractIdInfo, setIdVerification, 'idCardDataUri')} verificationState={idVerification} onRetry={() => form.getValues('id_front_image') && extractIdInfo({ idCardDataUri: form.getValues('id_front_image') }).then((res: ExtractIdInfoOutput) => { setIdVerification({ status: res.isDocumentValid ? 'success' : 'error', message: res.isDocumentValid ? t('validDocument') : t('invalidDocument') }); if (res.isDocumentValid) setIdData({ fullName: res.fullName, idNumber: res.idNumber }); })} /> )} />
-                <FormField control={form.control} name="id_back_image" render={({ field }) => ( <FileUpload label={t('idBackLabel')} preview={form.getValues('id_back_image')} onFileSelect={(e) => handleFileChange(e, 'id_back_image')} verificationState={{status: 'idle', message: null}} onRetry={() => {}} /> )} />
-            </div>
-            {idData && ( <div className="space-y-1">
-                <div className={cn("text-xs flex items-center gap-2", nameMatches.match ? 'text-green-600' : 'text-red-600')}> {nameMatches.match ? <CheckCircle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />} {nameMatches.message} </div>
-                <div className={cn("text-xs flex items-center gap-2", idNumberMatches.match ? 'text-green-600' : 'text-red-600')}> {idNumberMatches.match ? <CheckCircle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />} {idNumberMatches.message} </div>
-            </div>)}
-        </div>
+                                <FormField control={form.control} name="id_issued_date" render={({ field }) => (
+  <FormItem>
+      <FormLabel>{t('idIssuedDate')} *</FormLabel>
+      <FormControl>
+          <Input
+              type="date"
+              className="h-12 bg-white/5 border-white/10"
+              value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
+              onChange={(e) => {
+                  const value = e.target.value;
+                  field.onChange(value ? new Date(value + 'T00:00:00') : undefined);
+              }}
+              max={new Date().toISOString().split('T')[0]}
+          />
+      </FormControl>
+      <FormMessage />
+  </FormItem>
+)}/>
+
+                                <FormField control={form.control} name="id_expiry_date" render={({ field }) => (
+  <FormItem>
+      <FormLabel>{t('idExpiryDate')} *</FormLabel>
+      <FormControl>
+          <Input
+              type="date"
+              className="h-12 bg-white/5 border-white/10"
+              value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
+              onChange={(e) => {
+                  const value = e.target.value;
+                  field.onChange(value ? new Date(value + 'T00:00:00') : undefined);
+              }}
+              min={new Date().toISOString().split('T')[0]}
+          />
+      </FormControl>
+      <FormMessage />
+  </FormItem>
+                                )}/>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                    <FormField control={form.control} name="profession" render={({ field }) => ( <FormItem><FormLabel>{t('profession')} *</FormLabel><FormControl><div className="relative"><Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400"/><Input className="h-12 pl-10 bg-white/5 border-white/10" {...field} /></div></FormControl><FormMessage/></FormItem> )}/>
+                                    <FormField control={form.control} name="nationality" render={({ field }) => ( <FormItem><FormLabel>{t('nationality')} *</FormLabel><FormControl><div className="relative"><Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400"/><Input className="h-12 pl-10 bg-white/5 border-white/10" {...field} /></div></FormControl><FormMessage/></FormItem> )}/>
+                                </div>
+                                 <FormField control={form.control} name="income_per_month" render={({ field }) => (
+                                     <FormItem>
+                                         <FormLabel>{t('monthlyIncome')} *</FormLabel>
+                                         <FormControl><div className="relative">
+                                             <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400"/>
+                                             <Input type="number" placeholder="500" className="h-12 pl-10 bg-white/5 border-white/10" {...field} onChange={e => field.onChange(e.target.value === '' ? undefined : e.target.valueAsNumber)} value={field.value ?? ''} />
+                                         </div></FormControl>
+                                         <FormMessage/>
+                                     </FormItem>
+                                 )}/>
+                                <div className="space-y-3 pt-6">
+                                    <FormLabel>{t('uploadId')} *</FormLabel>
+                                    <div className="h-48 rounded-xl border-2 border-dashed flex items-center justify-center bg-white/5 overflow-hidden">
+                                        {idFrontImage ? <img src={idFrontImage} alt="ID Scan" className="h-full w-full object-contain" /> : <FileText className="h-10 w-10 text-zinc-400"/>}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <Button type="button" variant="outline" className="bg-white/10 border-white/20 hover:bg-white/20" onClick={() => idInputRef.current?.click()}>{t('upload')}</Button>
+                                        <Button type="button" variant="outline" className="bg-white/10 border-white/20 hover:bg-white/20" onClick={() => openCamera('id')}>{t('capture')}</Button>
+                                    </div>
+                                    <input type="file" ref={idInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, setIdFrontImage)} />
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-3">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-primary border-l-4 border-primary pl-3">{t('signature')}</h3>
+                                <div className="h-48 rounded-xl border-2 border-dashed flex items-center justify-center bg-white/5 overflow-hidden">
+                                    {signatureData ? <img src={signatureData} alt="Signature" className="h-full w-full object-contain p-4" /> : <p className="text-zinc-400 text-sm font-semibold">{t('signHere')}</p>}
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <Button type="button" variant="outline" className="bg-white/10 border-white/20 hover:bg-white/20" onClick={() => signatureInputRef.current?.click()}>{t('upload')}</Button>
+                                    <Button type="button" variant="outline" className="bg-white/10 border-white/20 hover:bg-white/20" onClick={() => openCamera('signature')}>{t('capture')}</Button>
+                                </div>
+                                <input type="file" ref={signatureInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, setSignatureData)} />
+                                 {signatureData && <Button type="button" variant="ghost" size="sm" onClick={() => setSignatureData(null)} className="w-full text-red-500 hover:bg-red-500/10 hover:text-red-400">{t('clear')}</Button>}
+                            </div>
+
+                            <div className="space-y-6 p-6 bg-white/5 rounded-2xl border border-white/10">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-primary">{t('guarantor')}</h3>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                    <FormField control={form.control} name="representative_name" render={({ field }) => ( <FormItem><FormLabel>{t('guarantorName')} *</FormLabel><FormControl><Input className="bg-white/10 h-12 border-white/20" {...field} /></FormControl><FormMessage/></FormItem> )}/>
+                                    <FormField control={form.control} name="representative_contact" render={({ field }) => ( <FormItem><FormLabel>{t('guarantorPhone')} *</FormLabel><FormControl><Input className="bg-white/10 h-12 border-white/20" {...field} /></FormControl><FormMessage/></FormItem> )}/>
+                                </div>
+                                <FormField control={form.control} name="representative_relation" render={({ field }) => (
+                                    <FormItem><FormLabel>{t('guarantorRelation')} *</FormLabel><FormControl>
+                                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+                                             <div className="flex items-center space-x-2 border rounded-lg p-2 bg-white/10"><RadioGroupItem value="parent" id="rel-p"/><Label htmlFor="rel-p" className="text-xs w-full">{t('relationParent')}</Label></div>
+                                             <div className="flex items-center space-x-2 border rounded-lg p-2 bg-white/10"><RadioGroupItem value="sibling" id="rel-s"/><Label htmlFor="rel-s" className="text-xs w-full">{t('relationSibling')}</Label></div>
+                                             <div className="flex items-center space-x-2 border rounded-lg p-2 bg-white/10"><RadioGroupItem value="spouse" id="rel-sp"/><Label htmlFor="rel-sp" className="text-xs w-full">{t('relationSpouse')}</Label></div>
+                                             <div className="flex items-center space-x-2 border rounded-lg p-2 bg-white/10"><RadioGroupItem value="other" id="rel-o"/><Label htmlFor="rel-o" className="text-xs w-full">{t('relationOther')}</Label></div>
+                                        </RadioGroup>
+                                    </FormControl><FormMessage /></FormItem>
+                                )}/>
+                            </div>
+
+                            <Button type="submit" variant="gradient" className="w-full h-14 text-lg font-bold shadow-xl rounded-xl" disabled={isSubmitting}>
+                                {isSubmitting ? <Loader2 className="animate-spin mr-2 h-5 w-5"/> : <ShieldCheck className="mr-2 h-5 w-5"/>}
+                                {isSubmitting ? t('submitting') : t('submit')}
+                            </Button>
+                        </form>
+                    </Form>
+                </CardContent>
+            </Card>
+
+            <AlertDialog open={cameraModal.open} onOpenChange={(open) => !open && setCameraModal({open: false, target: null})}>
+                <AlertDialogContent className="bg-black text-white border-primary">
+                    <AlertDialogHeader><AlertDialogTitle>
+                        {cameraModal.target === 'profile' && t('takePicture')}
+                        {cameraModal.target === 'id' && t('captureId')}
+                        {cameraModal.target === 'signature' && t('captureSignature')}
+                    </AlertDialogTitle></AlertDialogHeader>
+                    <Webcam audio={false} ref={webcamRef} screenshotFormat="image/jpeg" videoConstraints={{ facingMode }} className="w-full rounded-lg" />
+                    <AlertDialogFooter className="sm:justify-between items-center mt-4">
+                         <Button type="button" variant="ghost" className="hover:bg-white/10" onClick={() => setFacingMode(f => f === 'user' ? 'environment' : 'user')}><FlipHorizontal/></Button>
+                         <div className="flex gap-4">
+                            <AlertDialogCancel asChild><Button variant="outline" className="bg-transparent border-white/20 hover:bg-white/10">{t('close')}</Button></AlertDialogCancel>
+  <AlertDialogAction onClick={handleCapture}>{t('capture')}</AlertDialogAction>
+                         </div>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
     );
-};
+}

@@ -1,0 +1,301 @@
+"use client";
+
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { z } from 'zod';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm, useFieldArray } from 'react-hook-form';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
+import { 
+    CalendarIcon, Loader2, PlusCircle, QrCode, ShieldCheck, Trash2, UploadCloud, Video, X 
+} from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
+} from '@/components/ui/form';
+import { Textarea } from '@/components/ui/textarea';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useAlertDialog } from '@/hooks/use-alert-dialog';
+import { cn, countryToCode, getCountryByCode } from '@/lib/utils';
+import { createEvent } from '@/lib/actions/event.actions';
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
+import Image from 'next/image';
+
+const ticketTypeSchema = z.object({
+    type: z.string().min(1, "Le type de billet est requis."),
+    price: z.preprocess((val) => Number(val), z.number().min(0, "Le prix doit être positif.")),
+    quantity: z.preprocess((val) => Number(val), z.number().int().min(1, "La quantité doit être au moins 1.")),
+});
+
+const formSchema = z.object({
+    name: z.string().min(3, { message: "Le nom de l'événement doit comporter au moins 3 caractères." }),
+    description: z.string().min(10, { message: "La description doit comporter au moins 10 caractères." }),
+    date: z.date({ required_error: "La date est requise." }),
+    time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, { message: "Format d'heure invalide (HH:MM)." }),
+    location: z.string().optional(),
+    currency: z.string({ required_error: "La devise est requise." }),
+    imageUrl: z.string().optional(),
+    ticketTypes: z.array(ticketTypeSchema).min(1, "Au moins un type de billet est requis."),
+    eventType: z.enum(['live', 'zoom'], { required_error: "Sélectionnez un type d'événement." }),
+});
+
+export function CreateEventForm() {
+    const router = useRouter();
+    const { openAlert } = useAlertDialog();
+    const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isClient, setIsClient] = useState(false);
+    const [availableCurrencies, setAvailableCurrencies] = useState(['USD', 'EUR']);
+
+    const form = useForm<z.infer<typeof formSchema>>({
+        resolver: zodResolver(formSchema),
+        defaultValues: {
+            currency: 'USD',
+            ticketTypes: [{ type: 'Normal', price: 10, quantity: 100 }],
+            eventType: 'live',
+            imageUrl: '',
+            name: '',
+            description: '',
+            location: '',
+            time: ''
+        }
+    });
+
+    const { fields, append, remove } = useFieldArray({
+        control: form.control,
+        name: "ticketTypes"
+    });
+
+    useEffect(() => {
+        setIsClient(true);
+        const loadInitialData = async () => {
+            const user = await getAuthenticatedUser();
+            if (user?.country) {
+                const code = countryToCode(user.country);
+                const countryInfo = code ? getCountryByCode(code) : null;
+                if (countryInfo?.currency_code && !['USD', 'EUR'].includes(countryInfo.currency_code)) {
+                    setAvailableCurrencies(['USD', 'EUR', countryInfo.currency_code]);
+                }
+            }
+        };
+        loadInitialData();
+    }, []);
+    
+    const eventType = form.watch('eventType');
+    
+    const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const dataUrl = reader.result as string;
+                setImagePreview(dataUrl);
+                form.setValue('imageUrl', dataUrl, { shouldValidate: true });
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+    
+    async function onSubmit(values: z.infer<typeof formSchema>) {
+        setIsSubmitting(true);
+        const result = await createEvent(values as any);
+        if (result.success && result.event) {
+            openAlert({
+                title: 'Événement Créé',
+                description: `Votre événement "${values.name}" a été publié avec succès.`,
+                variant: 'success'
+            });
+            router.push(`/events/manage`);
+        } else {
+            openAlert({ title: 'Erreur', description: result.error || "Impossible de créer l'événement.", variant: 'error' });
+        }
+        setIsSubmitting(false);
+    }
+
+    if (!isClient) return null;
+
+    return (
+        <Card className="border-none shadow-xl">
+            <CardHeader className="bg-primary/5 rounded-t-xl border-b border-primary/10">
+                <CardTitle>Publier un Événement</CardTitle>
+                <CardDescription>Remplissez les détails pour vendre vos billets sur CashPay.</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+                        
+                        <div className="space-y-4">
+                            <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Image de l'événement</Label>
+                            <div className="relative group">
+                                {imagePreview ? (
+                                    <div className="relative aspect-video w-full rounded-xl overflow-hidden border-2 border-primary/20 shadow-md">
+                                        <Image src={imagePreview} alt="Aperçu" fill className="object-cover" />
+                                        <Button 
+                                            type="button" 
+                                            variant="destructive" 
+                                            size="icon" 
+                                            className="absolute top-2 right-2 h-8 w-8 rounded-full shadow-lg"
+                                            onClick={() => { setImagePreview(null); form.setValue('imageUrl', ''); }}
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <label className="flex flex-col items-center justify-center aspect-video w-full rounded-xl border-2 border-dashed border-zinc-200 bg-zinc-50 hover:bg-zinc-100 hover:border-primary cursor-pointer transition-all">
+                                        <div className="flex flex-col items-center gap-2">
+                                            <UploadCloud className="h-10 w-10 text-zinc-400" />
+                                            <p className="text-sm font-bold text-zinc-500">Ajouter une affiche</p>
+                                            <p className="text-[10px] uppercase text-zinc-400 font-bold">PNG ou JPG (max 2MB)</p>
+                                        </div>
+                                        <input type="file" className="hidden" accept="image/*" onChange={handleImageChange} />
+                                    </label>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Type d'événement</Label>
+                            <FormField control={form.control} name="eventType" render={({ field }) => (
+                                <FormItem>
+                                    <FormControl>
+                                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-2 gap-4">
+                                            <div className="relative">
+                                                <RadioGroupItem value="live" id="live" className="sr-only peer" />
+                                                <Label htmlFor="live" className={cn("flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-popover p-4 hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 cursor-pointer transition-all h-24")}>
+                                                    <QrCode className="mb-2 h-6 w-6"/>
+                                                    <span className="font-bold text-sm">Sur Site</span>
+                                                </Label>
+                                            </div>
+                                            <div className="relative">
+                                                <RadioGroupItem value="zoom" id="zoom" className="sr-only peer" />
+                                                <Label htmlFor="zoom" className={cn("flex flex-col items-center justify-center rounded-xl border-2 border-muted bg-popover p-4 hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 cursor-pointer transition-all h-24")}>
+                                                    <Video className="mb-2 h-6 w-6"/>
+                                                    <span className="font-bold text-sm">Webinaire Zoom</span>
+                                                </Label>
+                                            </div>
+                                        </RadioGroup>
+                                    </FormControl>
+                                </FormItem>
+                            )}/>
+                        </div>
+
+                        <FormField control={form.control} name="name" render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Titre de l'événement</FormLabel>
+                                <FormControl><Input placeholder="Ex: Grand Concert de Gala" {...field} className="h-12" /></FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )} />
+
+                        {eventType === 'live' && (
+                            <FormField control={form.control} name="location" render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Lieu / Adresse</FormLabel>
+                                    <FormControl><Input placeholder="Ex: Palais du Peuple, Kinshasa" {...field} className="h-12" /></FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )} />
+                        )}
+
+                        <FormField control={form.control} name="description" render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Description détaillée</FormLabel>
+                                <FormControl><Textarea placeholder="Expliquez le contenu de votre événement..." {...field} rows={4} /></FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )} />
+                        
+                        <div className="grid md:grid-cols-2 gap-6">
+                             <FormField control={form.control} name="date" render={({ field }) => (
+                                 <FormItem className="flex flex-col">
+                                     <FormLabel>Date de l'événement</FormLabel>
+                                     <Popover>
+                                         <PopoverTrigger asChild>
+                                             <FormControl>
+                                                 <Button variant="outline" className={cn("h-12 pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
+                                                     <CalendarIcon className="mr-2 h-4 w-4" />
+                                                     {field.value ? format(field.value, "d MMMM yyyy", { locale: fr }) : "Choisir une date"}
+                                                 </Button>
+                                             </FormControl>
+                                         </PopoverTrigger>
+                                         <PopoverContent className="w-auto p-0" align="start">
+                                             <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                                         </PopoverContent>
+                                     </Popover>
+                                     <FormMessage />
+                                 </FormItem>
+                             )} />
+                             <FormField control={form.control} name="time" render={({ field }) => (
+                                 <FormItem>
+                                     <FormLabel>Heure (HH:MM)</FormLabel>
+                                     <FormControl><Input {...field} placeholder="19:30" className="h-12" /></FormControl>
+                                     <FormMessage />
+                                 </FormItem>
+                             )} />
+                        </div>
+
+                        <div className="space-y-4">
+                            <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Devise des Billets</Label>
+                            <FormField control={form.control} name="currency" render={({ field }) => (
+                                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-3 gap-2">
+                                    {availableCurrencies.map(c => (
+                                        <div key={c}>
+                                            <RadioGroupItem value={c} id={`c-${c}`} className="sr-only" />
+                                            <Label htmlFor={`c-${c}`} className={cn("flex items-center justify-center p-3 border-2 rounded-xl cursor-pointer h-12 font-black transition-all", field.value === c ? "border-primary bg-primary/5 text-primary" : "border-zinc-100 text-zinc-400")}>
+                                                {c}
+                                            </Label>
+                                        </div>
+                                    ))}
+                                </RadioGroup>
+                            )} />
+                        </div>
+
+                        <div className="space-y-4">
+                            <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Configuration de la billetterie</Label>
+                            <div className="space-y-4">
+                                {fields.map((field, index) => (
+                                    <div key={field.id} className="grid grid-cols-12 gap-3 items-end border p-4 rounded-xl bg-zinc-50 relative">
+                                        {index > 0 && <Button type="button" variant="ghost" size="icon" className="absolute top-1 right-1 h-7 w-7 text-red-500" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button>}
+                                        <FormField control={form.control} name={`ticketTypes.${index}.type`} render={({ field }) => (
+                                            <FormItem className="col-span-12 sm:col-span-5">
+                                                <FormLabel className="text-[10px] uppercase font-bold">Catégorie</FormLabel>
+                                                <FormControl><Input placeholder="Ex: VIP, Standard" {...field} className="bg-white h-10"/></FormControl>
+                                            </FormItem>
+                                        )} />
+                                        <FormField control={form.control} name={`ticketTypes.${index}.price`} render={({ field }) => (
+                                            <FormItem className="col-span-6 sm:col-span-4">
+                                                <FormLabel className="text-[10px] uppercase font-bold">Prix</FormLabel>
+                                                <FormControl><Input type="number" step="any" {...field} className="bg-white h-10"/></FormControl>
+                                            </FormItem>
+                                        )} />
+                                        <FormField control={form.control} name={`ticketTypes.${index}.quantity`} render={({ field }) => (
+                                            <FormItem className="col-span-6 sm:col-span-3">
+                                                <FormLabel className="text-[10px] uppercase font-bold">Places</FormLabel>
+                                                <FormControl><Input type="number" {...field} className="bg-white h-10"/></FormControl>
+                                            </FormItem>
+                                        )} />
+                                    </div>
+                                ))}
+                                <Button type="button" variant="outline" className="w-full border-dashed h-12" onClick={() => append({ type: '', price: 0, quantity: 100 })}>
+                                    <PlusCircle className="mr-2 h-4 w-4" /> Ajouter un type de billet
+                                </Button>
+                            </div>
+                        </div>
+                        
+                        <Button type="submit" variant="gradient" className="w-full h-16 text-xl font-black shadow-xl" disabled={isSubmitting}>
+                            {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin"/> : <ShieldCheck className="mr-2 h-5 w-5"/>}
+                            PUBLIER L'ÉVÉNEMENT
+                        </Button>
+                    </form>
+                </Form>
+            </CardContent>
+        </Card>
+    );
+}

@@ -1,0 +1,94 @@
+
+import { NextResponse } from 'next/server';
+import { handleUssdRequest } from '@/lib/ussd/ussd.router';
+
+export async function POST(request: Request) {
+    try {
+        const contentType = request.headers.get('content-type') || '';
+
+        let sessionId = '';
+        let phoneNumber = '';
+        let text = '';
+
+        if (contentType.includes('application/x-www-form-urlencoded')) {
+            const formData = await request.formData();
+
+            sessionId = formData.get('sessionId')?.toString() || '';
+            phoneNumber = formData.get('phoneNumber')?.toString() || '';
+            text = formData.get('text')?.toString() || '';
+        } else {
+            const body = await request.json();
+
+            sessionId = body?.sessionId?.toString() || '';
+            phoneNumber = body?.phoneNumber?.toString() || '';
+            text = body?.text?.toString() || '';
+        }
+
+        if (!sessionId || !phoneNumber) {
+            return new NextResponse(
+                'END Paramètres USSD manquants.',
+                {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'text/plain; charset=utf-8',
+                        'Cache-Control': 'no-cache',
+                    },
+                }
+            );
+        }
+
+        const result = await handleUssdRequest(
+            sessionId,
+            phoneNumber,
+            text
+        );
+
+        const response =
+            `${result.type} ${result.message}`;
+
+        console.log(
+            '[USSD]',
+            JSON.stringify({
+                sessionId,
+                phoneNumber,
+                text,
+                type: result.type,
+                message: result.message,
+            })
+        );
+
+        return new NextResponse(response, {
+            status: 200,
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Cache-Control': 'no-cache',
+            },
+        });
+
+    } catch (error) {
+        console.error('[USSD ROUTE ERROR]', error);
+
+        return new NextResponse(
+            'END Erreur technique CashPay. Veuillez réessayer.',
+            {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'Cache-Control': 'no-cache',
+                },
+            }
+        );
+    }
+}
+
+export async function GET() {
+    return new NextResponse(
+        'CashPay USSD Gateway Active.',
+        {
+            status: 200,
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+            },
+        }
+    );
+}

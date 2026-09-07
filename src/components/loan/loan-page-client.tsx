@@ -1,7 +1,6 @@
-
 'use client';
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LoanForm } from "@/components/loan/loan-form";
 import type { User, Currency } from "@/lib/types";
@@ -10,71 +9,59 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShieldAlert, History } from "lucide-react";
-import { Skeleton } from "../ui/skeleton";
+import { processLoanRepayments } from "@/lib/actions/loan.actions";
 import type { LoanHistory } from "@/lib/actions/loan.actions";
+import { useRouter } from "next/navigation";
 import { Button } from "../ui/button";
 import Link from 'next/link';
+
+const defaultDurations = (repaidCount: number) =>
+  repaidCount <= 0 ? [1] : repaidCount === 1 ? [1, 3] : repaidCount === 2 ? [1, 3, 6] : repaidCount === 3 ? [1, 3, 6, 12] : [1, 3, 6, 12, 24];
 
 const checkEligibility = (currencies: Currency[]): boolean => {
   return currencies.some(c => parseFloat(c.balance.replace(/,/g, '')) > 0);
 };
 
-function LoanPageSkeleton() {
-    return (
-        <Card>
-            <CardHeader>
-                <Skeleton className="h-6 w-3/4" />
-                <Skeleton className="h-4 w-full mt-2" />
-            </CardHeader>
-            <CardContent className="space-y-6">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-12 w-full" />
-            </CardContent>
-        </Card>
-    );
-}
-
 export function LoanPageClient({ user, currencies, loanHistory }: { user: User | null, currencies: Currency[], loanHistory: LoanHistory[] }) {
   const { t } = useTranslation();
-  const [isClient, setIsClient] = useState(false);
+  const router = useRouter();
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  
+
+  // À l’entrée sur LoanMe, on ne traite que les échéances déjà arrivées à échéance.
+  // Le traitement est ciblé sur cet utilisateur afin d’éviter une requête globale coûteuse.
   useEffect(() => {
-    setIsClient(true);
-  }, []);
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      const result = await processLoanRepayments(user.id);
+      if (!cancelled && result.success && result.processed > 0) router.refresh();
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, router]);
 
   const isEligible = checkEligibility(currencies);
-  const hasActiveLoan = loanHistory.some(loan => loan.status === 'approved');
+  const hasActiveLoan = loanHistory.some(loan => ['pending', 'approved'].includes(String(loan.status).toLowerCase()));
+  const repaidCount = loanHistory.filter(loan => String(loan.status).toLowerCase() === 'repaid').length;
+  const durations = defaultDurations(repaidCount);
+  const lastRepaid = [...loanHistory].filter(loan => String(loan.status).toLowerCase() === 'repaid').sort((a,b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime())[0];
+  const interestRate = Number(lastRepaid?.interest_rate) > 0 ? Number(lastRepaid.interest_rate) : 3.66;
   const isFormDisabled = !isEligible || !acceptedTerms || hasActiveLoan;
-
-  if (!isClient) {
-      return (
-         <main className="flex-1 p-4 md:p-8">
-             <div className="max-w-2xl mx-auto">
-                <h1 className="text-3xl font-bold text-foreground mb-8 text-center">{t('loanTitle')}</h1>
-                <LoanPageSkeleton />
-             </div>
-         </main>
-      );
-  }
 
   return (
     <main className="flex-1 p-4 md:p-8">
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="flex justify-between items-center">
-            <h1 className="text-3xl font-bold text-foreground">{t('loanTitle')}</h1>
-            <Button asChild variant="outline">
-              <Link href="/loan/history">
-                <History className="mr-2 h-4 w-4" /> {t('loanHistoryButton')}
-              </Link>
-            </Button>
+          <h1 className="text-3xl font-bold text-foreground">{t('loanTitle')}</h1>
+          <Button asChild variant="outline">
+            <Link href="/loan/history">
+              <History className="mr-2 h-4 w-4" /> {t('loanHistoryButton')}
+            </Link>
+          </Button>
         </div>
-        
+
         {!isEligible || hasActiveLoan ? (
-          <Alert variant="destructive">
-            <ShieldAlert className="h-4 w-4" />
+          <Alert className="border-primary/20 bg-primary/5">
+            <ShieldAlert className="h-4 w-4 text-primary" />
             <AlertTitle>{hasActiveLoan ? t('loanActiveLoanTitle') : t('loanEligibilityErrorTitle')}</AlertTitle>
             <AlertDescription>
               {hasActiveLoan ? t('loanActiveLoanDescription') : t('loanEligibilityErrorDescription')}
@@ -94,7 +81,7 @@ export function LoanPageClient({ user, currencies, loanHistory }: { user: User |
                 <p>{t('loanTerm4')}</p>
               </div>
               <div className="flex items-center space-x-2 pt-2">
-                <Checkbox id="terms" onCheckedChange={(checked) => setAcceptedTerms(!!checked)} />
+                <Checkbox id="terms" checked={acceptedTerms} onCheckedChange={(checked) => setAcceptedTerms(checked === true)} />
                 <Label htmlFor="terms" className="cursor-pointer leading-tight">{t('loanAcceptTermsLabel')}</Label>
               </div>
             </CardContent>
@@ -102,7 +89,7 @@ export function LoanPageClient({ user, currencies, loanHistory }: { user: User |
         )}
 
         <fieldset disabled={isFormDisabled} className="disabled:opacity-50">
-            <LoanForm user={user} currencies={currencies} />
+          <LoanForm user={user} currencies={currencies} interestRate={interestRate} durations={durations} />
         </fieldset>
       </div>
     </main>

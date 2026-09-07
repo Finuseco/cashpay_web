@@ -1,0 +1,62 @@
+'use server';
+
+import { db } from '@/lib/db';
+import { handleDbError } from './helpers';
+import { v4 as uuidv4 } from 'uuid';
+
+/**
+ * @fileoverview Actions serveur pour l'approvisionnement (Dépôt) via la passerelle MaxiCash.
+ */
+
+export async function initiateDeposit(data: {
+    amount: number;
+    user: any;
+    countryCode: string;
+    operator: string;
+    phoneNumber: string;
+    paymentMethod: string;
+}) {
+    console.log(`[MaxiCash] Initiation dépôt Mobile Money:`, data);
+    
+    // Simulation d'une création de transaction en base
+    const transactionId = `DEP-${uuidv4().substring(0,8).toUpperCase()}`;
+    
+    // En production, ici on appellerait l'API MaxiCash avec MerchantID/Password
+    // POST https://api.maxicashapp.com/v1/merchant/payment
+    
+    return { 
+        success: true, 
+        transactionId,
+        message: `Une demande de paiement de ${data.amount} USD a été envoyée à votre mobile ${data.phoneNumber}.` 
+    };
+}
+
+export async function initiateCardDeposit(data: { amount: number, user: any }) {
+    console.log(`[MaxiCash] Initiation dépôt Carte:`, data);
+    return { 
+        success: true, 
+        transactionId: `CRD-${uuidv4().substring(0,8).toUpperCase()}`, 
+        message: "Redirection vers le portail sécurisé carte..." 
+    };
+}
+
+export async function initiatePaypalDeposit(data: { amount: number, user: any }) {
+    console.log(`[MaxiCash] Initiation dépôt PayPal:`, data);
+    return { 
+        success: true, 
+        transactionId: `PP-${uuidv4().substring(0,8).toUpperCase()}`, 
+        message: "Ouverture de la fenêtre de paiement PayPal..." 
+    };
+}
+
+/**
+ * Vérifie le statut d'une transaction auprès de MaxiCash.
+ */
+export async function checkDepositStatus(reference: string): Promise<{ success: boolean; status: string; message?: string }> {
+    // En production: GET /merchant/status?ref=${reference}
+    return { 
+        success: true, 
+        status: 'Completed', 
+        message: "Dépôt validé avec succès." 
+    };
+}

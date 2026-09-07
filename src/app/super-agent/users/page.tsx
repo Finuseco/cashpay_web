@@ -93,6 +93,7 @@ export default function SuperAgentUsers() {
     
     const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
     const photoInputRef = useRef<HTMLInputElement>(null);
+    const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const { openAlert } = useAlertDialog();
     const { toast } = useToast();
@@ -121,32 +122,57 @@ export default function SuperAgentUsers() {
         defaultValues: { companyName: "", pin: "" },
     });
 
-    useEffect(() => {
-        const init = async () => {
-            setIsLoading(true);
-            const agent = await getAuthenticatedUser();
-            setSuperAgent(agent);
-            if (agent) {
-                const results = await searchCountryUsers(agent.id, '');
-                setUsers(results);
-            }
-            setIsLoading(false);
-        };
-        init();
-    }, []);
-
-    const handleSearch = async () => {
-        if (!superAgent?.id) return;
+    const loadUsers = async (agentId: number, query = '') => {
         setIsLoading(true);
         try {
-            const results = await searchCountryUsers(superAgent.id, searchTerm);
-            setUsers(results);
-        } catch (e) {
-            toast({ title: "Erreur de recherche", variant: "destructive" });
+            const results = await searchCountryUsers(agentId, query.trim());
+            setUsers(Array.isArray(results) ? results : []);
+            return Array.isArray(results) ? results : [];
+        } catch (e: any) {
+            toast({
+                title: 'Erreur de chargement',
+                description: e?.message || 'Impossible de récupérer les utilisateurs.',
+                variant: 'destructive'
+            });
+            return [];
         } finally {
             setIsLoading(false);
         }
     };
+
+    useEffect(() => {
+        let cancelled = false;
+        const init = async () => {
+            const agent = await getAuthenticatedUser();
+            if (cancelled) return;
+            setSuperAgent(agent);
+            if (agent?.id) await loadUsers(agent.id, '');
+            else setIsLoading(false);
+        };
+        init();
+        return () => {
+            cancelled = true;
+            if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+        };
+    }, []);
+
+    const handleSearch = async () => {
+        if (!superAgent?.id) return;
+        await loadUsers(superAgent.id, searchTerm);
+    };
+
+    // Recherche progressive : le bouton reste disponible, mais la liste se met aussi à jour
+    // lorsque l'utilisateur tape, sans multiplier les requêtes.
+    useEffect(() => {
+        if (!superAgent?.id) return;
+        if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = setTimeout(() => {
+            loadUsers(superAgent.id, searchTerm);
+        }, searchTerm.trim() ? 350 : 0);
+        return () => {
+            if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+        };
+    }, [searchTerm, superAgent?.id]);
 
     const handleViewDetails = async (user: User) => {
         setSelectedUser(user);
@@ -187,6 +213,7 @@ export default function SuperAgentUsers() {
             toast({ title: "Coordonnées mises à jour", variant: "success" });
             setIsEditContactOpen(false);
             handleViewDetails(selectedUser);
+            await loadUsers(superAgent.id, searchTerm);
         } else {
             openAlert({ title: "Erreur", description: result.error, variant: 'error' });
         }
@@ -207,7 +234,8 @@ export default function SuperAgentUsers() {
             toast({ title: "Dépôt effectué", variant: "success" });
             setIsDepositOpen(false);
             depositForm.reset();
-            handleViewDetails(selectedUser);
+            await handleViewDetails(selectedUser);
+            await loadUsers(superAgent.id, searchTerm);
         } else {
             openAlert({ title: "Erreur", description: result.error, variant: 'error' });
         }
@@ -339,6 +367,8 @@ export default function SuperAgentUsers() {
                 </CardContent>
             </Card>
 
+            <div className="flex items-center justify-between text-xs text-zinc-500"><span>{users.length} utilisateur(s) chargé(s)</span>{searchTerm && <span>Recherche : <strong className="text-zinc-300">{searchTerm}</strong></span>}</div>
+
             <div className="grid gap-4">
                 {isLoading ? (
                     <div className="text-center py-20"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary"/></div>
@@ -346,7 +376,7 @@ export default function SuperAgentUsers() {
                     <Card key={user.id} className="bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700/50 transition-colors cursor-pointer" onClick={() => handleViewDetails(user)}>
                         <CardContent className="p-4 flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <Avatar className="h-12 w-12 border-2 border-primary"><AvatarImage src={user.profile_photo || ''} /><AvatarFallback>{user.full_name[0] || '?'}</AvatarFallback></Avatar>
+                                <Avatar className="h-12 w-12 border-2 border-primary"><AvatarImage src={user.profile_photo || ''} /><AvatarFallback>{String(user.full_name || '?').charAt(0).toUpperCase()}</AvatarFallback></Avatar>
                                 <div>
                                     <div className="flex items-center gap-2">
                                         <p className="font-bold">{user.full_name}</p>
@@ -511,11 +541,11 @@ export default function SuperAgentUsers() {
                                 <Table>
                                     <TableBody>
                                         {userHistory.map((tx, idx) => (
-                                            <TableRow key={idx} className="border-zinc-800 hover:bg-zinc-800/50">
+                                            <TableRow key={tx.id ?? idx} className="border-zinc-800 hover:bg-zinc-800/50">
                                                 <TableCell className="text-[10px] text-zinc-500">{tx.date} {tx.time}</TableCell>
                                                 <TableCell className="text-xs font-semibold">{tx.description}</TableCell>
                                                 <TableCell className={cn("text-right font-bold text-xs", tx.type === 'sent' ? 'text-red-400' : 'text-green-400')}>
-                                                    {tx.type === 'sent' ? '-' : '+'} {parseFloat(tx.amount).toFixed(2)} {tx.currency}
+                                                    {tx.type === 'sent' ? '-' : '+'} {Number(tx.amount || 0).toFixed(2)} {tx.currency}
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedTransaction(tx)}><Printer className="h-4 w-4"/></Button>

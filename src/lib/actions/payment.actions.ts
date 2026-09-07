@@ -195,3 +195,52 @@ export async function processGatewayMobileMoneyPayment(args: any) {
     // Intégration avec service/maxicash.ts (PayIn)
     return { success: true, message: "Demande envoyée au téléphone." };
 }
+
+export async function createMerchantPayment(data: {
+    merchantId: string | number;
+    amount: number;
+    currency: string;
+    description?: string;
+    redirectUrl?: string;
+}): Promise<{ success: boolean; paymentId?: number; error?: string }> {
+    try {
+        const reference = generateReferenceCode();
+
+        const { rows } = await db.query(
+            `INSERT INTO merchant_payments
+            (
+                merchant_id,
+                amount,
+                currency,
+                description,
+                redirect_url,
+                reference,
+                status,
+                created_at
+            )
+            VALUES
+            ($1, $2, $3, $4, $5, $6, 'pending', NOW())
+            RETURNING id`,
+            [
+                data.merchantId,
+                data.amount,
+                data.currency,
+                data.description || 'Paiement marchand',
+                data.redirectUrl || null,
+                reference
+            ]
+        );
+
+        return {
+            success: true,
+            paymentId: rows[0].id
+        };
+
+    } catch (error: any) {
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+

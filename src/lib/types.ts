@@ -79,6 +79,7 @@ export interface User {
     account_type: 'national' | 'diaspora' | 'business';
     id_wallet: string;
     language: SupportedLanguage;
+    ussd_language: 'fr' | 'en';
     full_name: string;
     first_name?: string | null;
     last_name?: string | null;

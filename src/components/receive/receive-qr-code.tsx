@@ -1,241 +1,218 @@
 
-"use client";
+'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import type { User, Currency } from '@/lib/types';
-import { useTranslation } from "react-i18next";
-import { Copy, Printer, Share2 } from 'lucide-react';
-import { Button } from '../ui/button';
-import { useAlertDialog } from '@/hooks/use-alert-dialog';
-import jsPDF from 'jspdf';
-import { Logo } from '@/components/logo';
+import { Copy, Printer, Share2, Check, Loader2, Wallet } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getUserCurrencies } from '@/lib/actions/currency.actions';
-import { getReceiptLogoBase64 } from '@/lib/actions/transaction.actions';
+import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 
+/**
+ * Composant de réception QR Code stabilisé.
+ * Remplace les listes déroulantes par des groupes de boutons pour éviter les bugs de rendu.
+ */
 export function ReceiveQrCode({ user }: { user: User | null }) {
-    const { t } = useTranslation();
-    const { openAlert } = useAlertDialog();
-    const printableRef = useRef<HTMLDivElement>(null);
-    const pdfRef = useRef<HTMLDivElement>(null);
+    const { toast } = useToast();
     const [isClient, setIsClient] = useState(false);
     
-    const [amount, setAmount] = useState<number | ''>('');
-    const [currency, setCurrency] = useState('USD');
-    const [qrValue, setQrValue] = useState<string>(user?.id_wallet || '');
-    const [userCurrencies, setUserCurrencies] = useState<Currency[]>([]);
-    const [logoBase64, setLogoBase64] = useState<string | null>(null);
+    const [amount, setAmount] = useState<string>('');
+    const [selectedCurrency, setSelectedCurrency] = useState('USD');
+    const [currencies, setCurrencies] = useState<Currency[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isGenerating, setIsGenerating] = useState(false);
 
-
+    // Initialisation sécurisée côté client
     useEffect(() => {
         setIsClient(true);
-        if (user) {
-            getUserCurrencies(user.id).then(setUserCurrencies);
-            getReceiptLogoBase64().then(setLogoBase64);
-        }
+        const loadCurrencies = async () => {
+            if (user) {
+                try {
+                    const data = await getUserCurrencies(user.id);
+                    setCurrencies(data);
+                    // Sélectionner par défaut le premier portefeuille avec solde ou USD
+                    const defaultCur = data.find(c => c.code === 'USD') || data[0];
+                    if (defaultCur) setSelectedCurrency(defaultCur.code);
+                } catch (e) {
+                    console.error("Failed to load currencies for QR", e);
+                } finally {
+                    setIsLoading(false);
+                }
+            }
+        };
+        loadCurrencies();
     }, [user]);
 
-    useEffect(() => {
-        if (user && amount && currency) {
-            try {
-                setQrValue(JSON.stringify({
-                    recipient: user.id_wallet,
-                    amount: Number(amount),
-                    currency: currency,
-                }));
-            } catch (error) {
-                console.error("Error creating QR code value:", error);
-                setQrValue(user.id_wallet || '');
-            }
-        } else {
-            setQrValue(user?.id_wallet || '');
+    // Calcul dynamique du QR Code sans rechargement de page
+    const qrValue = useMemo(() => {
+        if (!user) return "";
+        const numericAmount = parseFloat(amount);
+        if (!isNaN(numericAmount) && numericAmount > 0) {
+            return JSON.stringify({
+                recipient: user.id_wallet,
+                amount: numericAmount,
+                currency: selectedCurrency,
+                type: 'PAYMENT_REQUEST'
+            });
         }
-    }, [amount, currency, user]);
-
-
-    if (!user) {
-        return (
-            <Card>
-                <CardHeader>
-                    <CardTitle>{isClient ? t('receiveQrCodeTitle') : 'Your QR Code'}</CardTitle>
-                    <CardDescription>{isClient ? t('receiveQrCodeDescription') : 'Generate a QR code with a specific amount to receive money.'}</CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col items-center justify-center p-8">
-                    <p className="text-muted-foreground">User not found.</p>
-                </CardContent>
-            </Card>
-        );
-    }
-    
-    const pdfDescription = t('receivePdfDescription');
+        return user.id_wallet || "";
+    }, [user, amount, selectedCurrency]);
 
     const copyToClipboard = () => {
         if (user?.id_wallet) {
           navigator.clipboard.writeText(user.id_wallet);
-          openAlert({
-            variant: 'info',
-            title: isClient ? t('toastCopied') : 'Copied!',
-            description: isClient ? t('toastCopiedDescription') : 'Wallet ID copied to clipboard.',
-          });
+          toast({ title: 'Copié !', description: 'Identifiant de portefeuille copié.' });
         }
-      };
-
-    const handlePrint = () => {
-        window.print();
     };
 
-    const handleSharePdf = async () => {
-        const element = pdfRef.current;
-        if (!element) return;
-        
-        const html2canvas = (await import('html2canvas')).default;
-    
-        const canvas = await html2canvas(element, {
-            scale: 2,
-            useCORS: true,
-            windowWidth: element.scrollWidth,
-            windowHeight: element.scrollHeight
-        });
-    
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF({
-            orientation: 'p',
-            unit: 'mm',
-            format: 'a4'
-        });
-    
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = pdf.internal.pageSize.getHeight();
-    
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-        pdf.save('cashpay-qrcode.pdf');
+    const handleDownloadPdf = async () => {
+        if (!user) return;
+        setIsGenerating(true);
+        try {
+            const { default: jsPDF } = await import('jspdf');
+            const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+            
+            doc.setFontSize(22);
+            doc.setTextColor(0, 14, 56); // #000E38
+            doc.text("CASH PAY ALL", 105, 40, { align: 'center' });
+            
+            doc.setFontSize(14);
+            doc.setTextColor(100, 100, 100);
+            doc.text("IDENTIFIANT DE RÉCEPTION SOUVERAIN", 105, 50, { align: 'center' });
+            
+            doc.setDrawColor(255, 102, 0); // #FF6600
+            doc.line(40, 55, 170, 55);
+
+            doc.setFontSize(12);
+            doc.setTextColor(0, 0, 0);
+            doc.text(`Titulaire : ${user.full_name}`, 105, 70, { align: 'center' });
+            doc.text(`Wallet ID : ${user.id_wallet}`, 105, 78, { align: 'center' });
+            
+            if (amount && parseFloat(amount) > 0) {
+                doc.setFontSize(18);
+                doc.text(`MONTANT DEMANDÉ : ${amount} ${selectedCurrency}`, 105, 95, { align: 'center' });
+            }
+
+            doc.setFontSize(10);
+            doc.setTextColor(150, 150, 150);
+            doc.text("Scannez ce code via l'application CashPay pour envoyer des fonds.", 105, 220, { align: 'center' });
+            
+            doc.save(`CashPay_QR_${user.id_wallet}.pdf`);
+        } catch (e) {
+            console.error("PDF generation error", e);
+        } finally {
+            setIsGenerating(false);
+        }
     };
+
+    if (!isClient) return <div className="h-96 flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+
+    if (isLoading) {
+        return (
+            <Card className="border-none shadow-sm">
+                <CardContent className="p-12 flex flex-col items-center gap-4">
+                    <Loader2 className="animate-spin h-10 w-10 text-primary" />
+                    <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Sécurisation du tunnel...</p>
+                </CardContent>
+            </Card>
+        );
+    }
 
     return (
-        <div>
-            {/* Hidden element for PDF generation, positioned off-screen */}
-            <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
-                <div ref={pdfRef} className="p-10 bg-white text-black flex items-center justify-center" style={{ width: '210mm', height: '297mm', fontFamily: 'Arial, sans-serif' }}>
-                    <div className="w-full max-w-lg border border-gray-300 rounded-xl shadow-lg p-10 flex flex-col items-center">
-                        {logoBase64 && <img src={logoBase64} alt="CashPay Logo" className="w-64 mb-8" />}
-                        <div className="text-center mb-6">
-                            <h2 className="text-2xl font-bold text-black">Paiement via CashPay</h2>
-                            <p className="text-md text-gray-600 mt-2">{pdfDescription}</p>
-                        </div>
-                        <div className="bg-white p-3 rounded-lg border-2 border-gray-200">
-                            <QRCodeSVG
-                                value={qrValue}
-                                size={256}
-                                bgColor={"#FFFFFF"}
-                                fgColor={"#000000"}
-                                level={"Q"}
-                                includeMargin={false}
-                            />
-                        </div>
-                        <div className="text-center mt-6">
-                            <Avatar className="h-20 w-20 mx-auto mb-3 border-4" style={{borderColor: '#FF6600'}}>
-                                <AvatarImage src={user.profile_photo || "/avatars/default.png"} alt={user.full_name} />
-                                <AvatarFallback className="text-black bg-gray-200">{user.first_name?.[0]}{user.last_name?.[0]}</AvatarFallback>
-                            </Avatar>
-                            <p className="font-bold text-xl text-black">{user.full_name}</p>
-                            <p className="font-mono text-base text-gray-600 mt-1">{user.id_wallet}</p>
+        <div className="space-y-6">
+            <Card className="border-none shadow-2xl overflow-hidden bg-background">
+                <CardHeader className="bg-primary/5 border-b border-primary/10 text-center py-8">
+                    <CardTitle className="text-2xl font-black uppercase tracking-tight text-primary">Mon QR Code</CardTitle>
+                    <CardDescription>Recevez des fonds instantanément en faisant scanner ce code.</CardDescription>
+                </CardHeader>
+                
+                <CardContent className="p-6 space-y-8">
+                    {/* Groupe de devises : Sélection par blocs pour éviter les listes roulantes */}
+                    <div className="space-y-4">
+                        <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground text-center block">
+                            Sélectionner le portefeuille de réception
+                        </Label>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            {currencies.map((c) => (
+                                <button
+                                    key={c.code}
+                                    type="button"
+                                    onClick={() => setSelectedCurrency(c.code)}
+                                    className={cn(
+                                        "flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all h-20 relative",
+                                        selectedCurrency === c.code 
+                                            ? "border-primary bg-primary/5 text-primary shadow-md" 
+                                            : "border-zinc-100 text-zinc-500 hover:bg-zinc-50"
+                                    )}
+                                >
+                                    <span className="text-sm font-black">{c.code}</span>
+                                    <span className="text-[10px] opacity-60 font-bold mt-1">{c.balance}</span>
+                                    {selectedCurrency === c.code && (
+                                        <div className="absolute top-2 right-2 bg-primary rounded-full p-0.5">
+                                            <Check className="h-3 w-3 text-white" />
+                                        </div>
+                                    )}
+                                </button>
+                            ))}
                         </div>
                     </div>
-                </div>
-            </div>
 
-            <style>
-                {`
-                @media print {
-                    body * {
-                        visibility: hidden;
-                    }
-                    #printable-qr-code, #printable-qr-code * {
-                        visibility: visible;
-                    }
-                    #printable-qr-code {
-                        position: absolute;
-                        left: 50%;
-                        top: 2rem;
-                        transform: translateX(-50%);
-                    }
-                }
-                `}
-            </style>
-            <div id="printable-qr-code" ref={printableRef}>
-                <Card className="w-full">
-                    <CardHeader className="text-center p-4 sm:p-6">
-                        <CardTitle className="text-lg sm:text-xl">{isClient ? t('receiveQrCodeTitle') : 'Your QR Code'}</CardTitle>
-                        <CardDescription className="text-xs sm:text-sm">{isClient ? t('receiveQrCodeDescription') : 'Generate a QR code with a specific amount to receive money.'}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex flex-col items-center gap-4 px-6 pb-6">
-                         <div className="w-full space-y-4">
-                             <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <Label htmlFor="amount">{isClient ? t('receiveAmountLabel') : 'Amount (Optional)'}</Label>
-                                    <Input 
-                                        id="amount" 
-                                        type="number" 
-                                        placeholder="10.00" 
-                                        value={amount}
-                                        onChange={(e) => setAmount(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                                    />
-                                </div>
-                                <div>
-                                    <Label htmlFor="currency">{isClient ? t('currencyLabel') : 'Currency'}</Label>
-                                    <Select value={currency} onValueChange={setCurrency}>
-                                        <SelectTrigger id="currency">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {userCurrencies.map(c => <SelectItem key={c.code} value={c.code}>{c.code}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
+                    {/* Montant flexible */}
+                    <div className="space-y-3">
+                        <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground text-center block">
+                            Montant spécifique (Optionnel)
+                        </Label>
+                        <div className="relative">
+                            <Input 
+                                type="number" 
+                                placeholder="0.00" 
+                                value={amount}
+                                onChange={(e) => setAmount(e.target.value)}
+                                className="h-16 text-4xl font-black text-center border-zinc-200 focus-visible:ring-primary/20 rounded-2xl"
+                            />
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-zinc-400">
+                                {selectedCurrency}
                             </div>
                         </div>
-                        <div className="bg-white p-2 rounded-lg border">
-                            <QRCodeSVG
-                                value={qrValue}
-                                size={192}
-                                bgColor={"#FFFFFF"}
-                                fgColor={"#000000"}
-                                level={"Q"}
+                    </div>
+
+                    {/* Affichage du QR Code */}
+                    <div className="flex flex-col items-center gap-6 py-10 bg-zinc-50 rounded-[2.5rem] border border-zinc-100 shadow-inner">
+                        <div className="bg-white p-6 rounded-[2rem] shadow-2xl border-4 border-white transition-transform hover:scale-105 duration-500">
+                            <QRCodeSVG 
+                                value={qrValue} 
+                                size={220} 
+                                level="H"
                                 includeMargin={false}
                             />
                         </div>
-                        <div className="text-center">
-                            <Avatar className="h-12 w-12 mx-auto mb-2 border-2 border-primary">
-                                <AvatarImage src={user.profile_photo || "/avatars/default.png"} alt={user.full_name} />
-                                <AvatarFallback>{user.first_name?.[0]}{user.last_name?.[0]}</AvatarFallback>
-                            </Avatar>
-                            <p className="font-bold text-base">{user.full_name}</p>
-                            <div className="flex items-center justify-center gap-1 mt-1 text-muted-foreground">
-                                <p className="font-mono text-xs">{user.id_wallet}</p>
-                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={copyToClipboard}>
-                                    <Copy className="h-3 w-3" />
+                        <div className="text-center space-y-3">
+                            <p className="font-black text-xl uppercase tracking-tight text-foreground">{user?.full_name}</p>
+                            <div className="flex items-center justify-center gap-3 text-primary font-mono font-bold bg-primary/10 px-6 py-2.5 rounded-full border border-primary/10">
+                                <span className="tracking-widest">{user?.id_wallet}</span>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 p-0 hover:bg-primary/20 hover:text-primary" onClick={copyToClipboard}>
+                                    <Copy className="h-4 w-4" />
                                 </Button>
                             </div>
                         </div>
-                    </CardContent>
-                </Card>
-            </div>
-            
-            <div className="mt-6 flex flex-col sm:flex-row gap-4">
-                 <Button variant="outline" className="w-full" onClick={handlePrint}>
-                    <Printer className="mr-2 h-4 w-4" />
-                    {isClient ? t('receiptPrintButton') : 'Print Receipt'}
-                </Button>
-                <Button variant="outline" className="w-full" onClick={handleSharePdf}>
-                    <Share2 className="mr-2 h-4 w-4" />
-                    {isClient ? t('shareAsPdf') : 'Share as PDF'}
-                </Button>
-            </div>
+                    </div>
+                </CardContent>
+
+                <CardFooter className="bg-zinc-50/50 border-t flex flex-col sm:flex-row gap-3 p-6">
+                    <Button variant="outline" className="w-full h-12 font-bold text-xs uppercase tracking-widest" onClick={() => window.print()}>
+                        <Printer className="mr-2 h-4 w-4"/> Imprimer
+                    </Button>
+                    <Button variant="outline" className="w-full h-12 font-bold text-xs uppercase tracking-widest" onClick={handleDownloadPdf} disabled={isGenerating}>
+                        {isGenerating ? <Loader2 className="animate-spin h-4 w-4"/> : <Share2 className="mr-2 h-4 w-4"/>} 
+                        Télécharger PDF
+                    </Button>
+                </CardFooter>
+            </Card>
         </div>
     );
 }

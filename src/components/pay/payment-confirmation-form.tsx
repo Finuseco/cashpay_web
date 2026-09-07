@@ -25,7 +25,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { createTransaction } from "@/lib/actions/transaction.actions";
-import { Loader2, UserCheck, ShieldCheck, ArrowDown, Info, ShoppingCart } from "lucide-react";
+import { Loader2, UserCheck, ShieldCheck, ArrowDown, Info, ShoppingCart, ChevronRight, Wallet } from "lucide-react";
 import type { User, Currency, CartItem } from '@/lib/types';
 import { getWalletInfo, type WalletInfo, calculateTransactionFee } from '@/lib/actions/wallet.actions';
 import { Skeleton } from "../ui/skeleton";
@@ -40,7 +40,7 @@ import { processQrSale } from "@/lib/actions/agent.actions";
 import { useRouter } from 'next/navigation';
 import { verifyCurrentUserPin } from "@/lib/actions/auth.actions";
 
-// Helper to safely parse formatted balance strings (e.g. "1,250.75" -> 1250.75)
+// Helper robuste pour parser les balances
 const parseBalance = (val: string | number | undefined | null): number => {
     if (val === undefined || val === null) return 0;
     if (typeof val === 'number') return val;
@@ -50,15 +50,15 @@ const parseBalance = (val: string | number | undefined | null): number => {
 };
 
 const detailsSchema = z.object({
-  paymentCurrency: z.string({ required_error: 'Veuillez sélectionner un portefeuille pour payer.'}),
+  paymentCurrency: z.string({ required_error: 'Veuillez sélectionner un portefeuille.'}),
 });
 
 const pinSchema = z.object({
-  pin: z.string().length(4, "Le PIN doit contenir 4 chiffres."),
+  pin: z.string().length(4, "PIN requis."),
 });
 
 interface PaymentConfirmationFormProps {
-  user: User | null;
+  user: User;
   paymentData: { 
     type?: 'POS_SALE' | 'PAYMENT_REQUEST';
     saleReference?: string;
@@ -78,30 +78,19 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
   const { openAlert } = useAlertDialog();
   const { t } = useTranslation();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [recipientInfo, setRecipientInfo] = useState<WalletInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
   const [isPinDialogOpen, setIsPinDialogOpen] = useState(false);
-  
   const [fee, setFee] = useState(0);
-  
-  const finalAmount = useMemo(() => {
-    let amount = 0;
-    if (paymentData.type === 'POS_SALE' && paymentData.items && paymentData.items.length > 0) {
-      amount = paymentData.items.reduce((sum, item) => {
-          const itemPrice = Number(item.sellingPrice || (item as any).price || 0);
-          const qty = Number(item.quantity || 0);
-          return sum + (itemPrice * qty);
-      }, 0);
-    } else {
-      amount = Number(paymentData.amount) || 0;
-    }
-    return isNaN(amount) ? 0 : amount;
-  }, [paymentData]);
+  const [debitedAmount, setDebitedAmount] = useState(0);
 
-  const [debitedAmount, setDebitedAmount] = useState(finalAmount);
-  
+  useEffect(() => {
+      setMounted(true);
+  }, []);
+
   const detailsForm = useForm<z.infer<typeof detailsSchema>>({
     resolver: zodResolver(detailsSchema),
     defaultValues: { 
@@ -117,102 +106,79 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
   const paymentCurrency = detailsForm.watch('paymentCurrency');
   const recipientWalletId = paymentData.type === 'POS_SALE' ? paymentData.sellerWalletId : paymentData.recipient;
   
-  const positiveBalanceCurrencies = useMemo(() => {
-    return userCurrencies.filter(c => parseBalance(c.balance) > 0);
-  }, [userCurrencies]);
-
-  const calculateAmounts = useCallback(async () => {
-    if (!user || !user.country) return;
-
-    // We treat every scan payment as a transfer/payment for fee purposes
-    const transactionType = paymentData.type === 'POS_SALE' ? 'POS_SALE' : 'PAYMENT';
-    
-    let finalDebitedAmount = Number(finalAmount || 0);
-    let conversionRate = 1;
-
-    // Dynamic conversion logic using SENDER'S country rates
-    if (paymentCurrency !== paymentData.currency) {
-        const rateObj = exchangeRates.find(r => r.from_currency === paymentData.currency && r.to_currency === paymentCurrency);
-        if (rateObj) {
-            conversionRate = rateObj.rate;
-            finalDebitedAmount = Number(finalAmount) * conversionRate;
-        }
+  const finalAmount = useMemo(() => {
+    let amount = Number(paymentData.amount) || 0;
+    if (paymentData.type === 'POS_SALE' && Array.isArray(paymentData.items) && paymentData.items.length > 0) {
+      amount = paymentData.items.reduce((sum, item) => {
+          const itemPrice = Number(item.sellingPrice || (item as any).price || 0);
+          return sum + (itemPrice * Number(item.quantity || 0));
+      }, 0);
     }
+    return isNaN(amount) ? 0 : amount;
+  }, [paymentData]);
 
-    const calculatedFee = await calculateTransactionFee(finalDebitedAmount, paymentCurrency, transactionType, user.country);
-    
-    setDebitedAmount(isNaN(finalDebitedAmount) ? 0 : finalDebitedAmount);
-    setFee(isNaN(calculatedFee) ? 0 : calculatedFee);
-  }, [finalAmount, paymentData.currency, paymentCurrency, exchangeRates, user, paymentData.type]);
-
+  // Chargement des données de référence
   useEffect(() => {
+    if (!mounted) return;
     const fetchInitialData = async () => {
-        if (!recipientWalletId || !user) {
+        if (!recipientWalletId) {
             onSuccess();
             return;
         }
         setIsLoading(true);
-        const [info, rates] = await Promise.all([
-            getWalletInfo(recipientWalletId),
-            getExchangeRatesForCountry(countryToCode(user.country))
-        ]);
+        try {
+            const [info, rates] = await Promise.all([
+                getWalletInfo(recipientWalletId),
+                getExchangeRatesForCountry(countryToCode(user.country))
+            ]);
 
-        if (info.success) {
-            setRecipientInfo(info);
-            setExchangeRates(rates);
-        } else {
-            openAlert({ title: t('payFailedTitle'), description: info.error || "Destinataire invalide.", variant: 'error'});
-            onSuccess();
+            if (info.success) {
+                setRecipientInfo(info);
+                setExchangeRates(rates);
+            } else {
+                openAlert({ title: "Destinataire invalide", description: info.error || "Le portefeuille de destination est introuvable.", variant: 'error'});
+                onSuccess();
+            }
+        } catch (e) {
+            console.error("Initial data fetch failed", e);
+        } finally {
+            setIsLoading(false);
         }
-        setIsLoading(false);
     };
     fetchInitialData();
-  }, [recipientWalletId, openAlert, t, onSuccess, user]);
+  }, [mounted, recipientWalletId, user, openAlert, onSuccess]);
   
-  useEffect(() => {
-    const autoSelectCurrency = async () => {
-      if (isLoading || !user?.country) return;
-      
-      const transactionType = paymentData.type === 'POS_SALE' ? 'POS_SALE' : 'PAYMENT';
-      const requiredInDefaultCurrency = finalAmount; // Approximate, ignoring fee for first pass
-      const defaultCurrencyBalance = parseBalance(userCurrencies.find(c => c.code === paymentData.currency)?.balance);
+  // Calcul automatique des montants et frais
+  const calculateAmounts = useCallback(async () => {
+    if (!user?.country || !mounted) return;
 
-      if (defaultCurrencyBalance < requiredInDefaultCurrency) {
-        for (const altCurrency of positiveBalanceCurrencies) {
-          if (altCurrency.code === paymentData.currency) continue;
+    const transactionType = paymentData.type === 'POS_SALE' ? 'POS_SALE' : 'PAYMENT';
+    let finalDebitedAmount = Number(finalAmount);
+    let conversionRate = 1;
 
-          const rate = exchangeRates.find(r => r.from_currency === paymentData.currency && r.to_currency === altCurrency.code)?.rate;
-          if (rate) {
-            const requiredInAltCurrency = requiredInDefaultCurrency * rate;
-            const altBalance = parseBalance(altCurrency.balance);
-            if (altBalance >= requiredInAltCurrency) {
-              detailsForm.setValue('paymentCurrency', altCurrency.code);
-              return;
-            }
-          }
+    if (paymentCurrency !== paymentData.currency) {
+        const rateObj = exchangeRates.find(r => r.from_currency === paymentData.currency && r.to_currency === paymentCurrency);
+        if (rateObj) {
+            conversionRate = rateObj.rate;
+            finalDebitedAmount = finalAmount * conversionRate;
         }
-      } else {
-          detailsForm.setValue('paymentCurrency', paymentData.currency);
-      }
-    };
-    autoSelectCurrency();
-  }, [isLoading, user, finalAmount, paymentData, userCurrencies, exchangeRates, detailsForm, positiveBalanceCurrencies]);
+    }
 
+    try {
+        const calculatedFee = await calculateTransactionFee(finalDebitedAmount, paymentCurrency, transactionType, user.country);
+        setDebitedAmount(finalDebitedAmount);
+        setFee(calculatedFee);
+    } catch (e) {
+        console.error("Fee calculation failed", e);
+    }
+  }, [mounted, finalAmount, paymentData.currency, paymentCurrency, exchangeRates, user, paymentData.type]);
 
   useEffect(() => {
     calculateAmounts();
   }, [calculateAmounts]);
 
-
-  const handleOpenPinDialog = (values: z.infer<typeof detailsSchema>) => {
-    setIsPinDialogOpen(true);
-  }
-
-  async function handlePinConfirm(values: z.infer<typeof pinSchema>) {
-    if (!user || !recipientInfo?.success) {
-      openAlert({ variant: "error", title: t('payFailedTitle'), description: "Utilisateur ou destinataire invalide." });
-      return;
-    }
+  const handlePinConfirm = async (values: z.infer<typeof pinSchema>) => {
+    if (!user || !recipientInfo?.success) return;
     
     setIsSubmitting(true);
     let result;
@@ -220,124 +186,141 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
     const transactionData = {
         ...paymentData,
         amount: finalAmount,
-        paymentCurrency: paymentCurrency, // Devise de débit choisie
+        paymentCurrency: paymentCurrency,
         pin: values.pin,
     };
 
-    if (paymentData.type === 'POS_SALE') {
-        result = await processQrSale(user.id, transactionData);
-    } else {
-        const pinVerification = await verifyCurrentUserPin(values.pin);
-        if (!pinVerification.success) {
-            openAlert({ variant: "error", title: "PIN Incorrect", description: pinVerification.error });
-            setIsSubmitting(false);
-            pinForm.reset();
-            return;
+    try {
+        if (paymentData.type === 'POS_SALE') {
+            result = await processQrSale(user.id, transactionData);
+        } else {
+            const pinVerification = await verifyCurrentUserPin(values.pin);
+            if (!pinVerification.success) {
+                throw new Error(pinVerification.error || "Code PIN incorrect.");
+            }
+            result = await createTransaction({
+                user: user,
+                typeCode: 'PAYMENT',
+                amount: finalAmount,
+                currency: paymentData.currency,
+                sourceCurrency: paymentCurrency,
+                description: `Paiement à ${recipientInfo.userName}`,
+                receiver_id: recipientInfo.userId,
+                metadata: { qr_payment: true }
+            });
         }
-        result = await createTransaction({
-            user: user,
-            typeCode: 'PAYMENT',
-            amount: finalAmount,
-            currency: paymentData.currency,
-            sourceCurrency: paymentCurrency, // Débit dans la devise choisie
-            description: `Paiement à ${recipientInfo.userName}`,
-            receiver_id: recipientInfo.userId,
-            metadata: { qr_payment: true }
-        });
-    }
 
-    setIsSubmitting(false);
-    setIsPinDialogOpen(false);
-    pinForm.reset();
-
-    if (result.success) {
-        onSuccess();
-    } else {
-      openAlert({
-        variant: "error",
-        title: t('payFailedTitle'),
-        description: result.error,
-      });
+        if (result.success) {
+            openAlert({
+                title: "Paiement réussi",
+                description: `Le paiement de ${finalAmount} ${paymentData.currency} a été effectué avec succès.`,
+                variant: 'success',
+                onClose: () => {
+                    setIsPinDialogOpen(false);
+                    onSuccess();
+                    router.push('/transactions');
+                }
+            });
+        } else {
+            throw new Error(result.error || "La transaction a échoué.");
+        }
+    } catch (e: any) {
+        openAlert({ title: "Échec du paiement", description: e.message, variant: 'error' });
+        pinForm.reset();
+    } finally {
+        setIsSubmitting(false);
     }
-  }
-  
+  };
+
   const recipientCountryDetails = recipientInfo?.countryCode ? getCountryByCode(recipientInfo.countryCode) : null;
-  const paymentWalletBalance = parseBalance(userCurrencies.find(c => c.code === paymentCurrency)?.balance);
-  
-  const debitSymbol = userCurrencies.find(c => c.code === paymentCurrency)?.symbol || '$';
-  const originalSymbol = userCurrencies.find(c => c.code === paymentData.currency)?.symbol || '$';
-  
-  const hasSufficientBalance = paymentWalletBalance >= (debitedAmount + fee);
+  const paymentWallet = userCurrencies.find(c => c.code === paymentCurrency);
+  const paymentWalletBalance = parseBalance(paymentWallet?.balance);
+  const totalWithFee = debitedAmount + fee;
+  const hasSufficientBalance = paymentWalletBalance >= totalWithFee;
+
+  if (!mounted) return null;
 
   return (
     <>
     <Dialog open={isPinDialogOpen} onOpenChange={setIsPinDialogOpen}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><ShieldCheck/> {t('pinConfirmTitle')}</DialogTitle>
-          <DialogDescription>
-            {t('pinConfirmDescription', { total: (debitedAmount + fee).toLocaleString(undefined, {minimumFractionDigits: 2}), currency: debitSymbol })}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="text-sm space-y-1 my-2 p-3 bg-muted/50 rounded-lg">
-          <div className="flex justify-between"><span>{t('paymentToLabel')}</span><span className="font-semibold">{paymentData.sellerName || recipientInfo?.userName}</span></div>
-          <div className="flex justify-between font-bold text-lg pt-2 border-t mt-2 text-primary"><span>{t('totalDebitLabel')}</span><span>{debitSymbol}{(debitedAmount + fee).toLocaleString(undefined, {minimumFractionDigits: 2})}</span></div>
-        </div>
-        <Form {...pinForm}>
-          <form onSubmit={pinForm.handleSubmit(handlePinConfirm)} className="space-y-6 pt-4">
-            <FormField control={pinForm.control} name="pin" render={({ field }) => ( <FormItem><FormLabel>{t('securityPinLabel')}</FormLabel><FormControl><div className="flex justify-center"><InputOTP maxLength={4} {...field}><InputOTPGroup><InputOTPSlot index={0} /><InputOTPSlot index={1} /><InputOTPSlot index={2} /><InputOTPSlot index={3} /></InputOTPGroup></InputOTP></div></FormControl><FormMessage /></FormItem> )}/>
-            <DialogFooter>
-              <Button type="submit" variant="gradient" className="w-full" disabled={isSubmitting}> {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {t('confirmPaymentButton')} </Button>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
+        <DialogContent className="max-w-xs p-6 bg-zinc-900 border-zinc-800 text-white rounded-[2rem]">
+            <DialogHeader className="text-center">
+                <div className="h-12 w-12 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-2"><ShieldCheck className="text-primary"/></div>
+                <DialogTitle>Validation PIN</DialogTitle>
+                <DialogDescription className="text-zinc-400 text-xs">Confirmation du débit de {totalWithFee.toFixed(2)} {paymentCurrency}.</DialogDescription>
+            </DialogHeader>
+             <Form {...pinForm}>
+                <form onSubmit={pinForm.handleSubmit(handlePinConfirm)} className="space-y-6 pt-4 text-center">
+                    <FormField control={pinForm.control} name="pin" render={({ field }) => (
+                        <FormControl>
+                            <div className="flex justify-center">
+                                <InputOTP maxLength={4} {...field}>
+                                    <InputOTPGroup><InputOTPSlot index={0}/><InputOTPSlot index={1}/><InputOTPSlot index={2}/><InputOTPSlot index={3}/></InputOTPGroup>
+                                </InputOTP>
+                            </div>
+                        </FormControl>
+                    )} />
+                    <Button type="submit" variant="gradient" className="w-full h-12 font-black" disabled={isSubmitting}>
+                        {isSubmitting ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : "CONFIRMER LE PAIEMENT"}
+                    </Button>
+                </form>
+            </Form>
+        </DialogContent>
     </Dialog>
-    <Card>
-      <CardHeader>
-        {isLoading ? <Skeleton className="h-6 w-3/4" /> : <CardTitle>{t('payConfirmTitle', { recipient: paymentData.sellerName || recipientInfo?.userName || paymentData.recipient })}</CardTitle>}
-        {isLoading ? <Skeleton className="h-4 w-1/2 mt-1" /> : (
-            <div className="flex items-center gap-2 text-muted-foreground">
-                <p className="text-sm">{recipientInfo?.walletId}</p>
-                {recipientCountryDetails && <Image src={`https://flagcdn.com/w20/${recipientCountryDetails.code.toLowerCase()}.png`} width={16} height={12} alt={recipientCountryDetails.name}/>}
-            </div>
+
+    <Card className="border-none shadow-2xl bg-white rounded-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+      <CardHeader className="text-center bg-primary/5 pb-4 border-b border-primary/10">
+        <div className="h-12 w-12 bg-white rounded-full shadow-sm flex items-center justify-center mx-auto mb-3">
+            <ShoppingCart className="h-6 w-6 text-primary" />
+        </div>
+        {isLoading ? <div className="space-y-2"><Skeleton className="h-6 w-32 mx-auto"/><Skeleton className="h-4 w-48 mx-auto"/></div> : (
+            <>
+                <CardTitle className="text-xl font-bold">{paymentData.sellerName || recipientInfo?.userName || "Destinataire"}</CardTitle>
+                <div className="flex items-center justify-center gap-2 mt-1">
+                    <p className="text-xs font-mono text-primary font-bold">{recipientWalletId}</p>
+                    {recipientCountryDetails && <Image src={`https://flagcdn.com/w20/${recipientCountryDetails.code.toLowerCase()}.png`} width={16} height={12} alt="" className="rounded-sm" />}
+                </div>
+            </>
         )}
       </CardHeader>
-      <CardContent>
-        {paymentData.items && paymentData.items.length > 0 && (
-            <div className="mb-4">
-                <h4 className="font-semibold mb-2 flex items-center gap-2"><ShoppingCart className="h-4 w-4"/> {t('itemsLabel')}</h4>
-                <div className="space-y-2 border rounded-md p-2 max-h-40 overflow-y-auto">
-                    {paymentData.items.map(item => {
-                        const itemPrice = Number(item.sellingPrice || (item as any).price || 0);
-                        const itemTotal = itemPrice * Number(item.quantity || 0);
-                        return (
-                            <div key={item.id} className="flex justify-between items-center text-sm">
-                                <span className="flex-1 truncate pr-2">{item.name} (x{item.quantity})</span>
-                                <span className="font-mono">{originalSymbol}{itemTotal.toFixed(2)}</span>
-                            </div>
-                        )
-                    })}
+      <CardContent className="pt-6 space-y-6">
+        {Array.isArray(paymentData.items) && paymentData.items.length > 0 && (
+            <div className="space-y-3">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-400 pl-1">Récapitulatif Articles</h4>
+                <div className="space-y-2 max-h-32 overflow-y-auto pr-1 custom-scrollbar">
+                    {paymentData.items.map(item => (
+                        <div key={item.id} className="flex justify-between items-center text-xs p-2 bg-zinc-50 rounded-lg">
+                            <span className="font-bold flex-1 truncate">{item.name} <span className="text-zinc-400 font-normal">x{item.quantity}</span></span>
+                            <span className="font-black">${(currentPrice(item, item.quantity) * item.quantity).toFixed(2)}</span>
+                        </div>
+                    ))}
                 </div>
             </div>
         )}
-        <div className="mb-6 p-4 bg-muted/50 rounded-lg text-center">
-            <p className="text-sm text-muted-foreground">{t('payAmountToPay')}</p>
-            <p className="text-3xl font-bold text-foreground">{originalSymbol}{(finalAmount || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+
+        <div className="p-6 bg-primary/5 rounded-[2rem] text-center border-2 border-dashed border-primary/10 shadow-inner">
+            <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Montant Total</p>
+            <p className="text-4xl font-black text-primary mt-1">{paymentData.currency === 'EUR' ? '€' : '$'}{finalAmount.toFixed(2)}</p>
         </div>
+
         <Form {...detailsForm}>
-          <form onSubmit={detailsForm.handleSubmit(handleOpenPinDialog)} className="space-y-4">
+          <form onSubmit={detailsForm.handleSubmit(() => setIsPinDialogOpen(true))} className="space-y-6">
               <FormField
                   control={detailsForm.control}
                   name="paymentCurrency"
                   render={({ field }) => (
                       <FormItem>
-                          <FormLabel>{t('payWithWallet')}</FormLabel>
+                          <FormLabel className="text-[10px] font-black uppercase tracking-widest text-zinc-500 pl-1">Payer avec le portefeuille</FormLabel>
                           <Select onValueChange={field.onChange} value={field.value}>
-                              <FormControl><SelectTrigger><SelectValue placeholder={t('paySelectWalletPlaceholder')} /></SelectTrigger></FormControl>
+                              <FormControl><SelectTrigger className="h-12 rounded-xl bg-zinc-50"><SelectValue /></SelectTrigger></FormControl>
                               <SelectContent>
-                                  {positiveBalanceCurrencies.map(c => (
-                                      <SelectItem key={c.code} value={c.code}>{c.name} ({c.symbol}{c.balance})</SelectItem>
+                                  {userCurrencies.map(c => (
+                                      <SelectItem key={c.code} value={c.code}>
+                                          <div className="flex items-center gap-2">
+                                              <span className="font-bold">{c.code}</span>
+                                              <span className="text-zinc-400">({c.symbol}{c.balance})</span>
+                                          </div>
+                                      </SelectItem>
                                   ))}
                               </SelectContent>
                           </Select>
@@ -345,26 +328,37 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
                   )}
               />
               
-              <div className="text-sm text-center text-muted-foreground">
-                  <p>{t('payDebitedAmount')}: ~{debitSymbol}{(debitedAmount + fee).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
-                  <p className="text-[10px] uppercase font-bold text-primary mt-1 flex items-center justify-center gap-1">
-                    <ShieldCheck className="h-3 w-3"/> Frais de sécurité inclus
-                  </p>
+              <div className="p-4 bg-zinc-50 rounded-2xl space-y-2 text-xs border border-zinc-100">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Estimation débit</span>
+                    <span className="font-bold">{debitedAmount.toFixed(2)} {paymentCurrency}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Frais réseau</span>
+                    <span className="font-bold text-orange-600">+{fee.toFixed(2)} {paymentCurrency}</span>
+                  </div>
+                  <Separator className="bg-zinc-200" />
+                  <div className="flex justify-between items-center font-black text-primary text-sm pt-1">
+                      <span className="uppercase tracking-widest">Total Net</span>
+                      <span>{totalWithFee.toFixed(2)} {paymentCurrency}</span>
+                  </div>
               </div>
             
-            {!hasSufficientBalance && (
-                 <Alert variant="destructive">
-                    <Info className="h-4 w-4" />
-                    <AlertTitle>{t('insufficientBalanceTitle')}</AlertTitle>
-                    <AlertDescription>
-                        Vous n'avez pas assez de fonds pour effectuer ce paiement.
+            {!hasSufficientBalance && !isLoading && (
+                 <Alert variant="destructive" className="rounded-xl bg-red-50 border-red-100">
+                    <AlertTitle className="text-xs font-black uppercase">Solde insuffisant</AlertTitle>
+                    <AlertDescription className="text-[10px]">
+                        Veuillez recharger votre portefeuille {paymentCurrency} pour valider cet achat.
                     </AlertDescription>
                 </Alert>
             )}
             
-            <Button type="submit" variant="gradient" className="w-full" disabled={isLoading || isSubmitting || !hasSufficientBalance}>
-              {isLoading || isSubmitting ? <Loader2 className="animate-spin" /> : t('payConfirmButton')}
-            </Button>
+            <div className="flex flex-col gap-3">
+                <Button type="submit" variant="gradient" className="w-full h-14 text-lg font-black shadow-xl rounded-2xl" disabled={isLoading || isSubmitting || !hasSufficientBalance}>
+                    PAYER MAINTENANT
+                </Button>
+                <Button type="button" variant="ghost" onClick={onSuccess} className="text-zinc-400 font-bold uppercase text-[10px] tracking-widest">Annuler la transaction</Button>
+            </div>
           </form>
         </Form>
       </CardContent>

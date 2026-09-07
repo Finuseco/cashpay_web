@@ -1,13 +1,20 @@
-
 import type {Metadata} from 'next';
+
 import './globals.css';
+
 import { Providers } from '@/components/providers';
+
 import { PageLoader } from '@/components/ui/page-loader';
+
 import { PushNotificationHandler } from '@/components/push-notification-handler';
 
 
+
+export const dynamicParams = true;
+
+
 export const metadata: Metadata = {
-  title: 'CashPay',
+  title: 'CashPay All',
   description: 'Your digital financial services solution.',
 };
 

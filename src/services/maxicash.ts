@@ -1,86 +1,15 @@
-
-'use server';
-
-import crypto from 'crypto';
-import type { User } from '@/lib/types';
-
 /**
- * @fileoverview Service de communication avec l'API Server-to-Server MaxiCash.
- * Centralise les encaissements (PayIn) et les décaissements (PayOut).
- * Documentation officielle : https://developer.maxicashme.com/
- */
-
-const MERCHANT_ID = process.env.MAXICASH_MERCHANT_ID;
-const MERCHANT_PASSWORD = process.env.MAXICASH_MERCHANT_PASSWORD;
-const API_URL = process.env.NODE_ENV === 'production' 
-    ? 'https://api.maxicashme.com/Merchant/api.asmx'
-    : 'https://api-testbed.maxicashme.com/Merchant/api.asmx';
-
-interface PaymentHashArgs {
-    reference: string;
-    amount: string;
-}
-
-/**
- * Génère le hash de vérification (SHA256) requis par MaxiCash.
- * Format : MerchantID + MerchantPassword + Reference + Amount
- */
-export async function getPaymentHash(args: PaymentHashArgs): Promise<string> {
-    if (!MERCHANT_ID || !MERCHANT_PASSWORD) {
-        throw new Error("Identifiants de paiement non configurés.");
-    }
-    const { reference, amount } = args;
-    const dataToHash = `${MERCHANT_ID}${MERCHANT_PASSWORD}${reference}${amount}`;
-    return crypto.createHash('sha256').update(dataToHash, 'latin1').digest('hex');
-}
-
-/**
- * Mappe l'identifiant interne de l'opérateur et le pays vers le code technique MaxiCash.
- */
-function mapProvider(operator: string, countryCode: string): string {
-    const code = (countryCode || 'CD').toUpperCase();
-    const op = operator.toLowerCase();
-
-    const mapping: Record<string, Record<string, string>> = {
-        'CD': {
-            'mpesa': 'mpesa-rdc',
-            'orange': 'orange-money-rdc',
-            'airtel': 'airtel-money-rdc',
-            'afrimoney': 'afrimoney-rdc',
-            'mtn': 'mtn-rdc'
-        },
-        'CG': {
-            'mtn': 'mtn-congo',
-            'airtel': 'airtel-congo'
-        },
-        'GA': {
-            'airtel': 'airtel-gabon',
-            'moov': 'moov-gabon'
-        },
-        'SN': {
-            'orange': 'orange-money-senegal',
-            'free': 'free-money-senegal'
-        },
-        'CI': {
-            'mtn': 'mtn-cote-ivoire',
-            'moov': 'moov-cote-ivoire',
-            'orange': 'orange-money-cote-ivoire'
-        },
-        'BJ': {
-            'mtn': 'mtn-benin',
-            'moov': 'moov-benin'
-        },
-        'CM': {
-            'mtn': 'mtn-cameroun',
-            'orange': 'orange-money-cameroun'
-        }
-    };
-
-    return mapping[code]?.[op] || `${op}-${code.toLowerCase()}`;
-}
-
-/**
- * Traite un paiement Mobile Money (C2B) via l'API Directe (PayIn).
+ * Initie un paiement Mobile Money via MaxiCash.
+ *
+ * IMPORTANT :
+ * Cette fonction ne crédite JAMAIS le wallet.
+ *
+ * Une réponse positive de MaxiCash signifie uniquement que
+ * la demande a été acceptée/initiée.
+ *
+ * Le crédit du wallet doit exclusivement être effectué après
+ * confirmation finale de MaxiCash par webhook ou vérification
+ * de statut.
  */
 export async function processMaxiCashMobilePayment(args: {
     amount: number;
@@ -90,140 +19,196 @@ export async function processMaxiCashMobilePayment(args: {
     reference: string;
     countryCode: string;
     user?: User;
-}): Promise<{ success: boolean; data?: any; message?: string }> {
-    if (!MERCHANT_ID || !MERCHANT_PASSWORD) return { success: false, message: "Service en maintenance." };
+}): Promise<{
+    success: boolean;
+    pending?: boolean;
+    data?: {
+        transactionId?: string;
+        statusCode?: string;
+        statusMessage?: string;
+    };
+    message?: string;
+}> {
+    if (!MERCHANT_ID || !MERCHANT_PASSWORD) {
+        return {
+            success: false,
+            pending: false,
+            message: "Service MaxiCash indisponible.",
+        };
+    }
 
-    const { amount, currency, reference, phoneNumber, operator, countryCode, user } = args;
+    const {
+        amount,
+        currency,
+        reference,
+        phoneNumber,
+        operator,
+        countryCode,
+        user,
+    } = args;
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+        return {
+            success: false,
+            pending: false,
+            message: "Montant invalide.",
+        };
+    }
+
     const amountStr = amount.toFixed(2);
     const provider = mapProvider(operator, countryCode);
 
     try {
-        const payVerifyHash = await getPaymentHash({ reference, amount: amountStr });
+        const payVerifyHash = await getPaymentHash({
+            reference,
+            amount: amountStr,
+        });
 
         const soapRequestBody = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+<soap:Envelope
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+  xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+
   <soap:Body>
     <PayIn xmlns="http://www.maxicashme.com/Api">
+
       <PayType>mobile</PayType>
+
       <MerchantID>${MERCHANT_ID}</MerchantID>
+
       <MerchantPassword>${MERCHANT_PASSWORD}</MerchantPassword>
+
       <Amount>${amountStr}</Amount>
+
       <Currency>${currency}</Currency>
+
       <Ref>${reference}</Ref>
+
       <PayVerifyHash>${payVerifyHash}</PayVerifyHash>
-      <ClientName>${user?.full_name || 'Client CashPay'}</ClientName>
-      <ClientEmail>${user?.email || 'noreply@cashpay-all.com'}</ClientEmail>
+
+      <ClientName>${user?.full_name || "Client CashPay"}</ClientName>
+
+      <ClientEmail>${user?.email || "noreply@cashpay-all.com"}</ClientEmail>
+
       <ClientTelephone>${user?.phone || phoneNumber}</ClientTelephone>
+
       <PhoneNumber>${phoneNumber}</PhoneNumber>
+
       <Provider>${provider}</Provider>
+
     </PayIn>
   </soap:Body>
 </soap:Envelope>`;
 
-        const response = await fetch(API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': '"http://www.maxicashme.com/Api/PayIn"'
-            },
-            body: soapRequestBody
-        });
-        
-        const responseText = await response.text();
-        const statusCodeMatch = responseText.match(/<StatusCode>(.*?)<\/StatusCode>/);
-        const statusMessageMatch = responseText.match(/<StatusMessage>(.*?)<\/StatusMessage>/);
-        const transactionIdMatch = responseText.match(/<TransactionID>(.*?)<\/TransactionID>/);
-        
-        if (statusCodeMatch?.[1] === '000') {
-            return {
-                success: true,
-                message: "Demande envoyée au téléphone.",
-                data: { transactionId: transactionIdMatch?.[1] }
-            };
-        }
-
-        return { 
-            success: false, 
-            message: statusMessageMatch?.[1] || "Échec de l'initiation du paiement." 
-        };
-
-    } catch (error: any) {
-        return { success: false, message: "Erreur de communication avec le réseau." };
-    }
-}
-
-/**
- * Traite un décaissement (Payout) vers Mobile Money (B2C).
- */
-export async function processMaxiCashPayout(args: {
-    amount: number;
-    currency: string;
-    recipientPhone: string;
-    operator: string;
-    countryCode: string;
-    reference: string;
-    beneficiaryName: string;
-    user: User;
-}): Promise<{ success: boolean; data?: any; message?: string }> {
-    if (!MERCHANT_ID || !MERCHANT_PASSWORD) return { success: false, message: "Service non disponible." };
-
-    const { amount, currency, recipientPhone, operator, countryCode, reference, beneficiaryName, user } = args;
-    const amountStr = amount.toFixed(2);
-    const provider = mapProvider(operator, countryCode);
-
-    try {
-        const payVerifyHash = await getPaymentHash({ reference, amount: amountStr });
-
-        const soapRequestBody = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-  <soap:Body>
-    <PayOut xmlns="http://www.maxicashme.com/Api">
-      <MerchantID>${MERCHANT_ID}</MerchantID>
-      <MerchantPassword>${MERCHANT_PASSWORD}</MerchantPassword>
-      <Amount>${amountStr}</Amount>
-      <Currency>${currency}</Currency>
-      <Ref>${reference}</Ref>
-      <PayVerifyHash>${payVerifyHash}</PayVerifyHash>
-      <ClientName>${user.full_name}</ClientName>
-      <ClientEmail>${user.email || 'noreply@cashpay-all.com'}</ClientEmail>
-      <ClientTelephone>${user.phone || ''}</ClientTelephone>
-      <BeneficiaryName>${beneficiaryName}</BeneficiaryName>
-      <BeneficiaryEmail>noreply@cashpay-all.com</BeneficiaryEmail>
-      <BeneficiaryTelephone>${recipientPhone}</BeneficiaryTelephone>
-      <PhoneNumber>${recipientPhone}</PhoneNumber>
-      <Provider>${provider}</Provider>
-    </PayOut>
-  </soap:Body>
-</soap:Envelope>`;
+        console.log(
+            `[MaxiCash] Initiating deposit ${reference}: ` +
+            `${amountStr} ${currency} / ${phoneNumber} / ${provider}`
+        );
 
         const response = await fetch(API_URL, {
-            method: 'POST',
+            method: "POST",
             headers: {
-                'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': '"http://www.maxicashme.com/Api/PayOut"'
+                "Content-Type": "text/xml; charset=utf-8",
+                "SOAPAction":
+                    '"http://www.maxicashme.com/Api/PayIn"',
             },
-            body: soapRequestBody
+            body: soapRequestBody,
         });
 
         const responseText = await response.text();
-        const statusCodeMatch = responseText.match(/<StatusCode>(.*?)<\/StatusCode>/);
-        const statusMessageMatch = responseText.match(/<StatusMessage>(.*?)<\/StatusMessage>/);
-        const transactionIdMatch = responseText.match(/<TransactionID>(.*?)<\/TransactionID>/);
 
-        if (statusCodeMatch?.[1] === '000') {
+        console.log(
+            `[MaxiCash] Raw response for ${reference}:`,
+            responseText
+        );
+
+        const statusCode =
+            responseText.match(
+                /<StatusCode>(.*?)<\/StatusCode>/
+            )?.[1] || "";
+
+        const statusMessage =
+            responseText.match(
+                /<StatusMessage>(.*?)<\/StatusMessage>/
+            )?.[1] || "";
+
+        const transactionId =
+            responseText.match(
+                /<TransactionID>(.*?)<\/TransactionID>/
+            )?.[1] || "";
+
+        /*
+         * MaxiCash a accepté la demande.
+         *
+         * ATTENTION :
+         * "000" ici ne signifie PAS que CashPay doit créditer
+         * le wallet.
+         *
+         * Il signifie que la demande est acceptée/initiée.
+         */
+        if (statusCode === "000") {
+            console.log(
+                `[MaxiCash] Deposit ${reference} accepted and pending confirmation. ` +
+                `MaxiCash TransactionID=${transactionId}`
+            );
+
             return {
                 success: true,
-                message: "Virement Mobile Money effectué.",
-                data: { transactionId: transactionIdMatch?.[1] }
+                pending: true,
+                message:
+                    "Demande de dépôt envoyée. " +
+                    "Veuillez confirmer le paiement sur votre téléphone.",
+                data: {
+                    transactionId: transactionId || undefined,
+                    statusCode,
+                    statusMessage,
+                },
             };
         }
 
-        return { 
-            success: false, 
-            message: statusMessageMatch?.[1] || "Le virement a été refusé par le réseau." 
+        /*
+         * La demande n'a pas été acceptée par MaxiCash.
+         *
+         * Dans ce cas, CashPay pourra passer la transaction
+         * Pending -> Failed.
+         */
+        console.warn(
+            `[MaxiCash] Deposit ${reference} rejected. ` +
+            `StatusCode=${statusCode}, Status=${statusMessage}`
+        );
+
+        return {
+            success: false,
+            pending: false,
+            message:
+                statusMessage ||
+                "MaxiCash n'a pas accepté la demande de dépôt.",
+            data: {
+                transactionId: transactionId || undefined,
+                statusCode,
+                statusMessage,
+            },
         };
 
-    } catch (error: any) {
-        return { success: false, message: "Erreur de connexion au centre de décaissement." };
+    } catch (error) {
+        console.error(
+            `[MaxiCash] Communication error for ${reference}:`,
+            error
+        );
+
+        /*
+         * Une erreur réseau ne signifie PAS que le dépôt est
+         * réussi.
+         *
+         * On ne crédite donc absolument rien.
+         */
+        return {
+            success: false,
+            pending: true,
+            message:
+                "Votre demande est en cours de vérification. " +
+                "Veuillez patienter avant de refaire un dépôt.",
+        };
     }
 }

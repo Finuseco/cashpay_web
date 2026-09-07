@@ -6,10 +6,10 @@ export function OnChatLogo({ className }: { className?: string }) {
   return (
     <Image 
         src="/logos/onchat.png"
-        alt="OnChat Logo"
-        width={120}
-        height={40}
-        className={cn("w-28 h-auto", className)}
+        alt=""
+        width={30}
+        height={12}
+        className={cn("w-15 h-auto", className)}
     />
   );
 }

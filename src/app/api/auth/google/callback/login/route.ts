@@ -1,6 +1,7 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
-import { getGoogleTokens, getGoogleUserProfile, linkGoogleAccount, findUserByGoogleId, logUserSessionAndNotify } from '@/lib/actions/user.actions';
+import { getGoogleTokens, getGoogleUserProfile, linkGoogleAccount, findUserByGoogleId } from '@/lib/actions/google.actions';
+import { logUserSessionAndNotify } from '@/lib/actions/auth.actions';
 import { generateToken } from '@/lib/jwt';
 import { cookies } from 'next/headers';
 

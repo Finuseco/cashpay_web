@@ -1,281 +1,188 @@
 
-"use client";
+'use client';
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Info, AlertCircle } from "lucide-react";
-import { Slider } from "@/components/ui/slider";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle, Loader2, ShieldCheck, Check } from "lucide-react";
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { createLoanApplication } from "@/lib/actions/loan.actions";
 import type { User, Currency } from "@/lib/types";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
+import { Separator } from "../ui/separator";
 
-// Define loan limits for first-time and regular borrowers
-const firstLoanLimits = {
-    USD: { min: 1, max: 100, step: 1, symbol: '$' },
-    CDF: { min: 5000, max: 300000, step: 1000, symbol: 'FC' },
-};
-const regularLoanLimits = {
-    USD: { min: 1, max: 50000, step: 50, symbol: '$' },
-    CDF: { min: 5000, max: 142500000, step: 1000, symbol: 'FC' },
-};
+const currencySymbols: Record<string, string> = { USD: '$', EUR: '€', CDF: 'FC' };
+const supportedDurations = [1, 3, 6, 12, 24];
 
-const IS_FIRST_LOAN = true; 
-const loanConfig = IS_FIRST_LOAN ? firstLoanLimits : regularLoanLimits;
-
-const formSchema = z.object({
-  currency: z.string({ required_error: "Please select a currency." }),
-  amount: z.coerce.number(),
-  purpose: z.string({ required_error: "Please select a loan purpose." }),
-  duration: z.number().min(3).max(24),
-});
-
-export function LoanForm({ user, currencies }: { user: User | null, currencies: Currency[] }) {
+export function LoanForm({ user, currencies, interestRate = 3.66, durations = supportedDurations }: { user: User | null, currencies: Currency[], interestRate?: number, durations?: number[] }) {
   const { openAlert } = useAlertDialog();
-  const { t } = useTranslation();
-  const [collateralError, setCollateralError] = useState<string | null>(null);
-  const [isClient, setIsClient] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const allowedDurations = durations.length ? durations : supportedDurations;
+  const formSchema = useMemo(() => z.object({
+    currency: z.string({ required_error: "Devise requise." }),
+    amount: z.coerce.number().positive("Montant invalide."),
+    purpose: z.string({ required_error: "Motif requis." }),
+    duration: z.coerce.number().refine(v => allowedDurations.includes(v), "Durée de remboursement invalide."),
+  }), [allowedDurations.join(",")]);
+
 
   const loanPurposes = [
-    t('loanPurposeBusiness'),
-    t('loanPurposeEducation'),
-    t('loanPurposeMedical'),
-    t('loanPurposeRenovation'),
-    t('loanPurposePersonal'),
-    t('loanPurposeOther'),
+    { id: 'business', label: "Développement" },
+    { id: 'education', label: "Frais Scolaires" },
+    { id: 'medical', label: "Santé" },
+    { id: 'personal', label: "Consommation" },
   ];
   
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      currency: "USD",
-      amount: loanConfig.USD.min,
-      duration: 12,
-      purpose: loanPurposes[4],
-    },
+    defaultValues: { currency: "USD", amount: 20, duration: allowedDurations[0] || 1, purpose: 'personal' },
   });
 
   const watchedCurrency = form.watch("currency");
   const watchedAmount = form.watch("amount");
   const watchedDuration = form.watch("duration");
 
-  const config = loanConfig[watchedCurrency as keyof typeof loanConfig] || loanConfig.USD;
+  const config = useMemo(() => {
+    return { symbol: currencySymbols[watchedCurrency] || watchedCurrency };
+  }, [watchedCurrency]);
   
-  useEffect(() => {
-    setIsClient(true);
-    const newConfig = loanConfig[watchedCurrency as keyof typeof loanConfig];
-    if (newConfig) {
-      form.setValue("amount", newConfig.min, { shouldValidate: true });
-    }
-  }, [watchedCurrency, form]);
+  const selectedCurrencyData = currencies.find(c => c.code === watchedCurrency);
+  const balance = selectedCurrencyData ? parseFloat(selectedCurrencyData.balance.replace(/,/g, '')) : 0;
+  const requiredCollateral = (Number(watchedAmount) || 0) * 0.20;
+  const collateralError = balance < requiredCollateral
+    ? `Garantie insuffisante (20%). Solde requis : ${config.symbol}${requiredCollateral.toFixed(2)}`
+    : null;
 
-  useEffect(() => {
-    if (!isClient) return;
-    const selectedCurrencyData = currencies.find(c => c.code === watchedCurrency);
-    const balance = selectedCurrencyData ? parseFloat(selectedCurrencyData.balance.replace(/,/g, '')) : 0;
-    const numericAmount = Number(watchedAmount);
-
-    if (balance < numericAmount * 0.20) {
-        setCollateralError(t('loanCollateralError', {
-            required: (numericAmount * 0.20).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-            currency: watchedCurrency,
-            balance: balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-            symbol: config.symbol,
-        }));
-    } else {
-        setCollateralError(null);
-    }
-  }, [watchedAmount, watchedCurrency, currencies, t, isClient, config.symbol]);
-
-
-  const handleAmountChange = (value: number[]) => {
-      form.setValue("amount", value[0], { shouldValidate: true });
-  }
-
-  const handleDurationChange = (value: number[]) => {
-      form.setValue("duration", value[0], { shouldValidate: true });
-  }
-  
-  const interestRatePerMonth = 0.0366;
-  const totalInterest = watchedAmount * interestRatePerMonth * watchedDuration;
-  const totalRepayment = watchedAmount + totalInterest;
-  const estimatedMonthlyPayment = watchedDuration > 0 ? (totalRepayment / watchedDuration).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00";
+  const calculation = useMemo(() => {
+    const interestRatePerMonth = Number(interestRate) / 100;
+    const amount = Number(watchedAmount) || 0;
+    const duration = Number(watchedDuration) || 1;
+    const totalRepayment = amount * (1 + (interestRatePerMonth * duration));
+    const monthlyPayment = totalRepayment / duration;
+    return { totalRepayment, monthlyPayment };
+  }, [watchedAmount, watchedDuration, interestRate]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!user) {
-        openAlert({ variant: "error", title: t('error'), description: "You must be logged in." });
-        return;
-    }
-
+    if (!user) return;
+    setIsSubmitting(true);
     const result = await createLoanApplication({
-        user,
-        amount: values.amount,
-        currency: values.currency,
-        durationMonths: values.duration,
-        purpose: values.purpose,
-        interestRate: interestRatePerMonth * 100
+        user, amount: values.amount, currency: values.currency,
+        durationMonths: values.duration, purpose: values.purpose,
+        interestRate
     });
+    setIsSubmitting(false);
 
     if (result.success) {
-        openAlert({
-            variant: "success",
-            title: t('loanToastSuccessTitle'),
-            description: t('loanToastSuccessDescription'),
-        });
+        openAlert({ title: "Demande Transmise", description: "Votre dossier est en cours de validation par le service financier.", variant: 'success' });
         form.reset();
     } else {
-        openAlert({
-            variant: "error",
-            title: t('error'),
-            description: result.error,
-        });
+        openAlert({ title: "Erreur", description: result.error || "Échec de l'envoi.", variant: 'error' });
     }
   }
-  
-  if (!isClient) return null;
+
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('loanFormTitle')}</CardTitle>
-        <CardDescription>{t('loanFormDescription')}</CardDescription>
-        <Alert variant="default" className="mt-4 bg-primary/5 border-primary/20">
-          <Info className="h-4 w-4 !text-primary/80" />
-          <AlertTitle className="text-primary font-semibold">{t('loanRulesTitle')}</AlertTitle>
-          <AlertDescription className="text-primary/90">
-            <ul className="list-disc pl-5 space-y-1 text-xs">
-                <li>{t('loanCollateralInfo')}</li>
-                {IS_FIRST_LOAN && <li>{t('loanFirstLoanInfo', { amount: loanConfig.USD.max.toLocaleString('en-US'), currency: 'USD' })}</li>}
-                <li>{t('loanProgressionInfo')}</li>
-            </ul>
-          </AlertDescription>
-        </Alert>
+    <Card className="shadow-2xl border-none bg-white rounded-3xl overflow-hidden">
+      <CardHeader className="bg-zinc-50 border-b border-zinc-100">
+        <CardTitle className="text-xl text-zinc-900">Calculateur de Prêt</CardTitle>
+        <CardDescription>Saisissez le montant et choisissez la durée de remboursement.</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-8">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-            <FormField
-              control={form.control}
-              name="currency"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('loanCurrencyLabel')}</FormLabel>
-                   <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t('loanCurrencyPlaceholder')} />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="USD">USD</SelectItem>
-                      <SelectItem value="CDF">CDF</SelectItem>
-                    </SelectContent>
-                  </Select>
+            <div className="space-y-4">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Devise du prêt</Label>
+              <FormField control={form.control} name="currency" render={({ field }) => (
+                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-3">
+                  {['USD', 'EUR', 'CDF'].map(cur => (
+                    <div key={cur}>
+                      <RadioGroupItem value={cur} id={`lc-${cur}`} className="sr-only" />
+                      <Label htmlFor={`lc-${cur}`} className={cn("flex items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all h-12 font-black", field.value === cur ? "border-primary bg-primary/5 text-primary shadow-sm" : "border-zinc-100 text-zinc-400 hover:bg-zinc-50")}>
+                        {cur}
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              )}/>
+            </div>
+
+            <FormField control={form.control} name="amount" render={({ field }) => (
+                <FormItem className="space-y-2">
+                  <FormLabel className="text-xs font-bold uppercase text-zinc-500">Montant souhaité ({config.symbol})</FormLabel>
+                  <FormControl>
+                     <Input type="number" {...field} className="h-16 text-4xl font-black text-center border-zinc-200 focus:border-primary focus:ring-primary/20 bg-zinc-50" placeholder="0.00" />
+                  </FormControl>
+                  <div className="flex justify-between px-1">
+                      <span className="text-[10px] font-bold text-zinc-400">GARANTIE : 20%</span>
+                      <span className="text-[10px] font-bold text-zinc-400">TAUX : {Number(interestRate).toFixed(2)}% / mois</span>
+                  </div>
                   <FormMessage />
                 </FormItem>
-              )}
-            />
+            )}/>
 
-            <FormField
-              control={form.control}
-              name="amount"
-              render={({ field }) => (
-                  <FormItem>
-                  <FormLabel>{t('loanAmountLabel')} <span className="font-bold text-primary">{config.symbol}{field.value.toLocaleString('en-US')}</span></FormLabel>
-                  <FormControl>
-                      <Slider
-                      value={[field.value]}
-                      min={config.min}
-                      max={config.max}
-                      step={config.step}
-                      onValueChange={handleAmountChange}
-                      />
-                  </FormControl>
-                  <FormMessage />
-                  </FormItem>
-              )}
-            />
+            <div className="space-y-4">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Durée de remboursement (Mois)</Label>
+              <FormField control={form.control} name="duration" render={({ field }) => (
+                <RadioGroup onValueChange={(val) => field.onChange(Number(val))} value={field.value.toString()} className="grid grid-cols-4 gap-2">
+                  {allowedDurations.map(m => (
+                    <div key={m}>
+                      <RadioGroupItem value={m.toString()} id={`dur-${m}`} className="sr-only" />
+                      <Label htmlFor={`dur-${m}`} className={cn("flex flex-col items-center justify-center border-2 rounded-xl cursor-pointer transition-all h-12", field.value === m ? "border-primary bg-primary/5 text-primary font-black" : "border-zinc-100 text-zinc-400 hover:bg-zinc-50")}>
+                        <span className="text-sm">{m}</span>
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              )}/>
+            </div>
 
-            <FormField
-              control={form.control}
-              name="purpose"
-              render={({ field }) => (
-                  <FormItem>
-                  <FormLabel>{t('loanPurposeLabel')}</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                      <SelectTrigger>
-                          <SelectValue placeholder={t('loanPurposePlaceholder')} />
-                      </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                      {loanPurposes.map((purpose) => (
-                          <SelectItem key={purpose} value={purpose}>{purpose}</SelectItem>
-                      ))}
-                      </SelectContent>
-                  </Select>
-                  <FormMessage />
-                  </FormItem>
-              )}
-            />
-            
-            <FormField
-              control={form.control}
-              name="duration"
-              render={({ field }) => (
-                  <FormItem>
-                  <FormLabel>{t('loanDurationLabel')} <span className="font-bold text-primary">{field.value} {t('loanDurationUnit')}</span></FormLabel>
-                  <FormControl>
-                      <Slider value={[field.value]} min={3} max={24} step={1} onValueChange={handleDurationChange} />
-                  </FormControl>
-                  <FormMessage />
-                  </FormItem>
-              )}
-            />
+            <div className="space-y-4">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Motif du prêt</Label>
+              <FormField control={form.control} name="purpose" render={({ field }) => (
+                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
+                  {loanPurposes.map(p => (
+                    <div key={p.id}>
+                      <RadioGroupItem value={p.id} id={`lp-${p.id}`} className="sr-only" />
+                      <Label htmlFor={`lp-${p.id}`} className={cn("flex items-center justify-center p-2 border-2 rounded-xl cursor-pointer transition-all text-[10px] font-black uppercase tracking-tighter text-center h-12", field.value === p.id ? "border-primary bg-primary/5 text-primary shadow-sm" : "border-zinc-100 text-zinc-400 hover:bg-zinc-50")}>
+                        {p.label}
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              )}/>
+            </div>
+
+            <div className="p-6 bg-primary/5 rounded-[2rem] border border-primary/10 shadow-inner space-y-4">
+                <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Échéance</span>
+                    <span className="text-2xl font-black text-primary">{config.symbol}{calculation.monthlyPayment.toFixed(2)}</span>
+                </div>
+                <Separator className="bg-primary/10" />
+                <div className="flex justify-between items-center text-[10px] font-bold text-zinc-400 uppercase">
+                    <span>Intérêt total estimé</span>
+                    <span className="text-green-600">+{config.symbol}{(calculation.totalRepayment - watchedAmount).toFixed(2)}</span>
+                </div>
+            </div>
 
             {collateralError && (
-              <Alert variant="destructive">
+              <Alert variant="destructive" className="rounded-2xl bg-red-50 border-red-100">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{collateralError}</AlertDescription>
+                <AlertDescription className="text-xs font-bold">{collateralError}</AlertDescription>
               </Alert>
             )}
 
-            <Card className="bg-muted/50">
-                <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">{t('loanEstimatedPaymentLabel')}</p>
-                    <p className="text-2xl font-bold text-foreground">{config.symbol}{estimatedMonthlyPayment}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{t('loanEstimatedPaymentDescription')}</p>
-                </CardContent>
-            </Card>
-
-            <Button type="submit" variant="gradient" className="w-full font-bold" disabled={!!collateralError}>
-              {t('loanSubmitButton')}
+            <Button type="submit" variant="gradient" className="w-full h-16 text-xl font-black shadow-xl rounded-2xl uppercase tracking-tighter" disabled={!!collateralError || isSubmitting || !user}>
+              {isSubmitting ? <Loader2 className="animate-spin mr-2"/> : <ShieldCheck className="mr-2"/>}
+              Soumettre le dossier
             </Button>
           </form>
         </Form>

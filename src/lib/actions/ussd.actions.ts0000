@@ -1,0 +1,254 @@
+'use server';
+
+import { db } from '@/lib/db';
+import { formatUser, generateReferenceCode, countryToCode } from '@/lib/utils';
+import { createTransaction } from './transaction.actions';
+import { calculateTransactionFee } from './wallet.actions';
+import { sendSms } from '@/services/sms';
+import { sendWhatsAppTextMessage } from '@/services/whatsapp';
+import { processMaxiCashMobilePayment, processMaxiCashPayout } from '@/services/maxicash';
+import * as bcrypt from 'bcryptjs';
+
+/**
+ * @fileoverview Moteur USSD Souverain CashPay All v4.0.
+ * Architecture : Contexte de Devise -> Services Filtrés -> Validation PIN.
+ */
+
+interface UssdSession {
+    session_id: string;
+    phone_number: string;
+    menu_state: string;
+    authenticated: boolean;
+    data: any;
+}
+
+/**
+ * Point d'entrée principal pour les requêtes USSD (Simulateur et Production).
+ */
+export async function handleUssdRequest(sessionId: string, phoneNumber: string, text: string): Promise<string> {
+    const session = await getOrCreateSession(sessionId, phoneNumber);
+    const inputs = text.split('*');
+    const lastInput = inputs[inputs.length - 1];
+
+    try {
+        // 1. PHASE D'AUTHENTIFICATION ET D'ENRÔLEMENT
+        if (!session.authenticated && session.menu_state === 'START') {
+            const { rows: users } = await db.query('SELECT * FROM users WHERE phone = $1', [phoneNumber]);
+            
+            if (users.length === 0) {
+                // Utilisateur Inconnu -> Parcours d'enrôlement automatique
+                if (text === '') {
+                    await updateSession(sessionId, { menu_state: 'ENROLL_PROMPT' });
+                    return "CON Bienvenue sur le réseau CashPay All.\nVotre numéro n'est pas identifié.\n1. Recevoir mon lien d'inscription\n2. Quitter";
+                }
+                if (session.menu_state === 'ENROLL_PROMPT' && lastInput === '1') {
+                    const country = detectCountryByPhone(phoneNumber);
+                    const msg = `Bienvenue chez CashPay All! Finalisez votre Identité Souveraine ici: https://app.cashpay-all.com/complete-profile?phone=${phoneNumber}&country=${country.code}`;
+                    await sendSms(phoneNumber, msg);
+                    await sendWhatsAppTextMessage(phoneNumber, msg);
+                    return "END Un lien d'inscription sécurisé vous a été envoyé par SMS et WhatsApp. À très bientôt !";
+                }
+                return "END Merci d'utiliser CashPay All.";
+            } else {
+                // Utilisateur Reconnu -> Demande de PIN immédiate
+                if (text === '') {
+                    await updateSession(sessionId, { menu_state: 'AUTH_PIN', data: { userId: users[0].id } });
+                    return `CON Bonjour ${users[0].first_name}!\nVeuillez entrer votre PIN secret :`;
+                }
+                if (session.menu_state === 'AUTH_PIN') {
+                    const isMatch = await bcrypt.compare(lastInput, users[0].pin_hash);
+                    if (isMatch) {
+                        await updateSession(sessionId, { menu_state: 'ROOT_CURRENCY_SELECT', authenticated: true });
+                        return "CON Bienvenue sur votre Dashboard.\nChoisissez votre portefeuille :\n1. Monnaie Nationale (CDF)\n2. Dollar (USD)\n3. Euro (EUR)\n0. Quitter";
+                    }
+                    return "END Code PIN incorrect. Session verrouillée.";
+                }
+            }
+        }
+
+        // 2. LOGIQUE DE NAVIGATION CONTEXTUELLE (SESSION VALIDE)
+        return await handleNavigation(session, lastInput);
+
+    } catch (error: any) {
+        console.error("[USSD ERROR]", error);
+        return "END Erreur technique. Le service est en maintenance.";
+    }
+}
+
+/**
+ * Machine à états gérant la navigation et les transactions.
+ */
+async function handleNavigation(session: UssdSession, input: string): Promise<string> {
+    const { menu_state, data, phone_number } = session;
+
+    // --- SÉLECTION DE LA DEVISE (ROOT) ---
+    if (menu_state === 'ROOT_CURRENCY_SELECT') {
+        let currency = 'USD';
+        if (input === '1') currency = 'CDF';
+        else if (input === '3') currency = 'EUR';
+        else if (input === '0') return "END Merci de votre confiance.";
+
+        await updateSession(session.session_id, { 
+            menu_state: 'MAIN_MENU', 
+            data: { ...data, activeCurrency: currency } 
+        });
+        return renderMainMenu(currency);
+    }
+
+    // --- MENU PRINCIPAL (CONTEXTUEL) ---
+    if (menu_state === 'MAIN_MENU') {
+        const cur = data.activeCurrency;
+        switch (input) {
+            case '1': // Transferts
+                await updateSession(session.session_id, { menu_state: 'TRANSFER_PROVIDER' });
+                return renderTransferProviderMenu(cur);
+            case '2': // Dépôt (Push MaxiCash)
+                await updateSession(session.session_id, { menu_state: 'DEP_OPERATOR' });
+                return "CON Dépôt via MaxiCash\nSélectionnez votre opérateur :\n1. M-Pesa\n2. Airtel Money\n3. Orange Money\n0. Retour";
+            case '3': // Solde
+                const bal = await getBalance(phone_number, cur);
+                return `CON Solde ${cur} : ${bal}\n\n1. Retour\n0. Quitter`;
+            case '4': // Exchange (Vente/Achat devise)
+                await updateSession(session.session_id, { menu_state: 'EXCHANGE_TARGET' });
+                return `CON Exchange (${cur} -> ?)\nVers quelle devise ?\n1. USD\n2. EUR\n3. CDF\n0. Retour`;
+            case '5': // Sécurité (PIN)
+                await updateSession(session.session_id, { menu_state: 'PIN_CHANGE_OLD' });
+                return "CON Sécurité\nSaisissez votre PIN actuel :";
+            case '6': // Parrainage
+                await updateSession(session.session_id, { menu_state: 'INVITE_PHONE' });
+                return "CON Parrainage\nEntrez le numéro de votre ami :";
+            case '0':
+                await updateSession(session.session_id, { menu_state: 'ROOT_CURRENCY_SELECT' });
+                return "CON Portefeuilles :\n1. CDF\n2. USD\n3. EUR\n0. Quitter";
+            default: return renderMainMenu(cur);
+        }
+    }
+
+    // --- FLUX TRANSFERTS ---
+    if (menu_state === 'TRANSFER_PROVIDER') {
+        if (input === '1') { // CashPay (Interne)
+            await updateSession(session.session_id, { menu_state: 'TR_CP_RECIPIENT' });
+            return "CON Transfert CashPay\nNuméro de tél. ou ID Wallet :";
+        }
+        if (input === '2' && data.activeCurrency === 'USD') { // Payout (Mobile Money)
+            await updateSession(session.session_id, { menu_state: 'TR_MM_OPERATOR' });
+            return "CON Payout International (USD)\n1. Airtel Money\n2. M-Pesa\n3. Orange Money\n0. Retour";
+        }
+        return renderMainMenu(data.activeCurrency);
+    }
+
+    // Identification du bénéficiaire CashPay
+    if (menu_state === 'TR_CP_RECIPIENT') {
+        const { rows } = await db.query('SELECT id, id_wallet, full_name FROM users WHERE phone = $1 OR id_wallet = $1', [input]);
+        if (rows.length === 0) return "END Utilisateur non trouvé sur le réseau CashPay.";
+        
+        const target = rows[0];
+        await updateSession(session.session_id, { 
+            menu_state: 'TR_CP_AMOUNT', 
+            data: { ...data, targetId: target.id, targetName: target.full_name, targetWallet: target.id_wallet } 
+        });
+        return `CON Destinataire : ${target.full_name}\nWallet: ${target.id_wallet}\n\nMontant à envoyer (${data.activeCurrency}) :`;
+    }
+
+    if (menu_state === 'TR_CP_AMOUNT') {
+        const amount = parseFloat(input);
+        const user = await getUserById(data.userId);
+        const fee = await calculateTransactionFee(amount, data.activeCurrency, 'TR', user?.country);
+        await updateSession(session.session_id, { menu_state: 'TR_CP_CONFIRM_PIN', data: { ...data, amount, fee } });
+        return `CON Confirmation\nEnvoyer: ${amount} ${data.activeCurrency}\nFrais: ${fee.toFixed(2)}\nTotal: ${(amount+fee).toFixed(2)}\n\nEntrez votre PIN :`;
+    }
+
+    if (menu_state === 'TR_CP_CONFIRM_PIN') {
+        const user = await getUserById(data.userId);
+        const isMatch = await bcrypt.compare(input, user!.pin_hash);
+        if (!isMatch) return "END Code PIN incorrect.";
+
+        const res = await createTransaction({
+            user: user!, typeCode: 'TR', amount: data.amount, currency: data.activeCurrency,
+            description: `Transfert USSD vers ${data.targetName}`,
+            receiver_id: data.targetId, receiver_wallet_id: data.targetWallet
+        });
+
+        if (res.success) return `END Transfert réussi ! ${data.amount} ${data.activeCurrency} envoyés à ${data.targetName}. Réf: ${res.reference}`;
+        return `END Échec: ${res.error}`;
+    }
+
+    // --- FLUX DÉPÔT MAXICASH ---
+    if (menu_state === 'DEP_OPERATOR') {
+        const ops: any = { '1': 'mpesa', '2': 'airtel', '3': 'orange' };
+        if (ops[input]) {
+            await updateSession(session.session_id, { menu_state: 'DEP_AMOUNT', data: { ...data, op: ops[input] } });
+            return `CON Dépôt ${ops[input].toUpperCase()}\nMontant à déposer (USD) :`;
+        }
+        return renderMainMenu(data.activeCurrency);
+    }
+
+    if (menu_state === 'DEP_AMOUNT') {
+        const amount = parseFloat(input);
+        const user = await getUserById(data.userId);
+        const res = await processMaxiCashMobilePayment({
+            amount, currency: 'USD', phoneNumber: phone_number,
+            operator: data.op, reference: generateReferenceCode('DP'),
+            countryCode: 'CD', user
+        });
+        if (res.success) return `END Demande de dépôt de ${amount} USD envoyée sur votre mobile (${phone_number}). Validez avec votre PIN Mobile Money.`;
+        return `END Échec de l'initiation du dépôt.`;
+    }
+
+    return "END Session expirée. Recomposez le *2704#.";
+}
+
+// --- RENDU DES MENUS ---
+
+function renderRootMenu() {
+    return "CON Dashboard CashPay All\n1. Portefeuilles\n2. Change (Exchange)\n3. Sécurité (PIN)\n4. Parrainage\n0. Quitter";
+}
+
+function renderMainMenu(currency: string) {
+    return `CON CashPay (${currency})\n1. Transferts\n2. Dépôt Fond\n3. Solde\n4. Exchange\n5. Sécurité\n6. Inviter\n0. Retour`;
+}
+
+function renderTransferProviderMenu(currency: string) {
+    let menu = "CON Envoyer de l'argent\n1. Vers CashPay (Interne)";
+    if (currency === 'USD') {
+        menu += "\n2. Vers Mobile Money (Payout)";
+    }
+    return menu + "\n0. Retour";
+}
+
+// --- UTILITAIRES DB & SESSION ---
+
+async function getOrCreateSession(sessionId: string, phoneNumber: string): Promise<UssdSession> {
+    const { rows } = await db.query('SELECT * FROM ussd_sessions WHERE session_id = $1', [sessionId]);
+    if (rows.length > 0) return rows[0];
+
+    await db.query('INSERT INTO ussd_sessions (session_id, phone_number, menu_state, data) VALUES ($1, $2, $3, $4)', 
+        [sessionId, phoneNumber, 'START', '{}']);
+    return { session_id: sessionId, phone_number: phoneNumber, menu_state: 'START', authenticated: false, data: {} };
+}
+
+async function updateSession(sessionId: string, updates: Partial<UssdSession>) {
+    const keys = Object.keys(updates);
+    const setClause = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
+    const values = keys.map(k => (k === 'data' ? JSON.stringify((updates as any)[k]) : (updates as any)[k]));
+    await db.query(`UPDATE ussd_sessions SET ${setClause}, updated_at = NOW() WHERE session_id = $1`, [sessionId, ...values]);
+}
+
+async function getBalance(phone: string, currency: string) {
+    const { rows } = await db.query(`
+        SELECT (w.balances->>$2)::numeric as bal 
+        FROM wallets w JOIN users u ON w.user_id = u.id 
+        WHERE u.phone = $1`, [phone, currency]);
+    return rows[0]?.bal ? `${rows[0].bal} ${currency}` : `0.00 ${currency}`;
+}
+
+async function getUserById(id: number) {
+    const { rows } = await db.query('SELECT * FROM users WHERE id = $1', [id]);
+    return rows[0] ? formatUser(rows[0]) : null;
+}
+
+function detectCountryByPhone(phone: string) {
+    if (phone.startsWith('243')) return { code: 'CD', name: 'RDC' };
+    if (phone.startsWith('242')) return { code: 'CG', name: 'Congo-B' };
+    return { code: 'GBL', name: 'International' };
+}

@@ -362,3 +362,68 @@ export async function extractSignatureFromCpk(fileContent: string): Promise<{ su
         return { success: false, error: "Erreur d'analyse du fichier .cpk." };
     }
 }
+
+export async function getHardwareKeyStats(userId: number) {
+    try {
+        const { rows } = await db.query(
+            `SELECT 
+                COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE status = 'active')::int AS active,
+                COUNT(*) FILTER (WHERE status = 'claimed')::int AS claimed,
+                COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled,
+                COALESCE(SUM(amount),0)::numeric AS total_amount
+             FROM hardware_keys
+             WHERE owner_user_id = $1`,
+            [userId]
+        );
+
+        return {
+            success: true,
+            stats: rows[0]
+        };
+    } catch (error: any) {
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
+export async function getHardwareKeyDetails(signature: string) {
+    try {
+        const { rows } = await db.query(
+            `SELECT 
+                id,
+                key_reference,
+                amount,
+                currency,
+                security_level,
+                status,
+                created_at,
+                claimed_at
+             FROM hardware_keys
+             WHERE hsm_signature = $1
+             LIMIT 1`,
+            [signature]
+        );
+
+        if (rows.length === 0) {
+            return {
+                success: false,
+                error: "Clé matérielle introuvable."
+            };
+        }
+
+        return {
+            success: true,
+            key: rows[0]
+        };
+
+    } catch (error: any) {
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+

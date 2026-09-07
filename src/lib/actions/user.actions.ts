@@ -89,6 +89,7 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
             account_type: formData.account_type,
             id_wallet,
             language: formData.language || 'fr',
+            ussd_language: formData.ussd_language || 'fr',
             full_name: `${formData.first_name} ${formData.last_name}`,
             first_name: formData.first_name,
             last_name: formData.last_name,

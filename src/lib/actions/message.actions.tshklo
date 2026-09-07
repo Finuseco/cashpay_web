@@ -1,0 +1,196 @@
+
+'use server';
+
+import { db } from '@/lib/db';
+import { handleDbError, saveBase64Image, getUserFromDb } from '@/lib/actions/helpers';
+import { createNotification } from '@/lib/actions/notification.actions';
+import type { Message, Conversation } from '@/lib/types';
+
+/**
+ * Récupère les conversations d'un utilisateur.
+ */
+export async function getConversationsForUser(userId: number): Promise<Conversation[]> {
+    try {
+        const { rows } = await db.query(`
+            SELECT 
+                c.id, 
+                c.user_id_1, 
+                c.user_id_2, 
+                c.last_message, 
+                c.updated_at as "lastMessageTimestamp",
+                u1.full_name as u1_name, u1.profile_photo as u1_photo, u1.first_name as u1_fname,
+                u2.full_name as u2_name, u2.profile_photo as u2_photo, u2.first_name as u2_fname
+            FROM conversations c
+            JOIN users u1 ON c.user_id_1 = u1.id
+            JOIN users u2 ON c.user_id_2 = u2.id
+            WHERE c.user_id_1 = $1 OR c.user_id_2 = $1
+            ORDER BY c.updated_at DESC
+        `, [userId]);
+
+        return rows.map(row => {
+            const isUser1 = row.user_id_1 === userId;
+            const contact = {
+                id: isUser1 ? row.user_id_2 : row.user_id_1,
+                full_name: isUser1 ? row.u2_name : row.u1_name,
+                first_name: isUser1 ? row.u2_fname : row.u1_fname,
+                profile_photo: isUser1 ? row.u2_photo : row.u1_photo,
+            };
+
+            return {
+                id: row.id.toString(),
+                userId,
+                contact: contact as any,
+                lastMessage: row.last_message || '',
+                lastMessageTimestamp: row.lastMessageTimestamp ? new Date(row.lastMessageTimestamp).toISOString() : new Date().toISOString(),
+                unreadCount: 0,
+                messages: []
+            };
+        });
+    } catch (e) {
+        console.error("[getConversationsForUser] Error:", e);
+        return [];
+    }
+}
+
+/**
+ * Envoie un message dans une conversation.
+ * Gère les textes, images, documents et liens de réunion.
+ */
+export async function postMessage(args: {
+    conversationId: string;
+    content: string;
+    type: Message['type'];
+    senderId: number;
+    receiverId: number;
+    fileDataUri?: string;
+    fileName?: string;
+    metadata?: any;
+}) {
+    const { conversationId, content, type, senderId, receiverId, fileDataUri, fileName, metadata } = args;
+
+    try {
+        let finalMetadata: any = metadata || {};
+        let finalContent = content;
+
+        // Gestion des médias (Images, Docs, Audio)
+        if (fileDataUri && fileDataUri.startsWith('data:')) {
+            const subfolder = type === 'image' ? 'chat/images' : (type === 'audio' ? 'chat/voice' : 'chat/files');
+            const fileId = `${type}_${senderId}_${Date.now()}`;
+            const savedPath = await saveBase64Image(fileDataUri, subfolder, fileId);
+            
+            if (savedPath) {
+                finalMetadata.fileUrl = savedPath;
+                finalMetadata.fileName = fileName || fileId;
+                if (type === 'image') finalContent = '📷 Photo';
+                else if (type === 'audio') finalContent = '🎤 Message vocal';
+                else finalContent = `📄 ${fileName || 'Document'}`;
+            }
+        }
+
+        const { rows } = await db.query(
+            `INSERT INTO messages (conversation_id, sender_id, content, type, status, metadata) 
+             VALUES ($1, $2, $3, $4, 'sent', $5) RETURNING *`,
+            [parseInt(conversationId, 10), senderId, finalContent, type, JSON.stringify(finalMetadata)]
+        );
+
+        const inserted = rows[0];
+
+        // Mettre à jour la conversation pour le tri
+        await db.query(
+            "UPDATE conversations SET last_message = $1, updated_at = NOW() WHERE id = $2",
+            [finalContent, parseInt(conversationId, 10)]
+        );
+
+        // Envoyer une notification système
+        const sender = await getUserFromDb({ userId: senderId });
+        if (sender) {
+            await createNotification(
+                receiverId,
+                `Message de ${sender.full_name}`,
+                finalContent.substring(0, 100),
+                'new_message',
+                { contactId: senderId }
+            );
+        }
+
+        return {
+            id: inserted.id.toString(),
+            senderId: inserted.sender_id,
+            content: inserted.content,
+            type: inserted.type,
+            timestamp: inserted.created_at ? new Date(inserted.created_at).toISOString() : new Date().toISOString(),
+            status: inserted.status,
+            metadata: typeof inserted.metadata === 'string' ? inserted.metadata : JSON.stringify(inserted.metadata)
+        };
+    } catch (error) {
+        console.error("[postMessage] Error:", error);
+        throw new Error("Échec de l'envoi du message.");
+    }
+}
+
+/**
+ * Marque tous les messages d'une conversation comme lus.
+ */
+export async function markConversationAsRead(conversationId: string, userId: number) {
+    try {
+        await db.query(
+            "UPDATE messages SET status = 'read' WHERE conversation_id = $1 AND sender_id != $2 AND status != 'read'",
+            [parseInt(conversationId, 10), userId]
+        );
+        return { success: true };
+    } catch (e) {
+        return { success: false };
+    }
+}
+
+/**
+ * Récupère les nouveaux messages pour le polling en temps réel.
+ */
+export async function getNewMessages(conversationId: string, lastMessageId: string) {
+    try {
+        const { rows } = await db.query(
+            "SELECT * FROM messages WHERE conversation_id = $1 AND id > $2 ORDER BY created_at ASC",
+            [parseInt(conversationId, 10), parseInt(lastMessageId, 10)]
+        );
+        return rows.map(m => ({
+            id: m.id.toString(),
+            senderId: m.sender_id,
+            content: m.content,
+            type: m.type,
+            timestamp: m.created_at ? new Date(m.created_at).toISOString() : new Date().toISOString(),
+            status: m.status,
+            metadata: typeof m.metadata === 'string' ? m.metadata : JSON.stringify(m.metadata)
+        }));
+    } catch (e) {
+        return [];
+    }
+}
+
+/**
+ * Partage un produit dans le chat.
+ */
+export async function shareProductToChat(args: { senderId: number, targetId: string | number, targetType: 'conversation' | 'group', product: any }) {
+    const { senderId, targetId, targetType, product } = args;
+    
+    try {
+        const content = `📦 Produit partagé : ${product.name}\nPrix : $${product.sellingPrice}`;
+        const metadata = { productId: product.id, productImage: product.image };
+
+        if (targetType === 'conversation') {
+             const { rows: conv } = await db.query("SELECT * FROM conversations WHERE id = $1", [parseInt(targetId.toString(), 10)]);
+             const receiverId = conv[0].user_id_1 === senderId ? conv[0].user_id_2 : conv[0].user_id_1;
+             
+             await postMessage({
+                 conversationId: targetId.toString(),
+                 content,
+                 type: 'text',
+                 senderId,
+                 receiverId,
+                 metadata
+             });
+        }
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}

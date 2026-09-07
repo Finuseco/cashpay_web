@@ -1,534 +1,487 @@
-
 'use server';
 
 import { db } from '@/lib/db';
-import { handleDbError } from '../helpers';
+import { verifyUserPin } from '../auth.actions';
 import { createTransaction } from '../transaction.actions';
-import { validateSuperAgentAccess, logIntervention } from './utils';
-import * as bcrypt from 'bcryptjs';
-import { countryToCode, generateReferenceCode, formatUser } from '@/lib/utils';
-import { calculateTransactionFee } from '../wallet.actions';
-import { sendSms } from '@/services/sms';
-import { sendEmail } from '@/services/email';
-import { format } from 'date-fns';
-import type { Transaction } from '@/lib/types';
+import { approveLoanRequest, processLoanRepayments } from '../loan.actions';
+import { formatUser, generateReferenceCode, countryToCode } from '../../utils';
+import { createNotification } from '../notification.actions';
+import { logIntervention } from './utils';
 import crypto from 'crypto';
 
-/**
- * Récupère les statistiques de performance pour le pays du Super Agent.
- */
-export async function getSuperAgentStats(countryName: string, role: string) {
-    try {
-        const { rows: users } = await db.query('SELECT COUNT(*) FROM users WHERE country = $1', [countryName]);
-        const { rows: products } = await db.query('SELECT COUNT(*) FROM products p JOIN users u ON p.agent_id = u.id WHERE u.country = $1', [countryName]);
-        const { rows: orders } = await db.query("SELECT COUNT(*) FROM orders o JOIN users u ON o.user_id = u.id WHERE u.country = $1 AND o.status != 'delivered'", [countryName]);
-        
-        const { rows: volumes } = await db.query(`
-            SELECT currency, SUM(amount) as total 
-            FROM transactions t 
-            JOIN users u ON t.sender_id = u.id 
-            WHERE u.country = $1 AND t.status = 'Completed' 
-            GROUP BY currency
-        `, [countryName]);
+const money = (value: any) => Math.max(0, Number.parseFloat(String(value ?? 0)) || 0);
+const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
-        let revenue = [];
-        if (role === 'SuperAgent' || role === 'Admin') {
-            const { rows: revRows } = await db.query(`
-                SELECT currency, SUM(fee) as total_fees
-                FROM transactions t
-                JOIN users u ON t.sender_id = u.id
-                WHERE u.country = $1 AND t.status = 'Completed'
-                GROUP BY currency
-            `, [countryName]);
-            revenue = revRows.map(r => ({ currency: r.currency, total: parseFloat(r.total_fees) }));
-        }
-
-        return { 
-            users: parseInt(users[0].count), 
-            activeProducts: parseInt(products[0].count), 
-            pendingOrders: parseInt(orders[0].count), 
-            volumes: volumes.map(v => ({ currency: v.currency, total: parseFloat(v.total) })),
-            revenue: revenue
-        };
-    } catch (e) {
-        return { users: 0, activeProducts: 0, pendingOrders: 0, volumes: [], revenue: [] };
+async function getSuperAgentContext(adminId: number, connection?: any) {
+    const conn = connection || db;
+    const { rows } = await conn.query(
+        `SELECT id, role, country, province, status, pin_hash, full_name, first_name, id_wallet
+         FROM users WHERE id = $1::integer LIMIT 1`,
+        [adminId]
+    );
+    if (!rows.length) throw new Error('Super Agent introuvable.');
+    const role = String(rows[0].role || '').trim();
+    if (!['SuperAgent', 'SubSuperAgent', 'Admin'].includes(role)) {
+        throw new Error('Accès réservé au Super Agent.');
     }
+    if (['Suspended', 'Blocked', 'Inactive', 'Disabled', 'Banned'].includes(String(rows[0].status || '').trim())) {
+        throw new Error('Compte Super Agent suspendu ou désactivé.');
+    }
+    return rows[0];
 }
 
-export async function getCountryRevenueWallet(countryName: string) {
-    const code = countryToCode(countryName);
-    try {
-        const { rows } = await db.query(`
-            SELECT rw.wallet_id, w.balances, u.full_name as "walletName"
-            FROM revenue_wallets rw
-            JOIN wallets w ON rw.wallet_id = w.id_wallet
-            JOIN users u ON w.user_id = u.id
-            WHERE rw.country_code = $1 AND rw.is_active = true
-            LIMIT 1
-        `, [code || 'GBL']);
-        if (rows.length === 0) return null;
-        return {
-            id: rows[0].wallet_id,
-            name: rows[0].walletName,
-            balances: typeof rows[0].balances === 'string' ? JSON.parse(rows[0].balances) : rows[0].balances
-        };
-    } catch (e) {
-        return null;
+async function assertTerritory(adminId: number, targetUserId: number, connection?: any) {
+    const conn = connection || db;
+    const admin = await getSuperAgentContext(adminId, conn);
+    const { rows } = await conn.query(
+        `SELECT id, country, province FROM users WHERE id = $1::integer LIMIT 1`,
+        [targetUserId]
+    );
+    if (!rows.length) throw new Error('Utilisateur cible introuvable.');
+    if (String(admin.country || '').trim().toLowerCase() !== String(rows[0].country || '').trim().toLowerCase()) {
+        throw new Error('Utilisateur hors du territoire du Super Agent.');
     }
+    if (String(admin.role) === 'SubSuperAgent' && admin.province && String(admin.province).trim().toLowerCase() !== String(rows[0].province || '').trim().toLowerCase()) {
+        throw new Error('Utilisateur hors de la province attribuée au Super Agent.');
+    }
+    return { admin, target: rows[0] };
 }
 
-/**
- * Récupère le flux d'activité national complet.
- */
-export async function getCountryActivityFeed(countryName: string) {
-    try {
-        const { rows } = await db.query(`
-            SELECT 'user_reg' as type, full_name as label, 'Nouvel utilisateur inscrit' as detail, created_at as timestamp 
-            FROM users 
-            WHERE country = $1
-            
-            UNION ALL
-            
-            SELECT 'transaction' as type, description as label, amount || ' ' || currency as detail, t.created_at as timestamp 
-            FROM transactions t 
-            WHERE EXISTS (
-                SELECT 1 FROM users u 
-                WHERE (u.id = t.sender_id OR u.id = t.receiver_id) 
-                AND u.country = $1
-            )
-            
-            UNION ALL
-            
-            SELECT 'card_req' as type, u.full_name as label, 'Commande carte ' || cr.brand as detail, cr.created_at as timestamp
-            FROM card_requests cr
-            JOIN users u ON cr.user_id = u.id
-            WHERE u.country = $1
-            
-            UNION ALL
-            
-            SELECT 'intl_claim' as type, u.full_name as label, 'Réclame transfert ' || provider as detail, itc.created_at as timestamp
-            FROM international_transfer_claims itc
-            JOIN users u ON itc.user_id = u.id
-            WHERE u.country = $1
-            
-            UNION ALL
-            
-            SELECT 'loan' as type, u.full_name as label, 'Demande de prêt de ' || amount || ' ' || currency as detail, l.created_at as timestamp
-            FROM loans l
-            JOIN users u ON l.user_id = u.id
-            WHERE u.country = $1
+async function verifyAdminPin(adminId: number, pin: string, connection?: any) {
+    if (!pin || !/^\d{4}$/.test(String(pin))) throw new Error('PIN Super Agent invalide.');
+    const conn = connection || db;
+    const { rows } = await conn.query('SELECT pin_hash FROM users WHERE id = $1::integer LIMIT 1', [adminId]);
+    if (!rows.length || !rows[0].pin_hash) throw new Error('PIN Super Agent non configuré.');
+    const result = await verifyUserPin(adminId, String(pin));
+    if (!result.success) throw new Error(result.error || 'PIN Super Agent incorrect.');
+}
 
-            ORDER BY timestamp DESC 
-            LIMIT 30
-        `, [countryName]);
-        
-        return rows.map(r => ({
-            ...r,
-            timestamp: new Date(r.timestamp).toISOString()
-        }));
-    } catch (e) {
-        console.error("[getCountryActivityFeed] Error:", e);
-        return [];
-    }
+export async function getCountryDats(country: string) {
+    const { rows } = await db.query(`
+        SELECT d.*, u.full_name, u.phone, u.id_wallet, u.country
+        FROM term_deposits d JOIN users u ON d.user_id = u.id
+        WHERE u.country = $1
+        ORDER BY d.id DESC`, [country]);
+    return rows;
+}
+
+export async function getCountryInternationalClaims(country: string) {
+    const { rows } = await db.query(`
+        SELECT c.*, u.full_name, u.phone, u.email, u.id_wallet, u.country
+        FROM international_transfer_claims c JOIN users u ON c.user_id = u.id
+        WHERE u.country = $1
+        ORDER BY c.id DESC`, [country]);
+    return rows;
 }
 
 /**
- * Historique des transactions d'un utilisateur spécifique.
+ * Approval of international claims is intentionally kept transactional.
+ * The exact settlement engine remains the source of truth when a claim has
+ * a dedicated status/settlement workflow; this function only authorizes a
+ * pending claim and records the intervention when the required columns exist.
  */
-export async function getUserTransactionsForSuperAgent(userId: number): Promise<Transaction[]> {
-    try {
-        const { rows } = await db.query(`
-            SELECT t.*, s.full_name as sender_name, r.full_name as receiver_name 
-            FROM transactions t
-            LEFT JOIN users s ON t.sender_id = s.id
-            LEFT JOIN users r ON t.receiver_id = r.id
-            WHERE t.sender_id = $1 OR t.receiver_id = $1
-            ORDER BY t.created_at DESC LIMIT 50
-        `, [userId]);
-
-        return rows.map(row => ({
-            type: row.sender_id === userId ? 'sent' : 'received',
-            description: row.description,
-            date: format(new Date(row.created_at), 'dd/MM/yyyy'),
-            time: format(new Date(row.created_at), 'HH:mm'),
-            amount: parseFloat(row.amount).toFixed(2),
-            currency: row.currency,
-            reference: row.reference_code,
-            fee: parseFloat(row.fee || 0),
-            metadata: { 
-                ...row.metadata, 
-                senderName: row.sender_name, 
-                receiverName: row.receiver_name,
-                status: row.status 
-            }
-        })) as Transaction[];
-    } catch (error) {
-        console.error("[getUserTransactionsForSuperAgent] Error:", error);
-        return [];
-    }
-}
-
-export async function getClientBalancesForAdmin(targetUserId: number, adminId: number, pin: string) {
+export async function approveInternationalClaim(claimId: number, adminId: number, pin: string) {
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
-        await validateSuperAgentAccess(adminId, targetUserId, connection);
-        const { rows: adminRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1', [adminId]);
-        if (adminRows.length === 0 || !(await bcrypt.compare(pin, adminRows[0].pin_hash))) throw new Error("PIN Super Agent incorrect.");
-        const { rows: walletRows } = await connection.query('SELECT balances FROM wallets WHERE user_id = $1 FOR UPDATE', [targetUserId]);
-        const balances = typeof walletRows[0]?.balances === 'string' ? JSON.parse(walletRows[0].balances) : (walletRows[0]?.balances || {});
-        await logIntervention(adminId, targetUserId, 'BALANCE_VIEW', 'Consultation des soldes confidentiels', connection);
+        await getSuperAgentContext(adminId, connection);
+        await verifyAdminPin(adminId, pin, connection);
+        const { rows } = await connection.query(`
+            SELECT c.*, u.id AS user_id, u.country
+            FROM international_transfer_claims c JOIN users u ON u.id=c.user_id
+            WHERE c.id=$1 FOR UPDATE`, [claimId]);
+        if (!rows.length) throw new Error('Réclamation internationale introuvable.');
+        await assertTerritory(adminId, Number(rows[0].user_id), connection);
+        const current = String(rows[0].status || '').toLowerCase();
+        if (['approved', 'completed', 'paid', 'claimed'].includes(current)) throw new Error('Cette réclamation est déjà traitée.');
+        await connection.query(`UPDATE international_transfer_claims SET status='approved' WHERE id=$1`, [claimId]);
+        await logIntervention(adminId, Number(rows[0].user_id), 'INTERNATIONAL_CLAIM_APPROVE', `Approbation de la réclamation internationale #${claimId}`, connection);
         await connection.query('COMMIT');
-        return { success: true, balances };
+        return { success: true };
     } catch (error: any) {
-        if (connection) await connection.query('ROLLBACK');
-        return { success: false, error: error.message };
-    } finally { if (connection) connection.release(); }
-}
-
-export async function getClientLoanCycles(userId: number) {
-    try {
-        const { rows } = await db.query('SELECT * FROM loans WHERE user_id = $1 ORDER BY request_date DESC', [userId]);
-        return rows;
-    } catch (e) { return []; }
-}
-
-export async function processDatDecision(datId: number, action: 'approve' | 'reject', adminId: number, pin: string) {
-    const connection = await db.getConnection();
-    try {
-        await connection.query('BEGIN');
-        const { rows: adminRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1', [adminId]);
-        if (!(await bcrypt.compare(pin, adminRows[0].pin_hash))) throw new Error("PIN admin incorrect.");
-        const status = action === 'approve' ? 'approved' : 'rejected';
-        await connection.query(`UPDATE term_deposits SET status = $1, approved_at = NOW(), admin_id = $2 WHERE id = $3`, [status, adminId, datId]);
-        await logIntervention(adminId, null, `DAT_${status.toUpperCase()}`, `Décision sur DAT #${datId}`, connection);
-        await connection.query('COMMIT');
-        return { success: true };
-    } catch (e: any) {
         await connection.query('ROLLBACK');
-        return { success: false, error: e.message };
+        return { success: false, error: error?.message || 'Approbation impossible.' };
     } finally { connection.release(); }
 }
 
-/**
- * Prend une décision (Approuver/Rejeter) sur une demande de prêt.
- */
-export async function processLoanDecision(loanId: number, action: 'approve' | 'reject', adminId: number, pin: string) {
-    const connection = await db.getConnection();
-    try {
-        await connection.query('BEGIN');
-        const { rows: adminRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1', [adminId]);
-        if (!(await bcrypt.compare(pin, adminRows[0].pin_hash))) throw new Error("PIN admin incorrect.");
-        
-        if (action === 'approve') {
-            const { rows: loanRows } = await connection.query(`
-                SELECT l.*, u.id as user_id, u.full_name, u.phone, u.email, u.first_name, u.country, u.id_wallet 
-                FROM loans l 
-                JOIN users u ON l.user_id = u.id 
-                WHERE l.id = $1 AND l.status = 'pending'
-            `, [loanId]);
-            
-            if (loanRows.length === 0) throw new Error("Demande de prêt non trouvée.");
-            const loan = loanRows[0];
-            const totalRepayment = parseFloat(loan.amount) * (1 + (parseFloat(loan.interest_rate) / 100 * loan.duration));
-            
-            await connection.query("UPDATE loans SET status = 'approved', approval_date = NOW(), remaining_balance = $1 WHERE id = $2", [totalRepayment, loanId]);
-            
-            const txResult = await createTransaction({
-                user: formatUser(loan), typeCode: 'LP', amount: parseFloat(loan.amount), currency: loan.currency,
-                description: `Décaissement prêt #${loanId}`, metadata: { loan_id: loanId, admin_id: adminId },
-                status: 'Completed', connection
-            });
+export async function getCountryLoans(country: string) {
+    const { rows } = await db.query(`
+        SELECT l.*, u.full_name, u.first_name, u.phone, u.email, u.id_wallet, u.country, u.province,
+               COALESCE(w.balances, '{}'::jsonb) AS wallet_balances
+        FROM loans l
+        JOIN users u ON l.user_id = u.id
+        LEFT JOIN wallets w ON w.user_id = u.id
+        WHERE LOWER(TRIM(u.country)) = LOWER(TRIM($1))
+        ORDER BY CASE WHEN LOWER(l.status)='pending' THEN 0 ELSE 1 END, l.request_date DESC, l.id DESC`, [country]);
 
-            if (!txResult.success) throw new Error(txResult.error);
-        } else {
-            await connection.query("UPDATE loans SET status = 'rejected' WHERE id = $1", [loanId]);
-        }
-        
-        await logIntervention(adminId, null, `LOAN_${action.toUpperCase()}`, `Décision ${action} sur prêt #${loanId}`, connection);
-        await connection.query('COMMIT');
-        return { success: true };
-    } catch (e: any) {
-        await connection.query('ROLLBACK');
-        return { success: false, error: e.message };
-    } finally { connection.release(); }
-}
-
-export async function getCountryLoans(countryName: string) {
-    try {
-        const { rows: loans } = await db.query(`
-            SELECT l.*, u.full_name, u.phone, u.country
-            FROM loans l 
-            JOIN users u ON l.user_id = u.id 
-            WHERE u.country = $1 
-            ORDER BY l.request_date DESC
-        `, [countryName]);
-
-        for (let loan of loans) {
-            const { rows: repayments } = await db.query('SELECT * FROM loan_repayments WHERE loan_id = $1 ORDER BY payment_date DESC', [loan.id]);
-            loan.repayments = repayments;
-        }
-        return loans;
-    } catch (e) { return []; }
+    for (const loan of rows) {
+        const [schedule, repayments] = await Promise.all([
+            db.query(`SELECT id, installment_number, due_date, amount, penalty_amount, paid_amount, status
+                      FROM loan_installments WHERE loan_id=$1 ORDER BY installment_number`, [loan.id]),
+            db.query(`SELECT id, amount, type, payment_date, transaction_id
+                      FROM loan_repayments WHERE loan_id=$1 ORDER BY payment_date DESC, id DESC`, [loan.id])
+        ]);
+        loan.schedule = schedule.rows.map((r: any) => ({
+            id: Number(r.id), installment_number: Number(r.installment_number), due_date: new Date(r.due_date).toISOString(),
+            amount: money(r.amount), penalty: money(r.penalty_amount), paid_amount: money(r.paid_amount),
+            remaining_amount: roundMoney(money(r.amount) + money(r.penalty_amount) - money(r.paid_amount)), status: r.status
+        }));
+        loan.repayments = repayments.rows.map((r: any) => ({ ...r, amount: money(r.amount) }));
+        loan.wallet_balances = typeof loan.wallet_balances === 'string' ? JSON.parse(loan.wallet_balances) : (loan.wallet_balances || {});
+    }
+    return rows;
 }
 
 export async function triggerManualLoanCollection(loanId: number, adminId: number, pin: string) {
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
-        const { rows: adminRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1', [adminId]);
-        if (!(await bcrypt.compare(pin, adminRows[0].pin_hash))) throw new Error("PIN Super Agent incorrect.");
+        await verifyAdminPin(adminId, pin, connection);
+        const { rows } = await connection.query(`
+            SELECT l.id, l.user_id, l.status, l.currency, l.remaining_balance, u.country, u.province, u.full_name
+            FROM loans l JOIN users u ON u.id=l.user_id WHERE l.id=$1 FOR UPDATE`, [loanId]);
+        if (!rows.length) throw new Error('Prêt introuvable.');
+        await assertTerritory(adminId, Number(rows[0].user_id), connection);
+        if (String(rows[0].status).toLowerCase() !== 'approved') throw new Error('Seul un prêt approuvé peut faire l’objet d’un recouvrement.');
+        if (money(rows[0].remaining_balance) <= 0.005) throw new Error('Ce prêt est déjà soldé.');
+        await connection.query('COMMIT');
 
-        const { rows: loanRows } = await connection.query(`
-            SELECT l.*, u.id as user_id, u.full_name, u.phone, u.email, u.country, u.id_wallet 
-            FROM loans l JOIN users u ON l.user_id = u.id 
-            WHERE l.id = $1 FOR UPDATE`, [loanId]);
-        
-        if (loanRows.length === 0) throw new Error("Prêt non trouvé.");
-        const loan = loanRows[0];
-        const monthlyPayment = parseFloat(loan.monthly_payment);
-        const currency = loan.currency;
+        // Le moteur LoanMe existant gère le débit, les échéances et les pénalités.
+        const result = await processLoanRepayments(Number(rows[0].user_id));
+        if (!result.success) return result;
+        const logConnection = await db.getConnection();
+        try {
+            await logIntervention(adminId, Number(rows[0].user_id), 'LOAN_MANUAL_COLLECTION', `Recouvrement manuel du prêt #${loanId}`, logConnection);
+        } finally {
+            logConnection.release();
+        }
+        return { ...result, loanId };
+    } catch (error: any) {
+        try { await connection.query('ROLLBACK'); } catch {}
+        return { success: false, error: error?.message || 'Recouvrement impossible.' };
+    } finally { connection.release(); }
+}
 
-        const { rows: walletRows } = await connection.query('SELECT balances FROM wallets WHERE user_id = $1 FOR UPDATE', [loan.user_id]);
-        const balances = walletRows[0].balances;
-        const currentBalance = parseFloat(balances[currency] || '0');
+export async function processLoanDecision(loanId: number, decision: string, adminId: number, pin: string) {
+    const normalized = String(decision || '').toLowerCase();
+    if (!['approve', 'reject'].includes(normalized)) {
+        return { success: false, error: 'Décision LoanMe invalide.' };
+    }
 
-        if (currentBalance >= monthlyPayment) {
-            const txResult = await createTransaction({
-                user: formatUser(loan), typeCode: 'LR', amount: monthlyPayment, currency,
-                description: `Remboursement manuel prêt #${loan.id} par Agent`,
-                metadata: { loan_id: loan.id, admin_id: adminId }, connection
-            });
+    // IMPORTANT:
+    // Do not keep a pool connection checked out while approveLoanRequest()
+    // opens its own transaction/connection. The previous implementation
+    // committed here but kept the connection until the function returned,
+    // which could exhaust a small PostgreSQL pool and leave the Super Agent
+    // request waiting indefinitely.
+    const connection = await db.getConnection();
+    let targetUserId: number | null = null;
 
-            if (txResult.success) {
-                await connection.query('UPDATE loans SET remaining_balance = remaining_balance - $1 WHERE id = $2', [monthlyPayment, loanId]);
-                await connection.query('INSERT INTO loan_repayments (loan_id, amount, type) VALUES ($1, $2, $3)', [loanId, monthlyPayment, 'repayment']);
-                await logIntervention(adminId, loan.user_id, 'LOAN_COLLECT', `Recouvrement manuel de ${monthlyPayment} ${currency}`, connection);
-            }
-        } else {
-            const penaltyFee = await calculateTransactionFee(monthlyPayment, currency, 'PENALTY', loan.country, connection);
-            await connection.query('UPDATE loans SET remaining_balance = remaining_balance + $1 WHERE id = $2', [penaltyFee, loanId]);
-            await connection.query('INSERT INTO loan_repayments (loan_id, amount, type) VALUES ($1, $2, $3)', [loanId, penaltyFee, 'penalty']);
-            if (loan.phone) await sendSms(loan.phone, `CashPay Alerte: Échéance impayée. Pénalité de ${penaltyFee.toFixed(2)} ${currency} ajoutée à votre dette.`).catch(console.error);
-            await logIntervention(adminId, loan.user_id, 'LOAN_PENALTY', `Pénalité de ${penaltyFee} ${currency} appliquée (Solde insuffisant)`, connection);
+    try {
+        await connection.query('BEGIN');
+        await verifyAdminPin(adminId, pin, connection);
+
+        const { rows } = await connection.query(
+            `SELECT l.id,l.user_id,l.status,u.country,u.province
+             FROM loans l
+             JOIN users u ON u.id=l.user_id
+             WHERE l.id=$1
+             FOR UPDATE`,
+            [loanId]
+        );
+
+        if (!rows.length) throw new Error('Demande de prêt introuvable.');
+
+        targetUserId = Number(rows[0].user_id);
+        await assertTerritory(adminId, targetUserId, connection);
+
+        if (String(rows[0].status).toLowerCase() !== 'pending') {
+            throw new Error('Cette demande a déjà été traitée.');
         }
 
         await connection.query('COMMIT');
-        return { success: true };
-    } catch (e: any) {
-        await connection.query('ROLLBACK');
-        return { success: false, error: e.message };
-    } finally { if (connection) connection.release(); }
-}
+    } catch (error: any) {
+        try { await connection.query('ROLLBACK'); } catch {}
+        return { success: false, error: error?.message || 'Décision LoanMe impossible.' };
+    } finally {
+        // Release BEFORE calling approveLoanRequest(), which obtains its
+        // own connection and transaction.
+        connection.release();
+    }
 
-export async function approveInternationalClaim(claimId: number, adminId: number, pin: string) {
+    if (!targetUserId) {
+        return { success: false, error: 'Utilisateur du prêt introuvable.' };
+    }
+
+    try {
+        if (normalized === 'approve') {
+            const result = await approveLoanRequest(loanId, adminId);
+
+            if (!result.success) {
+                return result;
+            }
+
+            const logConnection = await db.getConnection();
+            try {
+                await logIntervention(
+                    adminId,
+                    targetUserId,
+                    'LOAN_APPROVE',
+                    `Approbation du prêt #${loanId}`,
+                    logConnection
+                );
+            } finally {
+                logConnection.release();
+            }
+
+            await createNotification(
+                targetUserId,
+                'Demande LoanMe approuvée',
+                `Votre demande de prêt #${loanId} a été approuvée.`,
+                'new_message',
+                { type: 'loan_approved', loan_id: loanId }
+            );
+
+            return { success: true };
+        }
+
+        // Rejection is performed in a fresh transaction. The validation
+        // connection above has already been released.
+        const rejectConn = await db.getConnection();
+        try {
+            await rejectConn.query('BEGIN');
+
+            const { rows: locked } = await rejectConn.query(
+                `SELECT l.user_id,u.full_name,u.phone,u.email
+                 FROM loans l
+                 JOIN users u ON u.id=l.user_id
+                 WHERE l.id=$1 AND l.status='pending'
+                 FOR UPDATE`,
+                [loanId]
+            );
+
+            if (!locked.length) throw new Error('Demande déjà traitée.');
+
+            await assertTerritory(adminId, Number(locked[0].user_id), rejectConn);
+
+            await rejectConn.query(
+                `UPDATE loans SET status='rejected' WHERE id=$1`,
+                [loanId]
+            );
+
+            await logIntervention(
+                adminId,
+                Number(locked[0].user_id),
+                'LOAN_REJECT',
+                `Rejet du prêt #${loanId}`,
+                rejectConn
+            );
+
+            await rejectConn.query('COMMIT');
+
+            await createNotification(
+                Number(locked[0].user_id),
+                'Demande LoanMe rejetée',
+                `Votre demande de prêt #${loanId} a été rejetée.`,
+                'new_message',
+                { type: 'loan_rejected', loan_id: loanId }
+            );
+
+            return { success: true };
+        } catch (error: any) {
+            try { await rejectConn.query('ROLLBACK'); } catch {}
+            return { success: false, error: error?.message || 'Rejet LoanMe impossible.' };
+        } finally {
+            rejectConn.release();
+        }
+    } catch (error: any) {
+        return { success: false, error: error?.message || 'Décision LoanMe impossible.' };
+    }
+}
+export async function updateCountryExchangeRate(data: any) {
+    const countryCode = String(data?.country_code ?? data?.countryCode ?? '').trim().toUpperCase();
+    const fromCurrency = String(data?.from_currency ?? data?.fromCurrency ?? '').trim().toUpperCase();
+    const toCurrency = String(data?.to_currency ?? data?.toCurrency ?? '').trim().toUpperCase();
+    const rate = Number(data?.rate);
+    const adminId = Number(data?.adminId ?? data?.admin_id);
+    const pin = String(data?.pin ?? '');
+    if (!countryCode || !fromCurrency || !toCurrency || !Number.isFinite(rate) || rate <= 0 || !adminId) return { success: false, error: 'Paramètres de taux invalides.' };
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
-        const { rows: adminRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1', [adminId]);
-        if (!(await bcrypt.compare(pin, adminRows[0].pin_hash))) throw new Error("PIN admin incorrect.");
-        await connection.query("UPDATE international_transfer_claims SET status = 'approved', processed_at = NOW(), admin_id = $1 WHERE id = $2", [adminId, claimId]);
-        await logIntervention(adminId, null, 'INTL_CLAIM_APPROVE', `Validation transfert international #${claimId}`, connection);
+        await verifyAdminPin(adminId, pin, connection);
+        const admin = await getSuperAgentContext(adminId, connection);
+        const adminCode = countryToCode(admin.country) || String(admin.country || '').toUpperCase();
+        if (adminCode !== countryCode && String(admin.country || '').toUpperCase() !== countryCode) throw new Error('Le taux demandé est hors du territoire du Super Agent.');
+        await connection.query(`
+            INSERT INTO exchange_rates (country_code, from_currency, to_currency, rate)
+            VALUES ($1,$2,$3,$4)
+            ON CONFLICT (country_code, from_currency, to_currency)
+            DO UPDATE SET rate=EXCLUDED.rate`, [countryCode, fromCurrency, toCurrency, rate]);
+        await logIntervention(adminId, adminId, 'EXCHANGE_RATE_UPDATE', `Taux ${fromCurrency}/${toCurrency} = ${rate} pour ${countryCode}`, connection);
         await connection.query('COMMIT');
-        return { success: true };
-    } catch (e: any) {
-        await connection.query('ROLLBACK');
-        return { success: false, error: e.message };
-    } finally { if (connection) connection.release(); }
+        return { success: true, data: { country_code: countryCode, from_currency: fromCurrency, to_currency: toCurrency, rate } };
+    } catch (error: any) { await connection.query('ROLLBACK'); return { success: false, error: error?.message || 'Mise à jour du taux impossible.' }; }
+    finally { connection.release(); }
 }
 
-export async function getCountryExchangeRates(countryCode: string) {
-    const { rows } = await db.query('SELECT * FROM exchange_rates WHERE country_code = $1', [countryCode]);
+export async function getUserTransactionsForSuperAgent(userId: number, adminId?: number) {
+    if (adminId) await assertTerritory(adminId, userId);
+    const { rows } = await db.query(`
+        SELECT t.*, s.full_name AS sender_name, r.full_name AS receiver_name,
+               s.id_wallet AS sender_wallet, r.id_wallet AS receiver_wallet
+        FROM transactions t
+        LEFT JOIN users s ON s.id=t.sender_id
+        LEFT JOIN users r ON r.id=t.receiver_id
+        WHERE (t.sender_id=$1::integer OR t.receiver_id=$1::integer)
+          AND t.status IN ('Completed','Pending','Reversed','Failed')
+        ORDER BY t.created_at DESC, t.id DESC`, [userId]);
+    return rows;
+}
+
+export async function superAgentDeposit(data: any) {
+    const adminId = Number(data?.adminId ?? data?.admin_id);
+    const targetUserId = Number(data?.targetUserId ?? data?.target_user_id);
+    const amount = roundMoney(Number(data?.amount));
+    const currency = String(data?.currency || '').trim().toUpperCase();
+    const pin = String(data?.pin || '');
+    if (!adminId || !targetUserId || !Number.isFinite(amount) || amount <= 0 || !currency) return { success: false, error: 'Paramètres de dépôt invalides.' };
+
+    const connection = await db.getConnection();
+    try {
+        await connection.query('BEGIN');
+        const { admin, target } = await assertTerritory(adminId, targetUserId, connection);
+        await verifyAdminPin(adminId, pin, connection);
+        if (String(target.id) === String(admin.id)) throw new Error('Le Super Agent ne peut pas se créditer lui-même par cette opération.');
+        const { rows: walletRows } = await connection.query(`SELECT user_id, balances FROM wallets WHERE user_id IN ($1::integer,$2::integer) FOR UPDATE`, [adminId, targetUserId]);
+        const adminWallet = walletRows.find((w: any) => Number(w.user_id) === adminId);
+        const targetWallet = walletRows.find((w: any) => Number(w.user_id) === targetUserId);
+        if (!adminWallet || !targetWallet) throw new Error('Portefeuille Super Agent ou client introuvable.');
+        const adminBalances = typeof adminWallet.balances === 'string' ? JSON.parse(adminWallet.balances) : (adminWallet.balances || {});
+        const targetBalances = typeof targetWallet.balances === 'string' ? JSON.parse(targetWallet.balances) : (targetWallet.balances || {});
+        const available = money(adminBalances[currency]);
+        if (available + 0.005 < amount) throw new Error(`Solde Super Agent insuffisant en ${currency}. Disponible: ${available.toFixed(2)} ${currency}.`);
+        adminBalances[currency] = roundMoney(available - amount);
+        targetBalances[currency] = roundMoney(money(targetBalances[currency]) + amount);
+        await connection.query('UPDATE wallets SET balances=$1::jsonb WHERE user_id=$2::integer', [JSON.stringify(adminBalances), adminId]);
+        await connection.query('UPDATE wallets SET balances=$1::jsonb WHERE user_id=$2::integer', [JSON.stringify(targetBalances), targetUserId]);
+        const reference = generateReferenceCode('SA_DP');
+        const { rows: txRows } = await connection.query(`
+            INSERT INTO transactions (reference_code,type_code,status,amount,currency,fee,description,sender_id,receiver_id,sender_wallet_id,receiver_wallet_id,metadata)
+            VALUES ($1,'DP_SUPER_AGENT','Completed',$2,$3,0,$4,$5,$6,$7,$8,$9::jsonb) RETURNING id`, [
+            reference, amount, currency, `Dépôt Super Agent pour ${target.full_name || 'Client'}`,
+            adminId, targetUserId, admin.id_wallet || null, target.id_wallet || null,
+            JSON.stringify({ admin_id: adminId, target_user_id: targetUserId, territory: admin.country, fee: 0 })
+        ]);
+        await logIntervention(adminId, targetUserId, 'SUPER_AGENT_DEPOSIT', `Dépôt de ${amount.toFixed(2)} ${currency} — Réf ${reference}`, connection);
+        await connection.query('COMMIT');
+        await createNotification(targetUserId, 'Dépôt reçu', `Votre portefeuille a été crédité de ${amount.toFixed(2)} ${currency} par votre Super Agent. Réf: ${reference}.`, 'transaction', { reference, amount, currency });
+        return { success: true, reference, transactionId: txRows[0]?.id, senderNewBalance: adminBalances[currency], receiverNewBalance: targetBalances[currency], fee: 0 };
+    } catch (error: any) { await connection.query('ROLLBACK'); return { success: false, error: error?.message || 'Dépôt Super Agent impossible.' }; }
+    finally { connection.release(); }
+}
+
+export async function getClientBalancesForAdmin(userId: number, adminId: number, pin: string) {
+    const connection = await db.getConnection();
+    try {
+        await connection.query('BEGIN');
+        await assertTerritory(adminId, userId, connection);
+        await verifyAdminPin(adminId, pin, connection);
+        const { rows } = await connection.query(`SELECT balances, commission_balance FROM wallets WHERE user_id=$1::integer LIMIT 1`, [userId]);
+        if (!rows.length) throw new Error('Portefeuille client introuvable.');
+        const balances = typeof rows[0].balances === 'string' ? JSON.parse(rows[0].balances) : (rows[0].balances || {});
+        const commission = typeof rows[0].commission_balance === 'string' ? JSON.parse(rows[0].commission_balance) : (rows[0].commission_balance || {});
+        await connection.query('COMMIT');
+        return { success: true, balances, commission_balance: commission };
+    } catch (error: any) { await connection.query('ROLLBACK'); return { success: false, error: error?.message || 'Impossible de récupérer le solde.' }; }
+    finally { connection.release(); }
+}
+
+export async function resetBusinessApiKey(partnerId: number, type: string, adminId: number, pin: string) {
+    const connection = await db.getConnection();
+    try {
+        await connection.query('BEGIN');
+        await verifyAdminPin(adminId, pin, connection);
+        const { rows } = await connection.query(`SELECT owner_user_id, company_name FROM b2b_partners WHERE id=$1 FOR UPDATE`, [partnerId]);
+        if (!rows.length) throw new Error('Partenaire B2B introuvable.');
+        await assertTerritory(adminId, Number(rows[0].owner_user_id), connection);
+        const isTest = String(type || '').toLowerCase() === 'test';
+        const apiKey = `cp_${isTest ? 'test' : 'live'}_${crypto.randomBytes(12).toString('hex')}`;
+        const apiSecret = `csk_${isTest ? 'test' : 'live'}_${crypto.randomBytes(24).toString('hex')}`;
+        if (isTest) {
+            await connection.query('UPDATE users SET test_api_key=$1,test_api_secret=$2 WHERE id=$3', [apiKey, apiSecret, rows[0].owner_user_id]);
+        } else {
+            await connection.query('UPDATE users SET api_key=$1,api_secret=$2 WHERE id=$3', [apiKey, apiSecret, rows[0].owner_user_id]);
+            await connection.query('UPDATE b2b_partners SET api_key=$1 WHERE id=$2', [apiKey, partnerId]);
+        }
+        await logIntervention(adminId, Number(rows[0].owner_user_id), 'B2B_API_KEY_RESET', `Réinitialisation de la clé API ${isTest ? 'Test' : 'Live'} du partenaire #${partnerId}`, connection);
+        await connection.query('COMMIT');
+        return { success: true, apiKey, apiSecret, type: isTest ? 'test' : 'live' };
+    } catch (error: any) { await connection.query('ROLLBACK'); return { success: false, error: error?.message || 'Réinitialisation API impossible.' }; }
+    finally { connection.release(); }
+}
+
+export async function getCountryRevenueWallet(country: string) {
+    const code = countryToCode(country) || String(country || '').trim().toUpperCase();
+    const { rows } = await db.query(`
+        SELECT w.*, u.full_name, u.country, u.role
+        FROM wallets w JOIN users u ON u.id=w.user_id
+        WHERE LOWER(TRIM(u.country))=LOWER(TRIM($1))
+          AND (UPPER(COALESCE(u.role,'')) LIKE '%REVENUE%' OR UPPER(COALESCE(u.account_type,'')) LIKE '%REVENUE%')
+        ORDER BY w.id DESC LIMIT 1`, [country]);
+    if (rows[0]) return rows[0];
+    const { rows: fallback } = await db.query(`SELECT * FROM wallets WHERE id_wallet LIKE $1 ORDER BY id DESC LIMIT 1`, [`${code}%`]);
+    return fallback[0];
+}
+
+export async function getCountryPayouts(country: string) {
+    const { rows } = await db.query(`
+        SELECT t.*, u.full_name, u.country, u.id_wallet
+        FROM transactions t LEFT JOIN users u ON u.id=t.sender_id
+        WHERE t.type_code LIKE 'WD_%' AND LOWER(TRIM(COALESCE(u.country,'')))=LOWER(TRIM($1))
+        ORDER BY t.created_at DESC, t.id DESC`, [country]);
+    return rows;
+}
+
+export async function getCountryPendingDeposits(country: string) {
+    const { rows } = await db.query(`
+        SELECT t.*, u.full_name, u.country, u.id_wallet
+        FROM transactions t LEFT JOIN users u ON u.id=t.sender_id
+        WHERE t.type_code LIKE 'DP%' AND LOWER(t.status)='pending'
+          AND LOWER(TRIM(COALESCE(u.country,'')))=LOWER(TRIM($1))
+        ORDER BY t.created_at DESC, t.id DESC`, [country]);
+    return rows;
+}
+
+export async function getCountryExchangeRates(code: string) {
+    const { rows } = await db.query(`SELECT * FROM exchange_rates WHERE country_code = $1 ORDER BY from_currency,to_currency`, [code]);
     return { success: true, data: rows };
 }
 
-/**
- * Met à jour un taux de change et lie structurellement l'action à l'audit souverain.
- */
-export async function updateCountryExchangeRate(args: { countryCode: string, fromCurrency: string, toCurrency: string, newRate: number, userId: number }) {
+export async function getCountryBusinessPartners(country: string) {
+    const { rows } = await db.query(`
+        SELECT p.*, u.full_name, u.phone, u.email, u.id_wallet, u.country
+        FROM b2b_partners p JOIN users u ON p.owner_user_id = u.id
+        WHERE LOWER(TRIM(u.country))=LOWER(TRIM($1)) ORDER BY p.id DESC`, [country]);
+    return { b2b: rows };
+}
+
+export async function processDatDecision(datId: number, decision: string, adminId: number, pin: string) {
+    const normalized = String(decision || '').toLowerCase();
+    if (!['approve', 'reject'].includes(normalized)) return { success: false, error: 'Décision DAT invalide.' };
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
-
-        const { rows: userRows } = await connection.query('SELECT role FROM users WHERE id = $1', [args.userId]);
-        if (userRows.length === 0 || userRows[0].role === 'SubSuperAgent') {
-            throw new Error("Action interdite : Seul le Super Agent National peut modifier les taux.");
-        }
-
-        // Récupérer l'ancien taux pour l'audit
-        const { rows: oldRateRows } = await connection.query(
-            'SELECT rate FROM exchange_rates WHERE country_code = $1 AND from_currency = $2 AND to_currency = $3',
-            [args.countryCode, args.fromCurrency, args.toCurrency]
-        );
-        const oldRate = oldRateRows[0]?.rate || 'N/A';
-
-        // Mise à jour structurelle
-        await connection.query(`
-            INSERT INTO exchange_rates (country_code, from_currency, to_currency, rate) 
-            VALUES ($1, $2, $3, $4) 
-            ON CONFLICT (country_code, from_currency, to_currency) 
-            DO UPDATE SET rate = EXCLUDED.rate, updated_at = NOW()
-        `, [args.countryCode, args.fromCurrency, args.toCurrency, args.newRate]);
-
-        // Liaison avec la table des interventions (Relation structurelle)
-        await logIntervention(
-            args.userId, 
-            null, 
-            'RATE_UPDATE', 
-            `Mise à jour taux ${args.fromCurrency}/${args.toCurrency} : ${oldRate} -> ${args.newRate}`, 
-            connection
-        );
-
+        await verifyAdminPin(adminId, pin, connection);
+        const { rows } = await connection.query(`SELECT d.*,u.id AS user_id,u.country FROM term_deposits d JOIN users u ON u.id=d.user_id WHERE d.id=$1 FOR UPDATE`, [datId]);
+        if (!rows.length) throw new Error('Dépôt à terme introuvable.');
+        await assertTerritory(adminId, Number(rows[0].user_id), connection);
+        const status = String(rows[0].status || '').toLowerCase();
+        if (!['pending', 'requested', 'submitted'].includes(status)) throw new Error('Ce DAT a déjà été traité.');
+        await connection.query('UPDATE term_deposits SET status=$1 WHERE id=$2', [normalized === 'approve' ? 'approved' : 'rejected', datId]);
+        await logIntervention(adminId, Number(rows[0].user_id), `DAT_${normalized.toUpperCase()}`, `${normalized === 'approve' ? 'Approbation' : 'Rejet'} du DAT #${datId}`, connection);
         await connection.query('COMMIT');
         return { success: true };
-    } catch (e: any) {
-        await connection.query('ROLLBACK');
-        return { success: false, error: e.message };
-    } finally {
-        connection.release();
-    }
-}
-
-export async function getCountryPayouts(countryName: string) {
-    const { rows } = await db.query(`SELECT t.*, u.full_name FROM transactions t JOIN users u ON t.sender_id = u.id WHERE u.country = $1 AND t.type_code LIKE 'WD_%' ORDER BY t.created_at DESC LIMIT 100`, [countryName]);
-    return rows;
-}
-
-export async function getCountryPendingDeposits(countryName: string) {
-    const { rows } = await db.query(`SELECT t.*, u.full_name FROM transactions t JOIN users u ON t.sender_id = u.id WHERE u.country = $1 AND t.status = 'Pending' AND t.type_code LIKE 'DP%' ORDER BY t.created_at DESC LIMIT 100`, [countryName]);
-    return rows;
-}
-
-export async function getCountryBusinessPartners(countryName: string) {
-    const { rows: b2b } = await db.query("SELECT * FROM b2b_partners p JOIN users u ON p.owner_user_id = u.id WHERE u.country = $1", [countryName]);
-    return { b2b, merchants: [] };
-}
-
-/**
- * Réinitialise les clés API d'un partenaire B2B.
- */
-export async function resetBusinessApiKey(partnerId: number, type: 'b2b', adminId: number, pin: string) {
-    const connection = await db.getConnection();
-    try {
-        await connection.query('BEGIN');
-
-        // 1. Vérifier le PIN admin
-        const { rows: adminRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1', [adminId]);
-        if (adminRows.length === 0 || !(await bcrypt.compare(pin, adminRows[0].pin_hash))) {
-            throw new Error("PIN Super Agent incorrect.");
-        }
-
-        // 2. Générer les nouvelles clés
-        const apiKey = `cp_live_${crypto.randomBytes(12).toString('hex')}`;
-        const apiSecret = `csk_live_${crypto.randomBytes(24).toString('hex')}`;
-        const testApiKey = `cp_test_${crypto.randomBytes(12).toString('hex')}`;
-        const testApiSecret = `csk_test_${crypto.randomBytes(24).toString('hex')}`;
-
-        // 3. Mettre à jour l'utilisateur propriétaire
-        const { rows: partnerRows } = await connection.query('SELECT owner_user_id, company_name FROM b2b_partners WHERE id = $1', [partnerId]);
-        if (partnerRows.length === 0) throw new Error("Partenaire introuvable.");
-        const ownerUserId = partnerRows[0].owner_user_id;
-        const companyName = partnerRows[0].company_name;
-
-        await connection.query(`
-            UPDATE users 
-            SET api_key = $1, api_secret = $2, test_api_key = $3, test_api_secret = $4 
-            WHERE id = $5`, 
-            [apiKey, apiSecret, testApiKey, testApiSecret, ownerUserId]
-        );
-
-        // 4. Mettre à jour la table b2b_partners (clé live principale)
-        await connection.query('UPDATE b2b_partners SET api_key = $1 WHERE id = $2', [apiKey, partnerId]);
-
-        // 5. Log intervention
-        await logIntervention(adminId, ownerUserId, 'API_KEY_RESET', `Réinitialisation des clés API (Live & Test) pour ${companyName}`, connection);
-
-        await connection.query('COMMIT');
-
-        // 6. Envoyer l'email de notification
-        const { rows: userRows } = await db.query('SELECT email FROM users WHERE id = $1', [ownerUserId]);
-        if (userRows[0]?.email) {
-            await sendEmail(userRows[0].email, "Vos nouvelles clés API CashPay", 'b2b_welcome', {
-                companyName: companyName,
-                apiKey: apiKey,
-                testApiKey: testApiKey,
-                testApiSecret: testApiSecret,
-                buttonUrl: `${process.env.NEXT_PUBLIC_APP_URL}/settings`,
-            });
-        }
-
-        return { success: true };
-    } catch (e: any) {
-        await connection.query('ROLLBACK');
-        return { success: false, error: e.message };
-    } finally {
-        connection.release();
-    }
-}
-
-/**
- * Effectue un dépôt direct (Souverain) sans frais depuis le compte du Super Agent vers un client.
- */
-export async function superAgentDeposit(args: {
-    adminId: number;
-    targetUserId: number;
-    amount: number;
-    currency: string;
-    pin: string;
-}) {
-    const { adminId, targetUserId, amount, currency, pin } = args;
-    const connection = await db.getConnection();
-
-    try {
-        await connection.query('BEGIN');
-
-        // 1. Vérifier l'accès et le PIN
-        const { rows: adminRows } = await connection.query('SELECT * FROM users WHERE id = $1', [adminId]);
-        if (adminRows.length === 0) throw new Error("Super Agent introuvable.");
-        const admin = adminRows[0];
-
-        if (!(await bcrypt.compare(pin, admin.pin_hash))) {
-            throw new Error("PIN Super Agent incorrect.");
-        }
-
-        // 2. Valider la juridiction
-        await validateSuperAgentAccess(adminId, targetUserId, connection);
-
-        // 3. Récupérer l'utilisateur cible
-        const { rows: targetRows } = await connection.query('SELECT * FROM users WHERE id = $1', [targetUserId]);
-        if (targetRows.length === 0) throw new Error("Client cible introuvable.");
-        const target = targetRows[0];
-
-        // 4. Exécuter la transaction SANS FRAIS (Souveraineté)
-        const reference = generateReferenceCode('SOV_DEP');
-        const txResult = await createTransaction({
-            user: formatUser(admin),
-            typeCode: 'DP_AGENT', 
-            amount,
-            currency,
-            description: `Dépôt Souverain de l'Agence Nationale vers ${target.full_name}`,
-            receiver_id: targetUserId,
-            metadata: { sovereign: true, admin_id: adminId, reference },
-            connection
-        });
-
-        if (!txResult.success) throw new Error(txResult.error || "Échec du transfert souverain.");
-
-        // 5. Journaliser l'intervention
-        await logIntervention(adminId, targetUserId, 'SOVEREIGN_DEPOSIT', `Dépôt direct de ${amount} ${currency} sans frais.`, connection);
-
-        await connection.query('COMMIT');
-
-        // 6. Notifications
-        const msg = `CashPay: Votre compte a été crédité de ${amount} ${currency} par l'Agence Nationale. Réf: ${reference}.`;
-        if (target.phone) sendSms(target.phone, msg).catch(console.error);
-
-        return { success: true, reference };
-
-    } catch (error: any) {
-        if (connection) await connection.query('ROLLBACK');
-        return { success: false, error: error.message || "Erreur lors du dépôt souverain." };
-    } finally {
-        if (connection) connection.release();
-    }
+    } catch (error: any) { await connection.query('ROLLBACK'); return { success: false, error: error?.message || 'Décision DAT impossible.' }; }
+    finally { connection.release(); }
 }

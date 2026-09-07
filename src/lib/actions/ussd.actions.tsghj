@@ -1,0 +1,283 @@
+
+'use server';
+
+/**
+ * @fileOverview Moteur USSD Souverain CashPay v2.5.
+ * Authentification par PIN obligatoire, Transfert par numéro de téléphone,
+ * et protection stricte des données privées.
+ */
+
+import { getUserFromDb } from '@/lib/actions/helpers';
+import type { User } from '@/lib/types';
+import { createTransaction, getUserTransactions } from '@/lib/actions/transaction.actions';
+import { verifyUserPin, updateUser } from '@/lib/actions/user.actions';
+import { getUserCurrencies } from '@/lib/actions/currency.actions';
+import { processMaxiCashMobilePayment, processMaxiCashPayout } from '@/services/maxicash';
+import { countryToCode } from '@/lib/utils';
+
+// Cache des sessions en mémoire (ou Redis en production)
+const userSessions = new Map<string, { menuState: string, authenticated: boolean, data: any }>();
+
+type UssdHandler = (user: User, text: string, session: { menuState: string, authenticated: boolean, data: any }) => Promise<string>;
+
+const OPERATORS_BY_COUNTRY: Record<string, {id: string, name: string}[]> = {
+    'CD': [
+        { id: 'mpesa', name: 'M-Pesa' },
+        { id: 'airtel', name: 'Airtel Money' },
+        { id: 'orange', name: 'Orange Money' },
+        { id: 'afrimoney', name: 'Afrimoney' }
+    ],
+    'CG': [{ id: 'mtn', name: 'MTN MoMo' }, { id: 'airtel', name: 'Airtel Money' }],
+};
+
+const TV_PROVIDERS = [
+    { id: 'canal_plus', name: 'Canal+' },
+    { id: 'startimes', name: 'StarTimes' },
+    { id: 'easytv', name: 'EasyTV' }
+];
+
+/**
+ * Formate les soldes pour l'affichage USSD.
+ */
+async function formatAllBalances(userId: number): Promise<string> {
+    const currencies = await getUserCurrencies(userId);
+    return currencies.map(c => `${c.code}: ${c.balance}`).join('\n');
+}
+
+const menuHandlers: Record<string, UssdHandler> = {
+    // 1. ÉTAPE D'AUTH INITIALE
+    'AUTH_PIN': async (user) => {
+        return `CON Bienvenue ${user.first_name}.\nEntrez votre code PIN CashPay pour continuer :`;
+    },
+
+    // 2. MENU PRINCIPAL (Après auth réussie)
+    'MAIN_MENU': async (user) => {
+        return `CON CashPay (${user.id_wallet})\n1. Mon Solde\n2. Envoyer Argent\n3. Retrait Cash\n4. Recharger Compte\n5. Réabonnement TV\n6. Historique\n7. Changer Langue`;
+    },
+
+    // --- 1. SOLDE (Nécessite PIN à chaque fois pour la souveraineté) ---
+    'BALANCE_PIN': async () => {
+        return `CON Entrez votre PIN pour voir vos soldes :`;
+    },
+    'BALANCE_SHOW': async (user, text) => {
+        const pinRes = await verifyUserPin(user.id, text);
+        if (!pinRes.success) return `END Code PIN incorrect.`;
+        const balances = await formatAllBalances(user.id);
+        return `END Vos soldes :\n${balances}`;
+    },
+
+    // --- 2. TRANSFERT PAR NUMÉRO DE TÉLÉPHONE ---
+    'TRANSFER_PHONE': async () => {
+        return `CON Entrez le numéro de téléphone du destinataire :`;
+    },
+    'TRANSFER_CONFIRM_USER': async (user, text, session) => {
+        const recipient = await getUserFromDb({ phoneNumber: text.replace('+', '') });
+        if (!recipient) return `END Ce numéro n'est pas lié à un compte CashPay.`;
+        session.data.recipient = recipient;
+        return `CON Envoyer à ${recipient.full_name} (${recipient.id_wallet}) ?\n1. Oui\n2. Non`;
+    },
+    'TRANSFER_AMOUNT': async (user, text) => {
+        if (text !== '1') return `END Opération annulée.`;
+        return `CON Montant à envoyer (USD) :`;
+    },
+    'TRANSFER_PIN': async (user, text, session) => {
+        session.data.amount = parseFloat(text);
+        return `CON PIN pour confirmer l'envoi de $${text} :`;
+    },
+    'TRANSFER_EXECUTE': async (user, text, session) => {
+        const pinRes = await verifyUserPin(user.id, text);
+        if (!pinRes.success) return `END PIN incorrect.`;
+        
+        const res = await createTransaction({
+            user, typeCode: 'TR', amount: session.data.amount, currency: 'USD',
+            description: `Transfert USSD vers ${session.data.recipient.full_name}`,
+            receiver_id: session.data.recipient.id
+        });
+
+        return res.success ? `END Transfert réussi ! Réf: ${res.reference}` : `END Échec: ${res.error}`;
+    },
+
+    // --- 3. RETRAIT (PAYOUT) ---
+    'PAYOUT_TYPE': async () => {
+        return `CON Retirer vers :\n1. Mon numéro (${'...'})\n2. Un autre numéro`;
+    },
+    'PAYOUT_OPERATOR': async (user, text, session) => {
+        if (text === '1') session.data.recipientPhone = user.phone;
+        const code = countryToCode(user.country) || 'CD';
+        const ops = OPERATORS_BY_COUNTRY[code] || OPERATORS_BY_COUNTRY['CD'];
+        let menu = "CON Choisir l'opérateur :\n";
+        ops.forEach((op, i) => menu += `${i+1}. ${op.name}\n`);
+        return menu;
+    },
+    'PAYOUT_NUMBER_OR_AMOUNT': async (user, text, session) => {
+        const code = countryToCode(user.country) || 'CD';
+        const ops = OPERATORS_BY_COUNTRY[code] || OPERATORS_BY_COUNTRY['CD'];
+        if (!session.data.operator) {
+            session.data.operator = ops[parseInt(text) - 1]?.id;
+        }
+        if (!session.data.operator) return "END Opérateur invalide.";
+        return session.data.recipientPhone ? `CON Montant à retirer (USD) :` : `CON Entrez le numéro de destination :`;
+    },
+    'PAYOUT_AMOUNT': async (user, text, session) => {
+        if (!session.data.recipientPhone) session.data.recipientPhone = text;
+        return `CON Montant à retirer (USD) :`;
+    },
+    'PAYOUT_PIN': async (user, text, session) => {
+        session.data.amount = parseFloat(text);
+        return `CON Entrez votre PIN pour valider le retrait :`;
+    },
+    'PAYOUT_CONFIRM': async (user, text, session) => {
+        const pinRes = await verifyUserPin(user.id, text);
+        if (!pinRes.success) return `END PIN incorrect.`;
+
+        const res = await processMaxiCashPayout({
+            amount: session.data.amount, currency: 'USD', recipientPhone: session.data.recipientPhone,
+            operator: session.data.operator, countryCode: countryToCode(user.country) || 'CD',
+            reference: `US_WD_${Date.now()}`, beneficiaryName: `Retrait ${user.full_name}`, user
+        });
+        
+        return res.success ? `END Votre demande de retrait a été traitée.` : `END Échec: ${res.message}`;
+    },
+
+    // --- 4. RECHARGER COMPTE ---
+    'DEPOSIT_MENU': async (user) => {
+        const code = countryToCode(user.country) || 'CD';
+        const ops = OPERATORS_BY_COUNTRY[code] || OPERATORS_BY_COUNTRY['CD'];
+        let menu = "CON Recharger mon compte via :\n";
+        ops.forEach((op, i) => menu += `${i+1}. ${op.name}\n`);
+        return menu;
+    },
+    'DEPOSIT_AMOUNT': async (user, text, session) => {
+        const code = countryToCode(user.country) || 'CD';
+        const ops = OPERATORS_BY_COUNTRY[code] || OPERATORS_BY_COUNTRY['CD'];
+        session.data.operator = ops[parseInt(text) - 1]?.id;
+        return `CON Montant (USD) :`;
+    },
+    'DEPOSIT_CONFIRM': async (user, text, session) => {
+        const amount = parseFloat(text);
+        const res = await processMaxiCashMobilePayment({
+            amount, currency: 'USD', phoneNumber: user.phone!,
+            operator: session.data.operator, reference: `US_DP_${Date.now()}`,
+            countryCode: countryToCode(user.country) || 'CD', user
+        });
+        return res.success ? `END Demande de paiement envoyée. Validez sur votre mobile.` : `END Erreur technique.`;
+    },
+
+    // --- 5. TV ---
+    'TV_MENU': async () => {
+        let menu = "CON Réabonnement TV :\n";
+        TV_PROVIDERS.forEach((p, i) => menu += `${i+1}. ${p.name}\n`);
+        return menu;
+    },
+    'TV_SMARTCARD': async (user, text, session) => {
+        session.data.provider = TV_PROVIDERS[parseInt(text)-1];
+        return `CON N° décodeur / carte :`;
+    },
+    'TV_PIN': async (user, text, session) => {
+        session.data.smartcard = text;
+        return `CON Entrez votre PIN pour confirmer :`;
+    },
+    'TV_DONE': async (user, text) => {
+        const pinRes = await verifyUserPin(user.id, text);
+        if (!pinRes.success) return "END PIN incorrect.";
+        return "END Demande de réabonnement transmise. Vous recevrez un SMS de confirmation.";
+    },
+
+    // --- 6. HISTORIQUE ---
+    'HISTORY_SHOW': async (user) => {
+        const txs = await getUserTransactions(user.id, 3);
+        let menu = "END Dernières transactions :\n";
+        txs.forEach(t => menu += `${t.date}: ${t.type === 'sent' ? '-' : '+'}${t.amount} ${t.currency}\n`);
+        return menu;
+    },
+
+    // --- 7. LANGUE ---
+    'LANG_MENU': async () => {
+        return `CON Choisir langue :\n1. Français\n2. English`;
+    },
+    'LANG_SET': async (user, text) => {
+        const newLang = text === '2' ? 'en' : 'fr';
+        await updateUser({ userId: user.id, updates: { language: newLang } as any });
+        return `END Langue mise à jour / Language updated.`;
+    }
+};
+
+export async function handleUssdRequest(sessionId: string, phoneNumber: string, text: string): Promise<string> {
+    try {
+        const sanitizedPhone = phoneNumber.replace('+', '').trim();
+        const user = await getUserFromDb({ phoneNumber: sanitizedPhone });
+        
+        if (!user) return "END Votre numéro n'est pas reconnu. Inscrivez-vous d'abord sur l'application CashPay.";
+
+        const parts = text.split('*');
+        const lastInput = parts[parts.length - 1] || '';
+        
+        let session = userSessions.get(sessionId);
+        if (!session) {
+            session = { menuState: 'AUTH_PIN', authenticated: false, data: {} };
+            userSessions.set(sessionId, session);
+        }
+        
+        // 1. Gestion de l'authentification de session
+        if (!session.authenticated && session.menuState === 'AUTH_PIN' && text !== '') {
+            const pinRes = await verifyUserPin(user.id, lastInput);
+            if (pinRes.success) {
+                session.authenticated = true;
+                session.menuState = 'MAIN_MENU';
+            } else {
+                userSessions.delete(sessionId);
+                return "END Code PIN incorrect. Session terminée.";
+            }
+        }
+
+        let nextState: string = session.menuState;
+
+        // 2. Logique de navigation
+        if (text === '') nextState = 'AUTH_PIN';
+        else if (session.menuState === 'MAIN_MENU') {
+            const map: Record<string, string> = {
+                '1': 'BALANCE_PIN', '2': 'TRANSFER_PHONE', '3': 'PAYOUT_TYPE',
+                '4': 'DEPOSIT_MENU', '5': 'TV_MENU', '6': 'HISTORY_SHOW', '7': 'LANG_MENU'
+            };
+            nextState = map[lastInput] || 'MAIN_MENU';
+        }
+        // Transitions Balance
+        else if (session.menuState === 'BALANCE_PIN') nextState = 'BALANCE_SHOW';
+        // Transitions Transfert
+        else if (session.menuState === 'TRANSFER_PHONE') nextState = 'TRANSFER_CONFIRM_USER';
+        else if (session.menuState === 'TRANSFER_CONFIRM_USER') nextState = 'TRANSFER_AMOUNT';
+        else if (session.menuState === 'TRANSFER_AMOUNT') nextState = 'TRANSFER_PIN';
+        else if (session.menuState === 'TRANSFER_PIN') nextState = 'TRANSFER_EXECUTE';
+        // Transitions Retrait
+        else if (session.menuState === 'PAYOUT_TYPE') nextState = 'PAYOUT_OPERATOR';
+        else if (session.menuState === 'PAYOUT_OPERATOR') nextState = 'PAYOUT_NUMBER_OR_AMOUNT';
+        else if (session.menuState === 'PAYOUT_NUMBER_OR_AMOUNT') {
+            nextState = session.data.recipientPhone ? 'PAYOUT_AMOUNT' : 'PAYOUT_AMOUNT';
+        }
+        else if (session.menuState === 'PAYOUT_AMOUNT') nextState = 'PAYOUT_PIN';
+        else if (session.menuState === 'PAYOUT_PIN') nextState = 'PAYOUT_CONFIRM';
+        // Transitions Dépôt
+        else if (session.menuState === 'DEPOSIT_MENU') nextState = 'DEPOSIT_AMOUNT';
+        else if (session.menuState === 'DEPOSIT_AMOUNT') nextState = 'DEPOSIT_CONFIRM';
+        // Transitions TV
+        else if (session.menuState === 'TV_MENU') nextState = 'TV_SMARTCARD';
+        else if (session.menuState === 'TV_SMARTCARD') nextState = 'TV_PIN';
+        else if (session.menuState === 'TV_PIN') nextState = 'TV_DONE';
+        // Transitions Langue
+        else if (session.menuState === 'LANG_MENU') nextState = 'LANG_SET';
+
+        const handler = menuHandlers[nextState];
+        if (handler) {
+            const response = await handler(user, lastInput, session);
+            session.menuState = nextState;
+            if (response.startsWith('END')) userSessions.delete(sessionId);
+            return response;
+        }
+        
+        return 'END Session USSD expirée.';
+
+    } catch (error) {
+        console.error("USSD Error:", error);
+        return "END Erreur système CashPay. Veuillez réessayer.";
+    }
+}

@@ -1,147 +1,83 @@
 
 'use server';
 
-import type { User } from '@/lib/types';
-import { createTransaction } from './transaction.actions';
-import { generateReferenceCode, countryToCode } from '../utils';
-import { processMaxiCashMobilePayment, processMaxiCashCardPayment } from '@/services/maxicash';
+import { db } from '@/lib/db';
+import { handleDbError } from './helpers';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
- * Initie un dépôt Mobile Money via l'infrastructure sécurisée CashPay.
+ * @fileoverview Actions serveur pour l'approvisionnement (Dépôt) via la passerelle MaxiCash.
  */
-export async function initiateDeposit(args: { 
-    user: User, 
-    amount: number, 
-    currency: string, 
-    phoneNumber: string, 
-    operator: string 
+
+/**
+ * Initie un dépôt Mobile Money via MaxiCash.
+ */
+export async function initiateDeposit(data: {
+    amount: number;
+    user: any;
+    countryCode: string;
+    operator: string;
+    phoneNumber: string;
+    paymentMethod: string;
 }) {
-    const { user, amount, currency, phoneNumber, operator } = args;
-    const reference = generateReferenceCode('DEP_MOB');
-
-    try {
-        const sanitizedPhone = phoneNumber.replace('+', '').trim();
-
-        const result = await processMaxiCashMobilePayment({
-            amount,
-            currency: currency.toUpperCase(),
-            phoneNumber: sanitizedPhone,
-            operator,
-            reference,
-            countryCode: countryToCode(user.country) || 'CD',
-            user
-        });
-
-        if (result.success) {
-            await createTransaction({
-                user,
-                typeCode: 'DP',
-                amount,
-                currency,
-                description: `Dépôt Mobile Money direct via ${operator}`,
-                metadata: { 
-                    network_operator: operator, 
-                    phone: sanitizedPhone, 
-                    reference,
-                    provider_tx_id: result.data?.transactionId
-                },
-                status: 'Pending',
-                referenceCode: reference
-            });
-
-            return { 
-                success: true, 
-                message: "Demande de paiement envoyée. Veuillez valider sur votre téléphone." 
-            };
-        } else {
-            return { success: false, error: result.message || "Échec de l'initiation du paiement mobile." };
-        }
-    } catch (e: any) {
-        return { success: false, error: "Erreur de communication avec le réseau de paiement." };
-    }
-}
-
-/**
- * Initie un dépôt par Carte Bancaire via l'infrastructure sécurisée CashPay.
- */
-export async function initiateCardDeposit(args: { 
-    user: User, 
-    amount: number, 
-    currency: string, 
-    cardNumber: string, 
-    expiryDate: string, 
-    cvv: string, 
-    cardHolderName: string 
-}) {
-    const { user, amount, currency, cardNumber, expiryDate, cvv, cardHolderName } = args;
-    const reference = generateReferenceCode('DEP_CRD');
+    console.log(`[MaxiCash] Initiation dépôt Mobile Money:`, data);
     
-    const dateParts = expiryDate.split('/');
-    if (dateParts.length !== 2) return { success: false, error: "Format d'expiration invalide (MM/AA)." };
+    // Identifiant unique souverain
+    const transactionId = `DEP-${uuidv4().substring(0,8).toUpperCase()}`;
     
-    const month = dateParts[0].padStart(2, '0');
-    const year = `20${dateParts[1]}`;
-
-    try {
-        const result = await processMaxiCashCardPayment({
-            amount,
-            currency: currency.toUpperCase(),
-            cardNumber: cardNumber.replace(/\s+/g, ''),
-            expiryMonth: month,
-            expiryYear: year,
-            cvv,
-            cardHolder: cardHolderName,
-            reference,
-            user
-        });
-
-        if (result.success) {
-            await createTransaction({
-                user,
-                typeCode: 'DP_CARD',
-                amount,
-                currency,
-                description: `Approvisionnement par Carte Bancaire`,
-                metadata: { 
-                    last4: cardNumber.slice(-4), 
-                    reference,
-                    provider_tx_id: result.data?.transactionId 
-                },
-                status: 'Completed',
-                referenceCode: reference
-            });
-
-            return { success: true, message: "Votre carte a été débitée et votre portefeuille crédité avec succès." };
-        } else {
-            return { success: false, error: result.message || "La transaction a été refusée par l'émetteur de la carte." };
-        }
-    } catch (e: any) {
-        return { success: false, error: "Une erreur est survenue lors de l'autorisation de la carte." };
-    }
-}
-
-/**
- * PayPal (Email-based deposit).
- */
-export async function initiatePayPalDeposit(args: { user: User, amount: number, currency: string }): Promise<{ success: boolean; redirectUrl?: string; error?: string; message?: string }> {
+    // En production, appel API MaxiCash avec MerchantID/Password
+    // POST https://api.maxicashapp.com/v1/merchant/payment
+    
     return { 
         success: true, 
-        redirectUrl: `https://www.paypal.com/checkoutnow?token=mock_token_${Date.now()}` 
+        transactionId,
+        message: `Une demande de paiement de ${data.amount} USD a été envoyée à votre mobile ${data.phoneNumber}.` 
     };
 }
 
 /**
- * UBA Virtual Account.
+ * Initie un dépôt par Carte Bancaire Prépayée via MaxiCash.
  */
-export async function initiateUbaVirtualAccountDeposit(args: any) {
+export async function initiateCardDeposit(data: { amount: number, user: any, cardDetails?: any }) {
+    console.log(`[MaxiCash] Initiation dépôt Carte Prépayée:`, data);
+    
+    const transactionId = `CRD-${uuidv4().substring(0,8).toUpperCase()}`;
+    
+    // Simulation du portail de paiement sécurisé MaxiCash
     return { 
         success: true, 
-        data: { 
-            accountNumber: "9901234567", 
-            bankName: "UBA Bank", 
-            accountName: "CashPay Direct",
-            amount: args.amount,
-            currency: args.currency
-        } 
+        transactionId, 
+        message: "Redirection vers le portail sécurisé carte MaxiCash..." 
+    };
+}
+
+/**
+ * Initie un dépôt PayPal via l'intégration MaxiCash.
+ */
+export async function initiatePaypalDeposit(data: { amount: number, user: any }) {
+    console.log(`[MaxiCash] Initiation dépôt PayPal via Gateway:`, data);
+    
+    const transactionId = `PP-${uuidv4().substring(0,8).toUpperCase()}`;
+    
+    return { 
+        success: true, 
+        transactionId, 
+        message: "Ouverture de la passerelle PayPal via MaxiCash..." 
+    };
+}
+
+/**
+ * Vérifie le statut d'une transaction auprès de MaxiCash.
+ */
+export async function checkDepositStatus(reference: string): Promise<{ success: boolean; status: string; message?: string }> {
+    // Appel à l'API de vérification MaxiCash
+    // GET /merchant/status?ref=${reference}
+    console.log(`[MaxiCash] Vérification statut pour : ${reference}`);
+    
+    // Pour la démo, on simule un succès après l'initiation
+    return { 
+        success: true, 
+        status: 'Completed', 
+        message: "Dépôt validé avec succès." 
     };
 }

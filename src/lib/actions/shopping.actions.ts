@@ -7,7 +7,7 @@ import { handleDbError, saveBase64Image } from './helpers';
 import { sendEmail } from '@/services/email';
 import { getUserFromDb } from './helpers';
 import { currentPrice, generateReferenceCode, formatUser } from '../utils';
-import { getAuthenticatedUser, verifyCurrentUserPin } from './auth.actions';
+import { getAuthenticatedUser, verifyCurrentUserPin } from './user.actions';
 import { calculateTransactionFee } from './wallet.actions';
 import { createNotification } from './notification.actions';
 import { createTransaction } from './transaction.actions';

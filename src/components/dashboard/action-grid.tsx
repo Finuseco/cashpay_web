@@ -71,11 +71,8 @@ export function ActionGrid() {
      const allActions: ActionItem[] = [
         ...mainActions,
         { href: "/receive", labelKey: "actionGridReceive", icon: QrCode },
-        { href: "/fuel", labelKey: "actionGridFuel", icon: Fuel },
-        { href: "/mlm", labelKey: "actionGridMlm", icon: Users },
         { href: "/payment-links", labelKey: "actionGridPaymentLink", icon: Link2Icon },
         { href: "/marketing/ads", labelKey: "actionGridAds", icon: Megaphone },
-        { href: "/africoin", labelKey: "actionGridAfriCoin", icon: '/logos/crypto/afc.png' },
         { href: "/bank-transfer", labelKey: "actionGridBankTransfer", icon: Landmark },
         { href: "/bills", labelKey: "actionGridBills", icon: Receipt },
         { href: "/shopping", labelKey: "actionGridShopping", icon: ShoppingCart },
@@ -93,10 +90,8 @@ export function ActionGrid() {
         { href: "/investment", labelKey: "actionGridDat", icon: PiggyBank },
         { href: "/referral", labelKey: "actionGridReferral", icon: Gift },
         { href: "/fees", labelKey: "actionGridFees", icon: Percent },
-        { href: "/loan", labelKey: "actionGridLoan", icon: Handshake },    
-        { href: "/cinema", labelKey: "actionGridCinema", icon: Clapperboard, onClick: handleComingSoon("NetOn Cinéma") },
-        { href: "/monpays", labelKey: "actionGridMonPays", icon: Map, onClick: handleComingSoon("MonPays") },
-        { href: "/podcast", labelKey: "pageTitlePodcast", icon: Radio },
+        { href: "/loan", labelKey: "actionGridLoan", icon: Handshake }, 
+        { href: "/monpays", labelKey: "actionGridMonPays", icon: Map },
         { href: "/news", labelKey: "pageTitleNews", icon: Newspaper },
 
     ];

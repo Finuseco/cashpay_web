@@ -1291,10 +1291,28 @@
   "chessDrawRespondTitle": "Soki nul",
   "chessDrawRespondDesc": "Moninga asengi nul. Ondimi? Moto na moto akozwa mbongo na ye.",
   "chessAccept": "Nandimi",
-  "chessRefuse": "Naboyi"
-
-
+  "chessRefuse": "Naboyi",
+  "profileLastNamePlaceholder": "Doe",
+  "profilePostNamePlaceholder": "Smith",
+  "profileFirstNamePlaceholder": "John",
+  "emailAvailable": "E-mail eza",
+  "idAvailable": "ID eza malamu",
+  "idTypeDriving": "Permis",
+  "statusSingle": "Célibataire",
+  "statusMarried": "Abalá",
+  "statusDivorced": "Abomá libala",
+  "statusWidowed": "Mokufeli mwasi/mobali",
+  "emergencyNameLabel": "Kombo ya mobimba",
+  "emergencyPhoneLabel": "Téléphone",
+  "emergencyRelationLabel": "Ndenge bozali",
+  "relationOther": "Mususu",
+  "switchCamera": "Kobongola caméra",
+  "idSafetyWarning": "Kotisa numéro ya solo soki te bakokanga compte.",
+  "emailVerificationRequired": "Tala soki e-mail eza ya kozwa.",
+  "signatureRequired": "Loti eza obligatoire."
 }
+
+
 
 
 

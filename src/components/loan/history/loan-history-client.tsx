@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState } from 'react';
+
 import type { LoanHistory } from '@/lib/actions/loan.actions';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
@@ -14,6 +14,12 @@ import { fr } from 'date-fns/locale';
 import { Handshake, Calendar, CheckCircle, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from "react-i18next";
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { repayLoan } from '@/lib/actions/loan.actions';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Loader2, CreditCard } from 'lucide-react';
 
 const currencySymbols: { [key: string]: string } = {
   USD: "$",
@@ -23,7 +29,30 @@ const currencySymbols: { [key: string]: string } = {
 
 export function LoanHistoryClient({ initialHistory }: { initialHistory: LoanHistory[] }) {
     const { t } = useTranslation();
-    const [history, setHistory] = useState(initialHistory);
+    const router = useRouter();
+    const [repayAmounts, setRepayAmounts] = useState<Record<number, string>>({});
+    const [repayingLoanId, setRepayingLoanId] = useState<number | null>(null);
+    const [repayError, setRepayError] = useState<Record<number, string>>({});
+    const history = initialHistory;
+
+    async function handleRepayment(loan: LoanHistory) {
+        const amount = Number(repayAmounts[loan.id]);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            setRepayError(prev => ({ ...prev, [loan.id]: 'Entrez un montant de remboursement valide.' }));
+            return;
+        }
+        setRepayingLoanId(loan.id);
+        setRepayError(prev => ({ ...prev, [loan.id]: '' }));
+        const result = await repayLoan(Number((loan as any).user_id), Number(loan.id), amount);
+        if (!result.success) {
+            setRepayError(prev => ({ ...prev, [loan.id]: result.error || 'Remboursement impossible.' }));
+            setRepayingLoanId(null);
+            return;
+        }
+        setRepayAmounts(prev => ({ ...prev, [loan.id]: '' }));
+        setRepayingLoanId(null);
+        router.refresh();
+    }
 
     return (
         <div className="space-y-6">
@@ -47,7 +76,7 @@ export function LoanHistoryClient({ initialHistory }: { initialHistory: LoanHist
                                                     {t('loanItemDateRange', { startDate: format(new Date(loan.start_date), 'd MMM yy', { locale: fr }), endDate: format(new Date(loan.end_date), 'd MMM yy', { locale: fr }) })}
                                                 </p>
                                             </div>
-                                            <Badge variant={loan.status === 'approved' ? 'default' : 'secondary'}>{loan.status}</Badge>
+                                            <Badge variant='outline' className='border-primary/30 bg-primary/5 text-primary'>{loan.status}</Badge>
                                         </div>
                                     </AccordionTrigger>
                                      <AccordionContent className="p-4 pt-0">
@@ -59,6 +88,32 @@ export function LoanHistoryClient({ initialHistory }: { initialHistory: LoanHist
                                                  </div>
                                                 <Progress value={progress} />
                                             </div>
+                                            {loan.status === 'approved' && Number(loan.remaining_balance) > 0.005 && (
+                                                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3 mb-4">
+                                                    <div className="flex items-center gap-2 font-semibold">
+                                                        <CreditCard className="h-4 w-4" />
+                                                        Rembourser maintenant
+                                                    </div>
+                                                    <p className="text-sm text-muted-foreground">
+                                                        Vous pouvez rembourser avant l’échéance, même partiellement. Le paiement est affecté d’abord à la première échéance non soldée, puis à la suivante si celle-ci est entièrement réglée.
+                                                    </p>
+                                                    <div className="flex gap-2">
+                                                        <Input
+                                                            type="number"
+                                                            min="0.01"
+                                                            step="0.01"
+                                                            placeholder={`Montant en ${loan.currency}`}
+                                                            value={repayAmounts[loan.id] || ''}
+                                                            onChange={e => setRepayAmounts(prev => ({ ...prev, [loan.id]: e.target.value }))}
+                                                            disabled={repayingLoanId === loan.id}
+                                                        />
+                                                        <Button onClick={() => handleRepayment(loan)} disabled={repayingLoanId === loan.id}>
+                                                            {repayingLoanId === loan.id ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Rembourser'}
+                                                        </Button>
+                                                    </div>
+                                                    {repayError[loan.id] && <p className="text-sm text-muted-foreground">{repayError[loan.id]}</p>}
+                                                </div>
+                                            )}
                                             {loan.schedule && loan.schedule.length > 0 && (
                                                 <div>
                                                     <h4 className="font-semibold mb-2">{t('repaymentScheduleTitle', "Échéancier de remboursement")}</h4>
@@ -73,10 +128,10 @@ export function LoanHistoryClient({ initialHistory }: { initialHistory: LoanHist
                                                         <TableBody>
                                                             {loan.schedule.map((item, index) => (
                                                                 <TableRow key={index}>
-                                                                    <TableCell>{format(new Date(item.dueDate), 'd MMMM yyyy', {locale: fr})}</TableCell>
-                                                                    <TableCell className="text-right font-mono">{symbol}{item.amount.toFixed(2)}</TableCell>
+                                                                    <TableCell>{format(new Date(item.due_date), 'd MMMM yyyy', {locale: fr})}</TableCell>
+                                                                    <TableCell className="text-right font-mono">{symbol}{item.remaining_amount.toFixed(2)}<span className="block text-xs text-muted-foreground">{t('tableHeaderAmount')}: {symbol}{item.amount.toFixed(2)}</span></TableCell>
                                                                     <TableCell className="text-right">
-                                                                        <Badge variant={item.status === 'paid' ? 'default' : 'outline'} className={cn(item.status === 'paid' && 'bg-green-500/80')}>
+                                                                        <Badge variant='outline' className={cn(item.status === 'paid' && 'border-primary/30 bg-primary/10 text-primary')}>
                                                                             {item.status === 'paid' ? <CheckCircle className="h-3 w-3 mr-1"/> : <Clock className="h-3 w-3 mr-1"/>}
                                                                             {item.status === 'paid' ? t('repaymentStatusPaid') : t('repaymentStatusDue')}
                                                                         </Badge>
@@ -103,11 +158,11 @@ export function LoanHistoryClient({ initialHistory }: { initialHistory: LoanHist
                                                             <TableRow key={rep.id}>
                                                                 <TableCell>{format(new Date(rep.payment_date), 'd MMM yyyy', { locale: fr })}</TableCell>
                                                                 <TableCell>
-                                                                    <Badge variant={rep.type === 'penalty' ? 'destructive' : 'outline'}>
+                                                                    <Badge variant='outline' className={cn(rep.type === 'penalty' && 'border-primary/30 bg-primary/5 text-primary')}>
                                                                         {rep.type === 'penalty' ? t('loanRepaymentTypePenalty') : t('loanRepaymentTypeRepayment')}
                                                                     </Badge>
                                                                 </TableCell>
-                                                                <TableCell className={cn("text-right font-semibold", rep.type === 'penalty' ? 'text-destructive' : 'text-green-600')}>
+                                                                <TableCell className="text-right font-semibold text-foreground">
                                                                     {rep.type === 'repayment' ? '-' : '+'} {symbol}{rep.amount.toLocaleString()}
                                                                 </TableCell>
                                                             </TableRow>

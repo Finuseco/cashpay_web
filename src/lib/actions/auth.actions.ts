@@ -1,4 +1,3 @@
-
 'use server';
 
 import type { User } from '../types';
@@ -17,6 +16,30 @@ import { UAParser } from 'ua-parser-js';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import type { PoolClient } from 'pg';
+
+/**
+ * Fonction de connexion par email/mot de passe (utilisée par le backoffice)
+ */
+export async function login(prevState: any, formData: FormData) {
+  const email = formData.get('email') as string;
+  const password = formData.get('password') as string;
+
+  try {
+    const { rows } = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (rows.length === 0) return { message: 'Identifiants incorrects' };
+
+    const user = rows[0];
+    const isMatch = await bcrypt.compare(password, user.password_hash || '');
+    if (!isMatch) return { message: 'Identifiants incorrects' };
+
+    const token = generateToken(user);
+    cookies().set('cashpay-token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/' });
+
+    return { message: 'success', role: user.role.toLowerCase() };
+  } catch (e) {
+    return { message: 'Une erreur est survenue' };
+  }
+}
 
 async function generateUniqueWalletId(agencyPrefix: string, connection: PoolClient): Promise<string> {
     const { rows } = await connection.query(
@@ -777,321 +800,5 @@ export async function logUserSessionAndNotify(user: any) {
         
     } catch(e) {
         console.error("Failed to log session or send notification email:", e);
-    }
-}
-
-
-// Functions for Developer Portal
-export async function findDeveloperByEmail(email: string): Promise<{ success: boolean; userId?: number; error?: string; }> {
-    if (!email) {
-        return { success: false, error: 'Email non fourni.' };
-    }
-    try {
-        const { rows } = await db.query('SELECT id FROM users WHERE email = $1::text AND role IN ($2, $3)', [email, 'Agent', 'Admin']);
-        if (rows.length === 0) {
-            return { success: false, error: 'Aucun compte développeur trouvé pour cet e-mail.' };
-        }
-        return { success: true, userId: rows[0].id };
-    } catch (error) {
-        const dbError = await handleDbError(error, 'finding developer by email');
-        return { success: false, error: dbError.error };
-    }
-}
-
-export async function loginDeveloper(email: string) {
-    // This is now simplified. The full login flow will handle OTP.
-    const { rows } = await db.query('SELECT * FROM users WHERE email = $1::text AND role IN ($2, $3)', [email, 'Agent', 'Admin']);
-    if (rows.length === 0) {
-        return { success: false, error: 'Aucun compte développeur trouvé pour cet e-mail.' };
-    }
-    return await sendAndStoreOtp(rows[0].id, 'Developer Portal Login', 'email');
-}
-
-
-export async function verifyDeveloperOtp(userId: number, otp: string) {
-    const result = await verifyOtp(userId, otp);
-    // Overwrite the cookie name for the developer portal
-    if (result.success && result.token) {
-        cookies().set('dev-portal-token', result.token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/' });
-    }
-    return result;
-}
-
-export async function verifyDeveloperPin(userId: number, pin: string): Promise<{ success: boolean, error?: string }> {
-     return await verifyUserPin(userId, pin);
-}
-
-export async function getAuthenticatedDeveloper(): Promise<User | null> {
-    const cookieStore = cookies();
-    const token = cookieStore.get('dev-portal-token')?.value;
-
-    if (!token) return null;
-
-    const decodedPayload = verifyToken(token, 'dev');
-    if (!decodedPayload) return null;
-
-    try {
-        const { rows } = await db.query('SELECT * FROM users WHERE id = $1::integer AND role IN ($2, $3)', [decodedPayload.id, 'Agent', 'Admin']);
-        if (rows.length === 0) return null;
-        return formatUser(rows[0]);
-    } catch (error) {
-        await handleDbError(error, 'getting authenticated developer');
-        return null;
-    }
-}
-
-export async function getAuthenticatedUser(): Promise<User | null> {
-    const cookieStore = cookies();
-    const token = cookieStore.get('cashpay-token')?.value;
-
-    if (!token) {
-        console.log("getAuthenticatedUser: No token found in cookies.");
-        return null;
-    }
-
-    const decodedPayload = verifyToken(token);
-    if (!decodedPayload || !decodedPayload.id) {
-        console.log("getAuthenticatedUser: Invalid or decoded token payload.", decodedPayload);
-        return null;
-    }
-
-    try {
-        const { rows } = await db.query('SELECT * FROM users WHERE id = $1::integer', [decodedPayload.id]);
-        if (rows.length === 0) {
-            console.log(`getAuthenticatedUser: User with id ${decodedPayload.id} not found.`);
-            return null;
-        }
-        return formatUser(rows[0]);
-    } catch (error) {
-        await handleDbError(error, 'getting authenticated user');
-        return null;
-    }
-}
-
-export async function getAllUsers(): Promise<User[]> {
-    try {
-        const { rows } = await db.query('SELECT * FROM users');
-        return rows.map(formatUser);
-    } catch (error) {
-        await handleDbError(error, 'getting all users');
-        return [];
-    }
-}
-
-
-export async function checkContacts(phoneNumbers: string[]): Promise<{ phone: string, onChat: boolean, user?: Partial<User> }[]> {
-    if (phoneNumbers.length === 0) return [];
-    try {
-        // Sanitize phone numbers - remove leading '+' and non-numeric characters
-        const sanitizedNumbers = phoneNumbers.map(p => p.replace(/\D/g, '').slice(-9)); // Keep last 9 digits
-
-        // Create a query with a condition for each phone number
-        const conditions = sanitizedNumbers.map((_, i) => `phone LIKE $${i + 1}::text`).join(' OR ');
-        const params = sanitizedNumbers.map(n => `%${n}`);
-
-        const { rows } = await db.query(`SELECT id, full_name, profile_photo, phone FROM users WHERE ${conditions}`, params);
-
-        const onChatUsers = new Map(rows.map(user => {
-            const userPhoneSuffix = user.phone.slice(-9);
-            return [userPhoneSuffix, { id: user.id, full_name: user.full_name, profile_photo: user.profile_photo }];
-        }));
-
-        return phoneNumbers.map(originalPhone => {
-            const sanitized = originalPhone.replace(/\D/g, '').slice(-9);
-            const user = onChatUsers.get(sanitized);
-            return {
-                phone: originalPhone,
-                onChat: !!user,
-                user: user
-            };
-        });
-    } catch(error) {
-        await handleDbError(error, 'checking contacts');
-        return phoneNumbers.map(phone => ({ phone, onChat: false }));
-    }
-}
-
-interface UpdateUserArgs {
-    userId: number;
-    updates: Partial<Pick<User, 'first_name' | 'last_name' | 'profession' | 'activity_description' | 'address' | 'city' | 'profile_photo' | 'cover_photo' | 'full_name'>>;
-}
-
-export async function updateUser({ userId, updates }: UpdateUserArgs): Promise<{ success: boolean; user?: User; error?: string; }> {
-    const connection = await db.getConnection();
-    try {
-        await connection.query('BEGIN');
-
-        // Check if profile_photo or cover_photo are base64 and save them
-        if (updates.profile_photo && updates.profile_photo.startsWith('data:image')) {
-            const savedPath = await saveBase64Image(updates.profile_photo, 'avatars', `user_${userId}`);
-            if (savedPath) {
-                updates.profile_photo = savedPath;
-            } else {
-                delete updates.profile_photo; // Don't update if saving fails
-            }
-        }
-        if (updates.cover_photo && updates.cover_photo.startsWith('data:image')) {
-            const savedPath = await saveBase64Image(updates.cover_photo, 'covers', `user_${userId}`);
-            if (savedPath) {
-                updates.cover_photo = savedPath;
-            } else {
-                delete updates.cover_photo;
-            }
-        }
-
-        const { rows: existingUserRows } = await connection.query('SELECT first_name, last_name FROM users WHERE id = $1::integer', [userId]);
-        const existingUser = existingUserRows[0];
-
-        const firstName = updates.first_name || existingUser.first_name;
-        const lastName = updates.last_name || existingUser.last_name;
-        updates.full_name = `${firstName} ${lastName}`;
-
-        const setClauses = Object.keys(updates).map((key, i) => `"${key.toLowerCase()}" = $${i + 1}`);
-        const values = Object.values(updates);
-
-        const { rowCount } = await connection.query(`UPDATE users SET ${setClauses.join(', ')} WHERE id = $${values.length + 1}::integer`, [...values, userId]);
-        
-        if (rowCount === 0) {
-            throw new Error("Utilisateur non trouvé ou aucune mise à jour effectuée.");
-        }
-
-        const { rows: updatedUserRows } = await connection.query('SELECT * FROM users WHERE id = $1::integer', [userId]);
-
-        await connection.query('COMMIT');
-
-        return { success: true, user: formatUser(updatedUserRows[0]) };
-    } catch(error: any) {
-        await connection.query('ROLLBACK');
-        const dbError = await handleDbError(error, 'updating user profile');
-        return { success: false, error: dbError.error || error.message };
-    } finally {
-        connection.release();
-    }
-}
-
-interface UpdatePinArgs {
-    userId: number;
-    oldPin: string;
-    newPin: string;
-}
-
-/**
- * Met à jour le code PIN de l'utilisateur et synchronise le changement avec ses cartes Marqeta.
- */
-export async function updatePin({ userId, oldPin, newPin }: UpdatePinArgs): Promise<{ success: boolean; error?: string }> {
-    const connection = await db.getConnection();
-    const headerList = headers();
-    const ipAddress = (headerList.get('x-forwarded-for') ?? '127.0.0.1').split(',')[0].trim();
-
-    try {
-        await connection.query('BEGIN');
-
-        // 1. Vérifier l'ancien PIN
-        const { rows: userRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1::integer', [userId]);
-        if (userRows.length === 0) throw new Error('Utilisateur non trouvé.');
-        
-        const user = userRows[0];
-        if (!user.pin_hash) throw new Error('Aucun PIN configuré. Contactez le support.');
-        
-        const isMatch = await bcrypt.compare(oldPin, user.pin_hash);
-        if (!isMatch) throw new Error('Votre ancien code PIN est incorrect.');
-
-        // 2. Récupérer toutes les cartes actives pour synchronisation
-        const { rows: cardRows } = await connection.query('SELECT id, marqeta_card_token FROM cards WHERE user_id = $1::integer AND status = $2::text', [userId, 'active']);
-
-        // 3. Mettre à jour le PIN chez Marqeta pour chaque carte
-        for (const card of cardRows) {
-            if (card.marqeta_card_token) {
-                // Marqeta nécessite une idempotencyKey unique par requête
-                const idempotencyKey = crypto.randomUUID();
-                await setMarqetaPin(card.marqeta_card_token, newPin, idempotencyKey, ipAddress);
-            }
-        }
-
-        // 4. Mettre à jour le hash local dans la base CashPay
-        const newHash = await bcrypt.hash(newPin, 10);
-        await connection.query('UPDATE users SET pin_hash = $1::text WHERE id = $2::integer', [newHash, userId]);
-
-        await connection.query('COMMIT');
-        return { success: true };
-
-    } catch (error: any) {
-        await connection.query('ROLLBACK');
-        console.error('[Update Pin Action] Critical error:', error.message);
-        return { success: false, error: error.message };
-    } finally {
-        connection.release();
-    }
-}
-
-export async function savePushSubscription(userId: number, subscription: any): Promise<{ success: boolean }> {
-    try {
-        const { endpoint } = subscription;
-        await db.query(
-            'INSERT INTO push_subscriptions (user_id, endpoint, subscription_data) VALUES ($1::integer, $2::text, $3::jsonb) ON CONFLICT (endpoint) DO UPDATE SET user_id = $1::integer, subscription_data = $3::jsonb',
-            [userId, endpoint, JSON.stringify(subscription)]
-        );
-        return { success: true };
-    } catch (error) {
-        await handleDbError(error, 'saving push subscription');
-        return { success: false };
-    }
-}
-
-
-export async function findUserByWalletId(walletId: string): Promise<User | null> {
-    try {
-        const { rows } = await db.query('SELECT * FROM users WHERE id_wallet = $1::text', [walletId]);
-        if (rows.length === 0) {
-            return null;
-        }
-        return formatUser(rows[0]);
-    } catch (error) {
-        handleDbError(error, 'finding user by wallet id');
-        return null;
-    }
-}
-
-export async function linkZoomAccount(userId: number, zoomId: string, refreshToken: string): Promise<{ success: boolean; error?: string }> {
-    try {
-        await db.query('UPDATE users SET zoom_id = $1::text, zoom_refresh_token = $2::text WHERE id = $3::integer', [zoomId, refreshToken, userId]);
-        return { success: true };
-    } catch (error) {
-        const dbError = await handleDbError(error, 'linking Zoom account');
-        return { success: false, error: dbError.error };
-    }
-}
-
-export async function findUserByZoomId(zoomId: string): Promise<{ success: boolean; user?: User; token?: string; error?: string }> {
-    try {
-        const { rows } = await db.query('SELECT * FROM users WHERE zoom_id = $1::text', [zoomId]);
-        if (rows.length === 0) {
-            return { success: false, error: 'Aucun compte CashPay n\'est associé à ce compte Zoom.' };
-        }
-        const user = formatUser(rows[0]);
-        const token = generateToken(user);
-        return { success: true, user, token };
-    } catch (error) {
-        const dbError = await handleDbError(error, 'finding user by Zoom ID');
-        return { success: false, error: dbError.error };
-    }
-}
-
-export async function getUserCounts(countryCode?: string): Promise<{ totalUsers: number, countryUsers: number }> {
-    try {
-        const { rows: totalRows } = await db.query('SELECT COUNT(*) FROM users');
-        const totalUsers = parseInt(totalRows[0].count);
-
-        if (countryCode) {
-            const countryInfo = countries.find(c => c.code === countryCode);
-            if (countryInfo) {
-                const { rows: countryRows } = await db.query('SELECT COUNT(*) FROM users WHERE country = $1::text', [countryInfo.name]);
-                return { totalUsers, countryUsers: parseInt(countryRows[0].count) };
-            }
-        }
-        return { totalUsers, countryUsers: 0 };
-    } catch (error) {
-        handleDbError(error, 'getting user counts');
-        return { totalUsers: 0, countryUsers: 0 };
     }
 }

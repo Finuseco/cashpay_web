@@ -1,4 +1,3 @@
-
 'use client';
 
 import { LoginForm } from "@/components/auth/login-form";
@@ -6,7 +5,7 @@ import Link from "next/link";
 import { LanguageSwitcher } from "@/components/ui/language-switcher";
 import { Separator } from "@/components/ui/separator";
 import { useTranslation } from "react-i18next";
-import { Map, ShoppingCart, MessageCircle, Ticket, Briefcase } from 'lucide-react';
+import { Ticket, Briefcase } from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
 import Image from 'next/image';
 
@@ -20,7 +19,6 @@ const ConnectivityLink = ({ href, icon: Icon, imgSrc, label }: { href: string; i
     </Link>
 );
 
-
 export default function LoginPage() {
   const { t } = useTranslation();
   
@@ -32,7 +30,6 @@ export default function LoginPage() {
         <LoginForm />
       </div>
 
-       {/* Combined Connectivity and Footer section */}
       <footer className="w-full max-w-md z-10 mt-auto py-4">
             <div className="text-center mb-2">
                 <h2 className="font-semibold text-white/90 text-sm">Découvrez notre centre de connectivité</h2>
@@ -51,7 +48,7 @@ export default function LoginPage() {
             <div className="mt-2 flex gap-4 justify-center items-center">
                 <Link href="#" className="hover:text-white">{t('loginTermsAndConditions', 'Terms & Conditions')}</Link>
                 <Separator orientation="vertical" className="h-4 bg-white/50" />
-                <Link href="/developer" className="hover:text-white">{t('loginDevelopers', 'Developers')}</Link>
+                <a href="https://developer.cashpay-all.com" target="_blank" rel="noopener noreferrer" className="hover:text-white">{t('loginDevelopers', 'Developers')}</a>
                 <Separator orientation="vertical" className="h-4 bg-white/50" />
                 <LanguageSwitcher />
             </div>

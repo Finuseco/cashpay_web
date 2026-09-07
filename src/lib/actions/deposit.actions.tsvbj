@@ -1,0 +1,213 @@
+
+'use server';
+
+import type { User } from '@/lib/types';
+import { createTransaction, getTransactionByReference, updateTransactionStatus } from './transaction.actions';
+import { generateReferenceCode, countryToCode } from '../utils';
+import { processMaxiCashPayIn, checkMaxiCashPayInStatus } from '@/services/maxicash';
+import { db } from '@/lib/db';
+
+/**
+ * Updates the user's wallet balance for a specific currency.
+ * This should ONLY be called after a transaction is confirmed as successful.
+ */
+async function creditUserWallet(userId: string, amount: number, currency: string) {
+    const client = await db.getConnection();
+    try {
+        await client.query('BEGIN');
+
+        // Lock the wallet row to prevent race conditions
+        const { rows } = await client.query('SELECT balances FROM wallets WHERE user_id = $1 FOR UPDATE', [userId]);
+        if (rows.length === 0) {
+            throw new Error("Wallet not found for user.");
+        }
+
+        const currentBalances = rows[0].balances || {};
+        const currentAmount = parseFloat(currentBalances[currency] || 0);
+        const newAmount = currentAmount + amount;
+        
+        const newBalances = { ...currentBalances, [currency]: newAmount };
+
+        await client.query(
+            'UPDATE wallets SET balances = $1 WHERE user_id = $2',
+            [JSON.stringify(newBalances), userId]
+        );
+
+        await client.query('COMMIT');
+        return { success: true };
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Error crediting wallet:", error);
+        return { success: false, error: "Failed to update wallet balance." };
+    }
+}
+
+/**
+ * Initiates a Mobile Money deposit via the MaxiCash PayIn API.
+ * It does not require an operator, as MaxiCash handles network detection.
+ */
+export async function initiateDeposit(args: { 
+    user: User, 
+    amount: number, 
+    currency: string, 
+    phoneNumber: string, 
+}) {
+    const { user, amount, currency, phoneNumber } = args;
+    const reference = generateReferenceCode('DEP_MOB');
+
+    try {
+        const sanitizedPhone = `${user.countryCode}${phoneNumber}`;
+
+        const maxiCashResult = await processMaxiCashPayIn({
+            amount,
+            currency: currency.toUpperCase(),
+            phoneNumber: sanitizedPhone,
+            reference,
+            user
+        });
+
+        if (!maxiCashResult.success) {
+            return { success: false, error: maxiCashResult.message || "L'initiation du paiement a échoué." };
+        }
+
+        // Create our internal transaction record with a Pending status
+        await createTransaction({
+            user,
+            typeCode: 'DP',
+            amount,
+            currency,
+            description: `Dépôt Mobile Money via MaxiCash`,
+            metadata: { 
+                phone: sanitizedPhone, 
+                reference,
+                provider_tx_id: maxiCashResult.data?.transactionId
+            },
+            status: 'Pending',
+            referenceCode: reference
+        });
+
+        // Return the necessary info to the client for the status dialog
+        return { 
+            success: true, 
+            reference: reference,
+            instructions: maxiCashResult.data?.Instructions || null
+        };
+
+    } catch (e: any) {
+        console.error("[Initiate Deposit Error]", e);
+        return { success: false, error: "Erreur de communication avec le fournisseur de paiement." };
+    }
+}
+
+/**
+ * Checks the status of a MaxiCash transaction and credits the user's wallet on success.
+ */
+export async function checkDepositStatus(reference: string): Promise<{success: boolean, status: 'Completed' | 'Failed' | 'Pending', message: string}> {
+    try {
+        const transaction = await getTransactionByReference(reference);
+        if (!transaction) {
+            return { success: false, status: 'Failed', message: "Transaction non trouvée." };
+        }
+
+        if (transaction.status === 'Completed') {
+            return { success: true, status: 'Completed', message: "La transaction a déjà été validée." };
+        }
+
+        const providerTxId = transaction.metadata?.provider_tx_id;
+        if (!providerTxId) {
+            return { success: false, status: 'Failed', message: "Référence de transaction fournisseur manquante." };
+        }
+
+        const statusResult = await checkMaxiCashPayInStatus(providerTxId);
+
+        if (statusResult.success && statusResult.data?.status === 'Success') {
+            await updateTransactionStatus(reference, 'Completed');
+            await creditUserWallet(transaction.user_id, transaction.amount, transaction.currency);
+            return { success: true, status: 'Completed', message: "Dépôt réussi et portefeuille crédité." };
+        
+        } else if (statusResult.success && statusResult.data?.status === 'Failed') {
+            await updateTransactionStatus(reference, 'Failed');
+            return { success: false, status: 'Failed', message: statusResult.data.reason || "Le paiement a échoué chez le fournisseur." };
+        
+        } else { // Still Pending or an API error
+            return { success: false, status: 'Pending', message: statusResult.message || "La transaction est toujours en attente." };
+        }
+
+    } catch (e: any) {
+        console.error("[Check Status Error]", e);
+        return { success: false, status: 'Failed', message: "Erreur lors de la vérification du statut." };
+    }
+}
+
+
+// --- UNCHANGED FUNCTIONS ---
+
+/**
+ * Initie un dépôt par Carte Bancaire via l'infrastructure sécurisée CashPay.
+ */
+export async function initiateCardDeposit(args: { 
+    user: User, 
+    amount: number, 
+    currency: string, 
+    cardNumber: string, 
+    expiryDate: string, 
+    cvv: string, 
+    cardHolderName: string 
+}) {
+    const { user, amount, currency, cardNumber, expiryDate, cvv, cardHolderName } = args;
+    const reference = generateReferenceCode('DEP_CRD');
+    
+    const dateParts = expiryDate.split('/');
+    if (dateParts.length !== 2) return { success: false, error: "Format d'expiration invalide (MM/AA)." };
+    
+    const month = dateParts[0].padStart(2, '0');
+    const year = `20${dateParts[1]}`;
+
+    try {
+        const result = await processMaxiCashPayIn({
+            amount,
+            currency: currency.toUpperCase(),
+            cardNumber: cardNumber.replace(/\s+/g, ''),
+            expiryMonth: month,
+            expiryYear: year,
+            cvv,
+            cardHolder: cardHolderName,
+            reference,
+            user
+        });
+
+        if (result.success) {
+            await createTransaction({
+                user,
+                typeCode: 'DP_CARD',
+                amount,
+                currency,
+                description: `Approvisionnement par Carte Bancaire`,
+                metadata: { 
+                    last4: cardNumber.slice(-4), 
+                    reference,
+                    provider_tx_id: result.data?.transactionId 
+                },
+                status: 'Completed',
+                referenceCode: reference
+            });
+            await creditUserWallet(user.id, amount, currency);
+
+            return { success: true, message: "Votre carte a été débitée et votre portefeuille crédité avec succès." };
+        } else {
+            return { success: false, error: result.message || "La transaction a été refusée par l'émetteur de la carte." };
+        }
+    } catch (e: any) {
+        return { success: false, error: "Une erreur est survenue lors de l'autorisation de la carte." };
+    }
+}
+
+/**
+ * PayPal (Email-based deposit).
+ */
+export async function initiatePayPalDeposit(args: { user: User, amount: number, currency: string }): Promise<{ success: boolean; redirectUrl?: string; error?: string; message?: string }> {
+    return { 
+        success: true, 
+        redirectUrl: `https://www.paypal.com/checkoutnow?token=mock_token_${Date.now()}` 
+    };
+}

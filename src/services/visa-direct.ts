@@ -1,7 +1,6 @@
-
 'use server';
 
-import type { IntlSendArgs } from '@/lib/actions/transfer.actions.ts';
+import type { IntlSendArgs } from '@/lib/actions/transfer.actions';
 
 /**
  * @fileoverview A mock service for interacting with the Visa Direct API.

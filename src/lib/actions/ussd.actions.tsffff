@@ -1,0 +1,1372 @@
+'use server';
+
+import { db } from '@/lib/db';
+import { formatUser, generateReferenceCode } from '@/lib/utils';
+import { createTransaction } from './transaction.actions';
+import { calculateTransactionFee } from './wallet.actions';
+import { sendSms } from '@/services/sms';
+import { sendWhatsAppTextMessage } from '@/services/whatsapp';
+import {
+    processMaxiCashMobilePayment,
+    processMaxiCashPayout
+} from '@/services/maxicash';
+import * as bcrypt from 'bcryptjs';
+
+interface UssdSession {
+    session_id: string;
+    phone_number: string;
+    menu_state: string;
+    authenticated: boolean;
+    data: Record<string, any>;
+}
+
+/**
+ * Point d'entrée principal USSD.
+ */
+export async function handleUssdRequest(
+    sessionId: string,
+    phoneNumber: string,
+    text: string
+): Promise<string> {
+
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
+
+    /*
+     * On récupère toujours la session avant de traiter le texte.
+     * Le numéro est utilisé comme seconde clé de récupération afin
+     * d'éviter de perdre une session lorsque le fournisseur USSD
+     * renvoie un nouvel identifiant de session.
+     */
+    const session = await getOrCreateSession(
+        sessionId,
+        normalizedPhone
+    );
+
+    /*
+     * Le texte USSD peut arriver sous différentes formes :
+     *
+     * ""
+     * "1"
+     * "1*1234"
+     *
+     * On conserve uniquement la dernière entrée.
+     */
+    const inputs = String(text || '')
+        .split('*')
+        .map(value => value.trim());
+
+    const lastInput = inputs.length > 0
+        ? inputs[inputs.length - 1]
+        : '';
+
+    try {
+
+        /*
+         * ==========================================================
+         * UTILISATEUR NON AUTHENTIFIÉ
+         * ==========================================================
+         */
+        if (!session.authenticated) {
+
+            switch (session.menu_state) {
+
+                case 'START': {
+                    const { rows: users } = await db.query(
+                        'SELECT * FROM users WHERE phone = $1 LIMIT 1',
+                        [normalizedPhone]
+                    );
+
+                    if (users.length === 0) {
+
+                        await updateSession(session.session_id, {
+                            phone_number: normalizedPhone,
+                            menu_state: 'ENROLL_PROMPT',
+                            authenticated: false,
+                            data: {}
+                        });
+
+                        return (
+                            "CON Bienvenue sur le réseau CashPay All.\n" +
+                            "Votre numéro n'est pas identifié.\n" +
+                            "1. Recevoir mon lien d'inscription\n" +
+                            "2. Quitter"
+                        );
+                    }
+
+                    const existingUser = users[0];
+
+                    await updateSession(session.session_id, {
+                        phone_number: normalizedPhone,
+                        menu_state: 'AUTH_PIN',
+                        authenticated: false,
+                        data: {
+                            userId: existingUser.id
+                        }
+                    });
+
+                    return (
+                        `CON Bonjour ${existingUser.first_name}!\n` +
+                        "Veuillez entrer votre PIN secret :"
+                    );
+                }
+
+                case 'ENROLL_PROMPT': {
+
+                    if (lastInput === '1') {
+
+                        const country = detectCountryByPhone(
+                            normalizedPhone
+                        );
+
+                        const msg =
+                            `Bienvenue chez CashPay All! ` +
+                            `Finalisez votre Identité Souveraine ici: ` +
+                            `https://app.cashpay-all.com/complete-profile?phone=${encodeURIComponent(normalizedPhone)}&country=${country.code}`;
+
+                        await sendSms(normalizedPhone, msg);
+                        await sendWhatsAppTextMessage(normalizedPhone, msg);
+
+                        await updateSession(session.session_id, {
+                            menu_state: 'ENROLL_SENT'
+                        });
+
+                        return (
+                            "END Un lien d'inscription sécurisé vous a été envoyé " +
+                            "par SMS et WhatsApp. À très bientôt !"
+                        );
+                    }
+
+                    await updateSession(session.session_id, {
+                        menu_state: 'START'
+                    });
+
+                    return "END Merci d'utiliser CashPay All.";
+                }
+
+                case 'ENROLL_SENT':
+                    return (
+                        "END Votre lien d'inscription a déjà été envoyé. " +
+                        "Merci d'utiliser CashPay All."
+                    );
+
+                case 'AUTH_PIN': {
+
+                    const userId = session.data?.userId;
+
+                    if (!userId) {
+                        await updateSession(session.session_id, {
+                            menu_state: 'START',
+                            authenticated: false,
+                            data: {}
+                        });
+
+                        return (
+                            "CON Votre session d'authentification doit être reprise.\n" +
+                            "Veuillez patienter..."
+                        );
+                    }
+
+                    const { rows: usersFromSession } = await db.query(
+                        'SELECT * FROM users WHERE id = $1 LIMIT 1',
+                        [userId]
+                    );
+
+                    if (usersFromSession.length === 0) {
+
+                        await updateSession(session.session_id, {
+                            menu_state: 'START',
+                            authenticated: false,
+                            data: {}
+                        });
+
+                        return (
+                            "END Impossible de retrouver votre profil. " +
+                            "Veuillez recomposer le code."
+                        );
+                    }
+
+                    const user = usersFromSession[0];
+
+                    if (!user.pin_hash) {
+                        await updateSession(session.session_id, {
+                            menu_state: 'START',
+                            authenticated: false,
+                            data: {}
+                        });
+
+                        return (
+                            "END Aucun PIN n'est configuré pour ce compte."
+                        );
+                    }
+
+                    const isMatch = await bcrypt.compare(
+                        lastInput,
+                        user.pin_hash
+                    );
+
+                    if (!isMatch) {
+                        await updateSession(session.session_id, {
+                            menu_state: 'AUTH_PIN',
+                            authenticated: false
+                        });
+
+                        return "END Code PIN incorrect.";
+                    }
+
+                    /*
+                     * AUTHENTIFICATION RÉUSSIE.
+                     *
+                     * IMPORTANT :
+                     * On conserve data.userId.
+                     */
+                    await updateSession(session.session_id, {
+                        menu_state: 'ROOT_CURRENCY_SELECT',
+                        authenticated: true,
+                        data: {
+                            ...session.data,
+                            userId: user.id
+                        }
+                    });
+
+                    return (
+                        "CON Bienvenue sur votre Dashboard.\n" +
+                        "Choisissez votre portefeuille :\n" +
+                        "1. Monnaie Nationale (CDF)\n" +
+                        "2. Dollar (USD)\n" +
+                        "3. Euro (EUR)\n" +
+                        "0. Quitter"
+                    );
+                }
+
+                default: {
+
+                    /*
+                     * Un état inconnu n'est plus présenté comme
+                     * une expiration de session.
+                     */
+                    await updateSession(session.session_id, {
+                        menu_state: 'START',
+                        authenticated: false,
+                        data: {}
+                    });
+
+                    return (
+                        "CON Votre session doit être reprise.\n" +
+                        "Veuillez continuer."
+                    );
+                }
+            }
+        }
+
+        /*
+         * ==========================================================
+         * UTILISATEUR AUTHENTIFIÉ
+         * ==========================================================
+         */
+        return await handleNavigation(
+            session,
+            lastInput
+        );
+
+    } catch (error) {
+
+        console.error('[USSD ERROR]', error);
+
+        return (
+            "END Une erreur technique est survenue. " +
+            "Veuillez réessayer."
+        );
+    }
+}
+
+
+/**
+ * ================================================================
+ * NAVIGATION AUTHENTIFIÉE
+ * ================================================================
+ */
+async function handleNavigation(
+    session: UssdSession,
+    input: string
+): Promise<string> {
+
+    const {
+        menu_state,
+        data = {},
+        phone_number
+    } = session;
+
+    /*
+     * ------------------------------------------------------------
+     * CHOIX DU PORTEFEUILLE
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'ROOT_CURRENCY_SELECT') {
+
+        let currency: string;
+
+        switch (input) {
+            case '1':
+                currency = 'CDF';
+                break;
+
+            case '2':
+                currency = 'USD';
+                break;
+
+            case '3':
+                currency = 'EUR';
+                break;
+
+            case '0':
+                await updateSession(session.session_id, {
+                    menu_state: 'START',
+                    authenticated: false,
+                    data: {}
+                });
+
+                return "END Merci de votre confiance.";
+
+            default:
+                return (
+                    "CON Choisissez votre portefeuille :\n" +
+                    "1. Monnaie Nationale (CDF)\n" +
+                    "2. Dollar (USD)\n" +
+                    "3. Euro (EUR)\n" +
+                    "0. Quitter"
+                );
+        }
+
+        await updateSession(session.session_id, {
+            menu_state: 'MAIN_MENU',
+            authenticated: true,
+            data: {
+                ...data,
+                activeCurrency: currency
+            }
+        });
+
+        return renderMainMenu(currency);
+    }
+
+
+    /*
+     * ------------------------------------------------------------
+     * MENU PRINCIPAL
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'MAIN_MENU') {
+
+        const cur = data.activeCurrency || 'USD';
+
+        switch (input) {
+
+            case '1':
+                await updateSession(session.session_id, {
+                    menu_state: 'TRANSFER_PROVIDER'
+                });
+
+                return renderTransferProviderMenu(cur);
+
+
+            case '2':
+                await updateSession(session.session_id, {
+                    menu_state: 'DEP_OPERATOR'
+                });
+
+                return (
+                    "CON Dépôt via MaxiCash\n" +
+                    "Sélectionnez votre opérateur :\n" +
+                    "1. M-Pesa\n" +
+                    "2. Airtel Money\n" +
+                    "3. Orange Money\n" +
+                    "0. Retour"
+                );
+
+
+            case '3': {
+
+                const bal = await getBalance(
+                    phone_number,
+                    cur
+                );
+
+                return (
+                    `CON Solde ${cur} : ${bal}\n\n` +
+                    "1. Retour\n" +
+                    "0. Quitter"
+                );
+            }
+
+
+            case '4':
+
+                await updateSession(session.session_id, {
+                    menu_state: 'EXCHANGE_TARGET'
+                });
+
+                return (
+                    `CON Exchange (${cur} -> ?)\n` +
+                    "Vers quelle devise ?\n" +
+                    "1. USD\n" +
+                    "2. EUR\n" +
+                    "3. CDF\n" +
+                    "0. Retour"
+                );
+
+
+            case '5':
+
+                await updateSession(session.session_id, {
+                    menu_state: 'PIN_CHANGE_OLD'
+                });
+
+                return (
+                    "CON Sécurité\n" +
+                    "Saisissez votre PIN actuel :"
+                );
+
+
+            case '6':
+
+                await updateSession(session.session_id, {
+                    menu_state: 'INVITE_PHONE'
+                });
+
+                return (
+                    "CON Parrainage\n" +
+                    "Entrez le numéro de votre ami :"
+                );
+
+
+            case '0':
+
+                await updateSession(session.session_id, {
+                    menu_state: 'ROOT_CURRENCY_SELECT'
+                });
+
+                return (
+                    "CON Portefeuilles :\n" +
+                    "1. CDF\n" +
+                    "2. USD\n" +
+                    "3. EUR\n" +
+                    "0. Quitter"
+                );
+
+
+            default:
+                return renderMainMenu(cur);
+        }
+    }
+
+
+    /*
+     * ------------------------------------------------------------
+     * TRANSFERT CASH PAY
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'TRANSFER_PROVIDER') {
+
+        if (input === '1') {
+
+            await updateSession(session.session_id, {
+                menu_state: 'TR_CP_RECIPIENT'
+            });
+
+            return (
+                "CON Transfert CashPay\n" +
+                "Numéro de tél. ou ID Wallet :"
+            );
+        }
+
+        if (input === '2' && data.activeCurrency === 'USD') {
+
+            await updateSession(session.session_id, {
+                menu_state: 'TR_MM_OPERATOR'
+            });
+
+            return (
+                "CON Payout International (USD)\n" +
+                "1. Airtel Money\n" +
+                "2. M-Pesa\n" +
+                "3. Orange Money\n" +
+                "0. Retour"
+            );
+        }
+
+        return renderTransferProviderMenu(
+            data.activeCurrency
+        );
+    }
+
+
+    /*
+     * ------------------------------------------------------------
+     * DESTINATAIRE CASH PAY
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'TR_CP_RECIPIENT') {
+
+        const { rows } = await db.query(
+            `
+            SELECT id, id_wallet, full_name
+            FROM users
+            WHERE phone = $1 OR id_wallet = $1
+            LIMIT 1
+            `,
+            [input]
+        );
+
+        if (rows.length === 0) {
+            return (
+                "END Utilisateur non trouvé sur le réseau CashPay."
+            );
+        }
+
+        const target = rows[0];
+
+        await updateSession(session.session_id, {
+            menu_state: 'TR_CP_AMOUNT',
+            data: {
+                ...data,
+                targetId: target.id,
+                targetName: target.full_name,
+                targetWallet: target.id_wallet
+            }
+        });
+
+        return (
+            `CON Destinataire : ${target.full_name}\n` +
+            `Wallet: ${target.id_wallet}\n\n` +
+            `Montant à envoyer (${data.activeCurrency}) :`
+        );
+    }
+
+
+    /*
+     * ------------------------------------------------------------
+     * MONTANT TRANSFERT
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'TR_CP_AMOUNT') {
+
+        const amount = Number(input);
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+            return (
+                `CON Montant invalide.\n` +
+                `Montant à envoyer (${data.activeCurrency}) :`
+            );
+        }
+
+        const user = await getUserById(
+            data.userId
+        );
+
+        if (!user) {
+            return "END Profil utilisateur introuvable.";
+        }
+
+        const fee = await calculateTransactionFee(
+            amount,
+            data.activeCurrency,
+            'TR',
+            user.country
+        );
+
+        await updateSession(session.session_id, {
+            menu_state: 'TR_CP_CONFIRM_PIN',
+            data: {
+                ...data,
+                amount,
+                fee
+            }
+        });
+
+        return (
+            "CON Confirmation\n" +
+            `Envoyer: ${amount} ${data.activeCurrency}\n` +
+            `Frais: ${fee.toFixed(2)}\n` +
+            `Total: ${(amount + fee).toFixed(2)}\n\n` +
+            "Entrez votre PIN :"
+        );
+    }
+
+
+    /*
+     * ------------------------------------------------------------
+     * CONFIRMATION TRANSFERT PAR PIN
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'TR_CP_CONFIRM_PIN') {
+
+        const user = await getUserById(
+            data.userId
+        );
+
+        if (!user) {
+            return "END Profil utilisateur introuvable.";
+        }
+
+        const isMatch = await bcrypt.compare(
+            input,
+            user.pin_hash
+        );
+
+        if (!isMatch) {
+            return "END Code PIN incorrect.";
+        }
+
+        const res = await createTransaction({
+            user,
+            typeCode: 'TR',
+            amount: data.amount,
+            currency: data.activeCurrency,
+            description:
+                `Transfert USSD vers ${data.targetName}`,
+            receiver_id: data.targetId,
+            receiver_wallet_id: data.targetWallet
+        });
+
+        if (res.success) {
+
+            await updateSession(session.session_id, {
+                menu_state: 'MAIN_MENU'
+            });
+
+            return (
+                `END Transfert réussi ! ` +
+                `${data.amount} ${data.activeCurrency} ` +
+                `envoyés à ${data.targetName}. ` +
+                `Réf: ${res.reference}`
+            );
+        }
+
+        return `END Échec: ${res.error}`;
+    }
+
+
+    /*
+     * ------------------------------------------------------------
+     * DÉPÔT
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'DEP_OPERATOR') {
+
+        const ops: Record<string, string> = {
+            '1': 'mpesa',
+            '2': 'airtel',
+            '3': 'orange'
+        };
+
+        if (ops[input]) {
+
+            await updateSession(session.session_id, {
+                menu_state: 'DEP_AMOUNT',
+                data: {
+                    ...data,
+                    op: ops[input]
+                }
+            });
+
+            return (
+                `CON Dépôt ${ops[input].toUpperCase()}\n` +
+                "Montant à déposer (USD) :"
+            );
+        }
+
+        if (input === '0') {
+
+            await updateSession(session.session_id, {
+                menu_state: 'MAIN_MENU'
+            });
+
+            return renderMainMenu(
+                data.activeCurrency
+            );
+        }
+
+        return (
+            "CON Sélectionnez votre opérateur :\n" +
+            "1. M-Pesa\n" +
+            "2. Airtel Money\n" +
+            "3. Orange Money\n" +
+            "0. Retour"
+        );
+    }
+
+   /*
+     * ------------------------------------------------------------
+     * DÉPÔT
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'DEP_OPERATOR') {
+
+        const ops: Record<string, string> = {
+            '1': 'mpesa',
+            '2': 'airtel',
+            '3': 'orange'
+        };
+
+        if (ops[input]) {
+
+            await updateSession(session.session_id, {
+                menu_state: 'DEP_AMOUNT',
+                data: {
+                    ...data,
+                    op: ops[input]
+                }
+            });
+
+            return (
+                `CON Dépôt ${ops[input].toUpperCase()}\n` +
+                "Montant à déposer (USD) :"
+            );
+        }
+
+        if (input === '0') {
+
+            await updateSession(session.session_id, {
+                menu_state: 'MAIN_MENU'
+            });
+
+            return renderMainMenu(
+                data.activeCurrency
+            );
+        }
+
+        return (
+            "CON Sélectionnez votre opérateur :\n" +
+            "1. M-Pesa\n" +
+            "2. Airtel Money\n" +
+            "3. Orange Money\n" +
+            "0. Retour"
+        );
+    }
+
+
+    /*
+     * ------------------------------------------------------------
+     * MONTANT DU DÉPÔT
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'DEP_AMOUNT') {
+
+        const amount = Number(input);
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+            return (
+                "CON Montant invalide.\n" +
+                "Montant à déposer (USD) :"
+            );
+        }
+
+        const user = await getUserById(
+            data.userId
+        );
+
+        if (!user) {
+            return "END Profil utilisateur introuvable.";
+        }
+
+        const res =
+            await processMaxiCashMobilePayment({
+                amount,
+                currency: 'USD',
+                phoneNumber: phone_number,
+                operator: data.op,
+                reference: generateReferenceCode('DP'),
+                countryCode: 'CD',
+                user
+            });
+
+        if (res.success) {
+
+            await updateSession(session.session_id, {
+                menu_state: 'MAIN_MENU'
+            });
+
+            return (
+                `END Demande de dépôt de ${amount} USD ` +
+                `envoyée sur votre mobile (${phone_number}). ` +
+                "Validez avec votre PIN Mobile Money."
+            );
+        }
+
+        return "END Échec de l'initiation du dépôt.";
+    }
+
+
+    /*
+     * ------------------------------------------------------------
+     * RETOUR PRINCIPAL
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'EXCHANGE_TARGET') {
+
+        if (input === '0') {
+
+            await updateSession(session.session_id, {
+                menu_state: 'MAIN_MENU'
+            });
+
+            return renderMainMenu(
+                data.activeCurrency
+            );
+        }
+
+        return (
+            "CON Vers quelle devise ?\n" +
+            "1. USD\n" +
+            "2. EUR\n" +
+            "3. CDF\n" +
+            "0. Retour"
+        );
+    }
+
+
+    /*
+     * ------------------------------------------------------------
+     * SÉCURITÉ / PIN
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'PIN_CHANGE_OLD') {
+
+        const user = await getUserById(
+            data.userId
+        );
+
+        if (!user) {
+            return "END Profil utilisateur introuvable.";
+        }
+
+        const isMatch = await bcrypt.compare(
+            input,
+            user.pin_hash
+        );
+
+        if (!isMatch) {
+            return "END Code PIN incorrect.";
+        }
+
+        await updateSession(session.session_id, {
+            menu_state: 'PIN_CHANGE_NEW'
+        });
+
+        return "CON Entrez votre nouveau PIN :";
+    }
+
+
+    if (menu_state === 'PIN_CHANGE_NEW') {
+
+        if (!/^\d{4,6}$/.test(input)) {
+            return (
+                "CON Le PIN doit contenir entre 4 et 6 chiffres.\n" +
+                "Entrez votre nouveau PIN :"
+            );
+        }
+
+        await updateSession(session.session_id, {
+            menu_state: 'PIN_CHANGE_CONFIRM',
+            data: {
+                ...data,
+                newPin: input
+            }
+        });
+
+        return "CON Confirmez votre nouveau PIN :";
+    }
+
+
+    if (menu_state === 'PIN_CHANGE_CONFIRM') {
+
+        if (input !== data.newPin) {
+            await updateSession(session.session_id, {
+                menu_state: 'PIN_CHANGE_NEW',
+                data: {
+                    ...data,
+                    newPin: undefined
+                }
+            });
+
+            return "CON Les PIN ne correspondent pas.\nEntrez votre nouveau PIN :";
+        }
+
+        const passwordHash = await bcrypt.hash(
+            input,
+            12
+        );
+
+        await db.query(
+            `
+            UPDATE users
+            SET pin_hash = $1
+            WHERE id = $2
+            `,
+            [
+                passwordHash,
+                data.userId
+            ]
+        );
+
+        await updateSession(session.session_id, {
+            menu_state: 'MAIN_MENU',
+            data: {
+                userId: data.userId,
+                activeCurrency: data.activeCurrency
+            }
+        });
+
+        return (
+            "CON Votre PIN a été modifié avec succès.\n\n" +
+            renderMainMenuWithoutPrefix(
+                data.activeCurrency
+            )
+        );
+    }
+
+
+    /*
+     * ------------------------------------------------------------
+     * PARRAINAGE
+     * ------------------------------------------------------------
+     */
+    if (menu_state === 'INVITE_PHONE') {
+
+        const friendPhone =
+            normalizePhoneNumber(input);
+
+        if (!friendPhone) {
+            return "CON Numéro invalide.\nEntrez le numéro de votre ami :";
+        }
+
+        await updateSession(session.session_id, {
+            menu_state: 'MAIN_MENU'
+        });
+
+        return (
+            "END Votre invitation a été prise en compte."
+        );
+    }
+
+
+    /*
+     * ------------------------------------------------------------
+     * ÉTAT INCONNU
+     * ------------------------------------------------------------
+     *
+     * On ne dit plus « Session expirée » simplement parce
+     * qu'un menu_state n'est pas reconnu.
+     */
+    console.error(
+        '[USSD UNKNOWN STATE]',
+        {
+            sessionId: session.session_id,
+            phone: session.phone_number,
+            menuState: menu_state,
+            authenticated: session.authenticated,
+            data
+        }
+    );
+
+    await updateSession(session.session_id, {
+        menu_state: 'ROOT_CURRENCY_SELECT',
+        authenticated: true
+    });
+
+    return (
+        "CON Dashboard CashPay All\n" +
+        "Choisissez votre portefeuille :\n" +
+        "1. Monnaie Nationale (CDF)\n" +
+        "2. Dollar (USD)\n" +
+        "3. Euro (EUR)\n" +
+        "0. Quitter"
+    );
+}
+
+
+/**
+ * ================================================================
+ * MENUS
+ * ================================================================
+ */
+
+function renderRootMenu() {
+    return (
+        "CON Dashboard CashPay All\n" +
+        "1. Portefeuilles\n" +
+        "2. Change (Exchange)\n" +
+        "3. Sécurité (PIN)\n" +
+        "4. Parrainage\n" +
+        "0. Quitter"
+    );
+}
+
+
+function renderMainMenu(currency: string) {
+    return (
+        `CON CashPay (${currency})\n` +
+        "1. Transferts\n" +
+        "2. Dépôt Fond\n" +
+        "3. Solde\n" +
+        "4. Exchange\n" +
+        "5. Sécurité\n" +
+        "6. Inviter\n" +
+        "0. Retour"
+    );
+}
+
+
+function renderMainMenuWithoutPrefix(currency: string) {
+    return (
+        `CashPay (${currency})\n` +
+        "1. Transferts\n" +
+        "2. Dépôt Fond\n" +
+        "3. Solde\n" +
+        "4. Exchange\n" +
+        "5. Sécurité\n" +
+        "6. Inviter\n" +
+        "0. Retour"
+    );
+}
+
+
+function renderTransferProviderMenu(currency: string) {
+
+    let menu =
+        "CON Envoyer de l'argent\n" +
+        "1. Vers CashPay (Interne)";
+
+    if (currency === 'USD') {
+        menu += "\n2. Vers Mobile Money (Payout)";
+    }
+
+    return menu + "\n0. Retour";
+}
+
+
+/**
+ * ================================================================
+ * SESSION
+ * ================================================================
+ */
+
+async function getOrCreateSession(
+    sessionId: string,
+    phoneNumber: string
+): Promise<UssdSession> {
+
+    const normalizedPhone =
+        normalizePhoneNumber(phoneNumber);
+
+    /*
+     * 1. Recherche normale par session_id.
+     */
+    const bySession = await db.query(
+        `
+        SELECT
+            session_id,
+            phone_number,
+            menu_state,
+            COALESCE(authenticated, false) AS authenticated,
+            COALESCE(data, '{}'::jsonb) AS data
+        FROM ussd_sessions
+        WHERE session_id = $1
+        LIMIT 1
+        `,
+        [sessionId]
+    );
+
+    if (bySession.rows.length > 0) {
+
+        const row = bySession.rows[0];
+
+        return {
+            session_id: row.session_id,
+            phone_number: row.phone_number,
+            menu_state: row.menu_state || 'START',
+            authenticated: Boolean(row.authenticated),
+            data: parseSessionData(row.data)
+        };
+    }
+
+
+    /*
+     * 2. Si le session_id a changé, on cherche une session
+     * active appartenant au même numéro.
+     *
+     * Cela permet de conserver le parcours USSD lorsque
+     * l'identifiant fourni par le simulateur/passerelle change.
+     */
+    const byPhone = await db.query(
+        `
+        SELECT
+            session_id,
+            phone_number,
+            menu_state,
+            COALESCE(authenticated, false) AS authenticated,
+            COALESCE(data, '{}'::jsonb) AS data
+        FROM ussd_sessions
+        WHERE phone_number = $1
+        ORDER BY updated_at DESC NULLS LAST, created_at DESC
+        LIMIT 1
+        `,
+        [normalizedPhone]
+    );
+
+    if (byPhone.rows.length > 0) {
+
+        const existing = byPhone.rows[0];
+
+        /*
+         * On rattache le nouvel identifiant à la même session.
+         */
+        await db.query(
+            `
+            UPDATE ussd_sessions
+            SET
+                session_id = $1,
+                updated_at = NOW()
+            WHERE session_id = $2
+            `,
+            [
+                sessionId,
+                existing.session_id
+            ]
+        );
+
+        return {
+            session_id: sessionId,
+            phone_number: existing.phone_number,
+            menu_state: existing.menu_state || 'START',
+            authenticated: Boolean(existing.authenticated),
+            data: parseSessionData(existing.data)
+        };
+    }
+
+/*
+     * 3. Aucune session : création d'une nouvelle session.
+     */
+    await db.query(
+        `
+        INSERT INTO ussd_sessions
+        (
+            session_id,
+            phone_number,
+            menu_state,
+            authenticated,
+            data,
+            created_at,
+            updated_at
+        )
+        VALUES
+        (
+            $1,
+            $2,
+            'START',
+            false,
+            '{}'::jsonb,
+            NOW(),
+            NOW()
+        )
+        `,
+        [
+            sessionId,
+            normalizedPhone
+        ]
+    );
+
+    return {
+        session_id: sessionId,
+        phone_number: normalizedPhone,
+        menu_state: 'START',
+        authenticated: false,
+        data: {}
+    };
+}
+
+
+/**
+ * Mise à jour sécurisée de la session.
+ */
+async function updateSession(
+    sessionId: string,
+    updates: Partial<UssdSession>
+) {
+
+    const entries = Object.entries(updates);
+
+    if (entries.length === 0) {
+        return;
+    }
+
+    const allowedColumns = new Set([
+        'phone_number',
+        'menu_state',
+        'authenticated',
+        'data'
+    ]);
+
+    const validEntries = entries.filter(
+        ([key]) => allowedColumns.has(key)
+    );
+
+    if (validEntries.length === 0) {
+        return;
+    }
+
+    const setClause = validEntries
+        .map(
+            ([key], index) =>
+                `${key} = $${index + 2}`
+        )
+        .join(', ');
+
+    const values = validEntries.map(
+        ([key, value]) => {
+
+            if (key === 'data') {
+                return JSON.stringify(
+                    value || {}
+                );
+            }
+
+            return value;
+        }
+    );
+
+    await db.query(
+        `
+        UPDATE ussd_sessions
+        SET
+            ${setClause},
+            updated_at = NOW()
+        WHERE session_id = $1
+        `,
+        [
+            sessionId,
+            ...values
+        ]
+    );
+}
+
+
+/**
+ * Conversion robuste du champ JSON.
+ */
+function parseSessionData(
+    value: any
+): Record<string, any> {
+
+    if (!value) {
+        return {};
+    }
+
+    if (typeof value === 'object') {
+        return value;
+    }
+
+    if (typeof value === 'string') {
+
+        try {
+            const parsed = JSON.parse(value);
+
+            return parsed && typeof parsed === 'object'
+                ? parsed
+                : {};
+        } catch {
+            return {};
+        }
+    }
+
+    return {};
+}
+
+
+/**
+ * Normalisation du numéro.
+ */
+function normalizePhoneNumber(
+    phone: string
+): string {
+
+    return String(phone || '')
+        .replace(/[^\d+]/g, '')
+        .replace(/^\+/, '');
+}
+
+
+/**
+ * Solde utilisateur.
+ */
+async function getBalance(
+    phone: string,
+    currency: string
+) {
+
+    const { rows } = await db.query(
+        `
+        SELECT
+            (w.balances->>$2)::numeric AS bal
+        FROM wallets w
+        JOIN users u
+            ON w.user_id = u.id
+        WHERE u.phone = $1
+        LIMIT 1
+        `,
+        [
+            phone,
+            currency
+        ]
+    );
+
+    return rows[0]?.bal
+        ? `${rows[0].bal} ${currency}`
+        : `0.00 ${currency}`;
+}
+
+
+/**
+ * Récupération utilisateur.
+ */
+async function getUserById(id: number) {
+
+    const { rows } = await db.query(
+        `
+        SELECT *
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [id]
+    );
+
+    return rows[0]
+        ? formatUser(rows[0])
+        : null;
+}
+
+
+/**
+ * Détection du pays.
+ */
+function detectCountryByPhone(phone: string) {
+    if (phone.startsWith('243')) {
+        return {
+            code: 'CD',
+            name: 'RDC'
+        };
+    }
+
+    if (phone.startsWith('242')) {
+        return {
+            code: 'CG',
+            name: 'Congo-B'
+        };
+    }
+
+    return {
+        code: 'GBL',
+        name: 'International'
+    };
+}

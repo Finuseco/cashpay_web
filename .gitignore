@@ -1,0 +1,66 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Next.js
+.next/
+out/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+
+# TypeScript
+*.tsbuildinfo
+
+# Temporary / editor files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Backups / temporary copies
+*.bak
+*.bak-*
+*.backup
+*.broken
+*.org*
+*.mmmm
+*.000
+*.0000
+*.0000000
+*.01
+*.92
+*.99
+*.ghj
+*.gji
+*.gjiug
+*.fg
+*.fgh
+*.hjj
+*.hjjey
+*.hj
+*.hju
+*.hk
+*.hh
+*.hhj
+*.hi
+*.hii
+*.hii
+*.jjif
+*.jiif
+*.ppp
+*.sfg
+*.sdf
+*.txt
+*.mp3
+
+# Generated/user-uploaded files
+public/images/avatars/
+public/images/chat_files/
+public/images/documents/
+public/images/payment_links/
+public/images/signatures/

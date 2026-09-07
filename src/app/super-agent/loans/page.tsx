@@ -64,8 +64,12 @@ export default function SuperAgentLoans() {
         
         if (actionType === 'collect') {
             result = await triggerManualLoanCollection(selectedLoan.id, superAgent.id, pin);
+        } else if (actionType === 'approve') {
+            // Le moteur LoanMe réel est déjà disponible : on le déclenche directement
+            // depuis l'interface SuperAgent sans modifier les actions backend existantes.
+            result = await approveLoanRequest(selectedLoan.id, superAgent.id);
         } else {
-            result = await processLoanDecision(selectedLoan.id, actionType as 'approve' | 'reject', superAgent.id, pin);
+            result = await processLoanDecision(selectedLoan.id, actionType, superAgent.id, pin);
         }
         
         setIsProcessing(false);
@@ -86,23 +90,54 @@ export default function SuperAgentLoans() {
         }
     };
 
-    const filtered = loans.filter(l => 
-        l.full_name.toLowerCase().includes(filter.toLowerCase()) ||
-        l.id_wallet?.toLowerCase().includes(filter.toLowerCase())
-    );
+    const normalizedFilter = filter.trim().toLowerCase();
+    const filtered = loans.filter(l => {
+        if (!normalizedFilter) return true;
+        return String(l.full_name ?? '').toLowerCase().includes(normalizedFilter) ||
+            String(l.id_wallet ?? '').toLowerCase().includes(normalizedFilter) ||
+            String(l.phone ?? '').toLowerCase().includes(normalizedFilter) ||
+            String(l.id ?? '').toLowerCase().includes(normalizedFilter) ||
+            String(l.status ?? '').toLowerCase().includes(normalizedFilter);
+    });
 
     const getSchedule = (loan: any) => {
+        // Si le backend fournit déjà l'échéancier, il reste la source d'affichage prioritaire.
+        if (Array.isArray(loan.schedule) && loan.schedule.length) {
+            return loan.schedule.map((item: any) => {
+                const dueDate = new Date(item.due_date ?? item.dueDate);
+                const remaining = Number(item.remaining_amount ?? Math.max(0, Number(item.amount ?? 0) + Number(item.penalty ?? item.penalty_amount ?? 0) - Number(item.paid_amount ?? 0)));
+                return {
+                    dueDate,
+                    amount: Number(item.amount ?? 0),
+                    remaining,
+                    isPaid: String(item.status ?? '').toLowerCase() === 'paid' || remaining <= 0.005,
+                    status: String(item.status ?? '').toLowerCase(),
+                    installmentNumber: item.installment_number,
+                    penalty: Number(item.penalty ?? item.penalty_amount ?? 0),
+                };
+            }).filter((x: any) => Number.isFinite(x.dueDate.getTime()));
+        }
+
         if (!loan.approval_date) return [];
-        const schedule = [];
-        const monthlyPayment = parseFloat(loan.monthly_payment);
-        for (let i = 1; i <= loan.duration; i++) {
-            const dueDate = addMonths(new Date(loan.approval_date), i);
-            const isPaid = (loan.repayments || []).some((r: any) => 
-                r.type === 'repayment' && 
-                new Date(r.payment_date).getMonth() === dueDate.getMonth() &&
-                new Date(r.payment_date).getFullYear() === dueDate.getFullYear()
-            );
-            schedule.push({ dueDate, amount: monthlyPayment, isPaid });
+        const schedule: any[] = [];
+        const installmentAmount = Number(loan.installment_amount ?? loan.monthly_payment ?? 0);
+        const count = Number(loan.installment_count ?? loan.duration ?? 0);
+        const frequency = String(loan.repayment_frequency ?? 'monthly').toLowerCase();
+        const repayments = Array.isArray(loan.repayments) ? loan.repayments : [];
+        const approvalDate = new Date(loan.approval_date);
+        if (!Number.isFinite(approvalDate.getTime()) || !Number.isFinite(count) || count <= 0) return [];
+
+        for (let i = 1; i <= count; i++) {
+            const dueDate = new Date(approvalDate);
+            if (frequency === 'weekly') dueDate.setDate(dueDate.getDate() + (i * 7));
+            else dueDate.setMonth(dueDate.getMonth() + i);
+
+            const paid = repayments
+                .filter((r: any) => String(r.type ?? '').toLowerCase() === 'repayment')
+                .reduce((sum: number, r: any) => sum + Number(r.amount ?? 0), 0);
+            const paidForThisInstallment = Math.min(installmentAmount, paid);
+            const isPaid = paidForThisInstallment >= installmentAmount && installmentAmount > 0;
+            schedule.push({ dueDate, amount: installmentAmount, remaining: Math.max(0, installmentAmount - paidForThisInstallment), isPaid });
         }
         return schedule;
     };
@@ -241,7 +276,7 @@ export default function SuperAgentLoans() {
                                 <TableRow><TableCell colSpan={5} className="text-center py-20"><Loader2 className="animate-spin mx-auto text-primary h-8 w-8"/></TableCell></TableRow>
                             ) : filtered.length > 0 ? filtered.map(loan => {
                                 const schedule = getSchedule(loan);
-                                const nextDue = schedule.find(s => !s.isPaid);
+                                const nextDue = schedule.find(s => !s.isPaid && (s.remaining == null || Number(s.remaining) > 0.005));
                                 const isLate = nextDue && isPast(nextDue.dueDate) && !isToday(nextDue.dueDate);
 
                                 return (
@@ -260,7 +295,7 @@ export default function SuperAgentLoans() {
                                                     <p className={cn("text-xs font-bold", isLate ? "text-red-500" : "text-zinc-300")}>
                                                         {format(nextDue.dueDate, 'dd/MM/yyyy')}
                                                     </p>
-                                                    <p className="text-[10px] text-zinc-500">{nextDue.amount.toFixed(2)} {loan.currency}</p>
+                                                    <p className="text-[10px] text-zinc-500">{Number(nextDue.amount ?? nextDue.remaining ?? 0).toFixed(2)} {loan.currency}</p>
                                                 </div>
                                             ) : <span className="text-xs text-green-500">Clôturé</span>}
                                         </TableCell>
