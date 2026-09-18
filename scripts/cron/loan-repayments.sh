@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -u
 
-# Server-side trigger: runs the existing LoanMe automatic repayment engine.
-# This script does not touch Web/USSD UI code.
+ENV_FILE="/etc/cashpay-loan-job.env"
+
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  . "$ENV_FILE"
+  set +a
+fi
+
 APP_URL="${CASH_PAY_APP_URL:-http://127.0.0.1:8002}"
 SECRET="${INTERNAL_JOB_SECRET:-}"
 

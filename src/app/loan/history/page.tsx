@@ -1,42 +1,36 @@
-
-import { Suspense } from 'react';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { getLoanHistory } from '@/lib/actions/loan.actions';
-import { redirect } from 'next/navigation';
-import { DashboardLayout } from '@/components/dashboard/dashboard-layout';
-import { LoanHistoryClient } from './loan-history-client';
-import { Skeleton } from '@/components/ui/skeleton';
+import LoanHistoryClient from './loan-history-client';
 
-function LoadingSkeleton() {
+export default async function LoanHistoryPage() {
+  const user = await getAuthenticatedUser();
+
+  if (!user) {
     return (
-        <div className="space-y-4">
-            <Skeleton className="h-28 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-64 w-full" />
+      <main className="min-h-screen bg-[#000E38] px-4 py-10 text-white">
+        <div className="mx-auto max-w-3xl rounded-xl bg-[#071A4A] p-8 text-center">
+          <h1 className="text-2xl font-bold">Historique LoanMe</h1>
+          <p className="mt-2 text-zinc-300">
+            Vous devez être connecté pour consulter votre historique.
+          </p>
         </div>
+      </main>
     );
-}
+  }
 
-async function LoanHistoryData() {
-    const user = await getAuthenticatedUser();
-    if (!user) {
-        redirect('/login?returnTo=/loan/history');
-    }
-    const history = await getLoanHistory(user.id);
-    return <LoanHistoryClient initialHistory={history} />;
-}
+  let history: any[] = [];
 
+  try {
+    const result = await getLoanHistory(Number(user.id));
+    history = Array.isArray(result) ? result : [];
+  } catch (error) {
+    console.error('[Loan History] Load failed:', error);
+  }
 
-export default function LoanHistoryPage() {
-    return (
-        <DashboardLayout pageTitleKey="Historique des Prêts">
-            <main className="flex-1 p-4 md:p-8">
-                <div className="max-w-4xl mx-auto">
-                    <Suspense fallback={<LoadingSkeleton />}>
-                        <LoanHistoryData />
-                    </Suspense>
-                </div>
-            </main>
-        </DashboardLayout>
-    );
+  return (
+    <LoanHistoryClient
+      initialHistory={history}
+      userId={Number(user.id)}
+    />
+  );
 }

@@ -1,10 +1,13 @@
 import { getCardsForUser } from '../actions/card.actions';
-import { confirmWithdrawal } from '../actions/agent.actions';
+import {
+  confirmWithdrawal,
+  initiateClientWithdrawalOtp
+} from '../actions/agent.actions';
 import { getLoanForUser, getLoanHistory, repayLoan, repayLoanInstallment, processLoanRepayments, getLoanOffer, createLoanApplication, getAgentLoanRepaymentTarget, repayLoanByAgent } from '../actions/loan.actions';
 import { db } from '@/lib/db';
 import { getUserForUssd,saveUssdLanguage,getCountryByPhone,getUssdRecipientInfo,getUssdBalance,getCommissionBalance,getUssdFee,getUssdExchangeRates,executeUssdTransfer,executeAgentDeposit,executeAgentWithdraw,executeCommissionClaim,executeUssdExchange,executeMobileMoneyTransfer,executeAgentMobileMoney,createMaxiCashGatewayLink,executeMaxiCashPayNow,fetchUssdHistory,getCommissionStats,getTvPackages,executeTvSubscription,createInternationalClaim,getInternationalClaims,getUssdCardPurchaseOptions,executeUssdCardPurchase,executeBecomeAgent,executeBecomeClient,getCardTransactionsAction,executeClientAgentWithdrawal } from './ussd.actions';
 import type { User } from '@/lib/types';
-import { verifyUserPin, sendAndStoreOtp } from '@/lib/actions/auth.actions';
+import { verifyUserPin } from '@/lib/actions/auth.actions';
 import { sendSms } from '@/services/sms';
 import { sendEmail } from '@/services/email';
 import { sendWhatsAppTextMessage } from '@/services/whatsapp';
@@ -124,7 +127,36 @@ async function transferMenu(u:any,s:Session,i:string,d:any,l:Lang,c:any){
  return `CON ${T[l].invalid}`;
 }
 async function withdrawMenu(u:any,s:Session,i:string,d:any,l:Lang,c:any){if(i==='0')return back(u,s,d,l,c);if(i==='1'){await save(s,{...d,state:'CLIENT_AGENT_ID',withdrawType:'agent_cash'},'CLIENT_AGENT_ID');return `CON ${l==='fr'?'Retrait Agent Cash\nEntrez l’ID Wallet ou le numéro de téléphone de l’agent :':'Cash Agent Withdrawal\nEnter the agent Wallet ID or phone number:'}`;}if(i==='3'){await save(s,{...d,state:'AGENT_WITHDRAW_OTP'},'AGENT_WITHDRAW_OTP');return `CON ${l==='fr'?'Entrez l’OTP reçu pour autoriser le retrait :':'Enter the OTP received to authorize the withdrawal:'}`;}if(i==='2')return `CON ${l==='fr'?'Retrait ATM\nLe retrait ATM sera activé avec le token ATM et la validation OTP.\n0. Retour':'ATM Withdrawal\nATM withdrawal will be activated with the ATM token and OTP confirmation.\n0. Back'}`;return `CON ${T[l].invalid}`;}
-async function clientAgentId(u:any,s:Session,i:string,d:any,l:Lang){if(i==='0')return back(u,s,d,l,'');const a=await getUssdRecipientInfo(i);if(!a.success)return `CON ${l==='fr'?'Agent introuvable.':'Agent not found.'}`;const {rows}=await db.query('SELECT 1 FROM boutiques WHERE agent_id=$1 LIMIT 1',[a.userId]);if(!rows.length)return `CON ${l==='fr'?'Cet utilisateur n’est pas un agent CashPay.':'This user is not a CashPay agent.'}`;await save(s,{...d,state:'CLIENT_AGENT_AMOUNT',agent:i,agentInfo:a},'CLIENT_AGENT_AMOUNT');return `CON ${l==='fr'?`Agent : ${a.firstName||'Agent'}\nID : ${a.walletId}\nEntrez le montant :`:`Agent: ${a.firstName||'Agent'}\nID: ${a.walletId}\nEnter amount:`}`;}
+async function clientAgentId(u:any,s:Session,i:string,d:any,l:Lang){
+  if(i==='0')return back(u,s,d,l,'');
+
+  const a=await getUssdRecipientInfo(i);
+  if(!a.success)return `CON ${l==='fr'?'Agent introuvable.':'Agent not found.'}`;
+
+  const role=String(a.role||'').trim().toLowerCase();
+  if(role!=='agent'){
+    return `CON ${l==='fr'?'Ce portefeuille n’est pas un portefeuille agent CashPay.':'This wallet is not a CashPay agent wallet.'}`;
+  }
+
+  const {rows}=await db.query(
+    'SELECT 1 FROM boutiques WHERE agent_id=$1 LIMIT 1',
+    [a.userId]
+  );
+
+  if(!rows.length){
+    return `CON ${l==='fr'?'Ce portefeuille n’est pas un portefeuille agent CashPay.':'This wallet is not a CashPay agent wallet.'}`;
+  }
+
+  await save(
+    s,
+    {...d,state:'CLIENT_AGENT_AMOUNT',agent:i,agentInfo:a},
+    'CLIENT_AGENT_AMOUNT'
+  );
+
+  return `CON ${l==='fr'
+    ? `Agent : ${a.firstName||'Agent'}\nID : ${a.walletId}\nEntrez le montant :`
+    : `Agent: ${a.firstName||'Agent'}\nID: ${a.walletId}\nEnter amount:`}`;
+}
 async function clientAgentAmount(u:any,s:Session,i:string,d:any,l:Lang){const a=Number(i);if(!Number.isFinite(a)||a<=0)return `CON ${T[l].invalidAmount}`;const f=Number(await getUssdFee(a,d.currency,'WD',u.country));await save(s,{...d,state:'CLIENT_AGENT_CONFIRM',amount:a,fee:f},'CLIENT_AGENT_CONFIRM');return `CON ${a.toFixed(2)} ${d.currency}\n${l==='fr'?'Frais':'Fee'}: ${f.toFixed(2)} ${d.currency}\n${l==='fr'?'Total débité':'Total debited'}: ${(a+f).toFixed(2)} ${d.currency}\n${T[l].confirm}`;}
 async function clientAgentConfirm(u:any,s:Session,i:string,d:any,l:Lang,c:any){if(i==='0')return back(u,s,d,l,c);if(i!=='1')return `CON ${T[l].invalid}`;await save(s,{...d,state:'CLIENT_AGENT_PIN'},'CLIENT_AGENT_PIN');return `CON ${T[l].pin}`;}
 async function clientAgentPin(u:any,s:Session,i:string,d:any,l:Lang){const x=await executeClientAgentWithdrawal(u,d.agent,d.amount,d.currency,i);await save(s,{...d,state:'MENU'},'MENU');return done(!!x.success,l,(x as any).reference,err((x as any).error||'',l));}
@@ -1187,7 +1219,13 @@ async function agentMethod(u:any,s:Session,i:string,d:any,l:Lang){if(i==='0')ret
 async function agentId(u:any,s:Session,i:string,d:any,l:Lang){const r=await getUssdRecipientInfo(i);if(!r.success)return `CON ${err(r.error,l)}\n${T[l].back}`;if(['disabled','suspended','blocked','inactive','banned'].includes(String(r.status||'').toLowerCase()))return `CON ${l==='fr'?'Client non disponible.':'Client is not available.'}`;await save(s,{...d,state:'AGENT_AMOUNT',client:i,clientInfo:r},'AGENT_AMOUNT');return `CON ${l==='fr'?`Client: ${r.firstName||'Client'}\nID Wallet: ${r.walletId}`:`Client: ${r.firstName||'Client'}\nWallet ID: ${r.walletId}`}\n${T[l].amount}`;}
 async function agentAmount(u:any,s:Session,i:string,d:any,l:Lang){const a=Number(i);if(!Number.isFinite(a)||a<=0)return `CON ${T[l].invalidAmount}`;if(d.agentMethod==='mobile_money'){await save(s,{...d,state:'AGENT_MM_OPERATOR',amount:a},'AGENT_MM_OPERATOR');return `CON ${operatorMenu(l)}`;}if(d.agentMethod==='card'&&d.agentOp==='deposit'){const ref=`USSD-AGCARD-${Date.now()}-${u.id}`,x=await createMaxiCashGatewayLink(u,a,d.currency,ref,l,'card');await save(s,{...d,state:'MENU',amount:a,paymentReference:ref,paymentLink:x.link},'MENU');return x.success?`END ${l==='fr'?'Le lien de paiement a été envoyé au client. Veuillez vérifier son canal associé.':'The payment link has been sent to the client. Please check the customer’s associated channel.'}`:`END ${err(x.error||'',l)}`;}const feeCountry=d.agentOp==='withdraw'?String(d.clientInfo?.country||u.country):u.country;const type=d.agentOp==='withdraw'?'WD':'DP_AGENT',f=Number(await getUssdFee(a,d.currency,type,feeCountry));const total=a+f;await save(s,{...d,state:d.agentMethod==='mobile_money'?'AGENT_MM_CONFIRM':'AGENT_CONFIRM',amount:a,fee:f,totalDebit:total},d.agentMethod==='mobile_money'?'AGENT_MM_CONFIRM':'AGENT_CONFIRM');return d.agentOp==='withdraw'?`CON ${l==='fr'?`Retrait client\nMontant: ${a.toFixed(2)} ${d.currency}\nFrais: ${f.toFixed(2)} ${d.currency}\nTotal débité: ${total.toFixed(2)} ${d.currency}\n\nConfirmer la demande de retrait`:`Client withdrawal\nAmount: ${a.toFixed(2)} ${d.currency}\nFee: ${f.toFixed(2)} ${d.currency}\nTotal debited: ${total.toFixed(2)} ${d.currency}\n\nConfirm withdrawal request`}\n1. Confirmer\n0. Retour`:`CON ${a.toFixed(2)} ${d.currency}\n${l==='fr'?'Frais':'Fee'}: ${f.toFixed(2)} ${d.currency}\n${T[l].confirm}`;}
 async function agentConfirm(u:any,s:Session,i:string,d:any,l:Lang,c:any){if(i==='0')return back(u,s,d,l,c);if(i!=='1')return `CON ${T[l].invalid}`;if(d.agentOp==='withdraw'){await save(s,{...d,state:'AGENT_OTP_CHANNEL'},'AGENT_OTP_CHANNEL');return `CON ${l==='fr'?'Choisissez le canal pour recevoir l’OTP du client :\n1. SMS\n2. WhatsApp\n3. E-mail\n0. Retour':'Choose the channel to send the client OTP :\n1. SMS\n2. WhatsApp\n3. Email\n0. Back'}`;}await save(s,{...d,state:'AGENT_PIN'},'AGENT_PIN');return `CON ${T[l].pin}`;}
-async function agentOtpChannel(u:any,s:Session,i:string,d:any,l:Lang){if(i==='0')return back(u,s,d,l,'');const channel=i==='1'?'sms':i==='2'?'whatsapp':i==='3'?'email':null;if(!channel)return `CON ${T[l].invalid}`;const client=await getUssdRecipientInfo(d.client);if(!client.success)return `CON ${err(client.error||T[l].clientNotFound,l)}`;const clientId=Number(client.id||client.userId||client.user_id);if(!clientId)return `CON ${l==='fr'?'Client introuvable.':'Client not found.'}`;const amount=Number(d.amount||0),fee=Number(d.fee||0),total=amount+fee;const agentName=String(u.full_name||u.first_name||'Agent');const otpDescription=`retrait ${amount.toFixed(2)} ${d.currency} + frais ${fee.toFixed(2)} = ${total.toFixed(2)} par ${agentName}`;const otp=await sendAndStoreOtp(clientId,otpDescription,channel);if(!otp?.success){const detail=String(otp?.message||otp?.error||'').trim();return `CON ${l==='fr'?`Échec de l’envoi de l’OTP${detail?` : ${detail}`:''}.`:`OTP delivery failed${detail?`: ${detail}`:'.'}`}\n0. Retour`;}await save(s,{...d,state:'AGENT_WITHDRAW_OTP',otpChannel:channel},'AGENT_WITHDRAW_OTP');const channelLabel=channel==='sms'?'SMS':channel==='whatsapp'?'WhatsApp':'e-mail';return `CON ${l==='fr'?`OTP envoyé au client par ${channelLabel}.\nEntrez l’OTP reçu pour autoriser le retrait :`:`OTP sent to the client by ${channelLabel}.\nEnter the OTP received to authorize the withdrawal:`}`;}
+async function agentOtpChannel(u:any,s:Session,i:string,d:any,l:Lang){if(i==='0')return back(u,s,d,l,'');const channel=i==='1'?'sms':i==='2'?'whatsapp':i==='3'?'email':null;if(!channel)return `CON ${T[l].invalid}`;const client=await getUssdRecipientInfo(d.client);if(!client.success)return `CON ${err(client.error||T[l].clientNotFound,l)}`;const clientId=Number(client.id||client.userId||client.user_id);if(!clientId)return `CON ${l==='fr'?'Client introuvable.':'Client not found.'}`;const amount=Number(d.amount||0),fee=Number(d.fee||0),total=amount+fee;const agentName=String(u.full_name||u.first_name||'Agent');const otpDescription=`retrait ${amount.toFixed(2)} ${d.currency} + frais ${fee.toFixed(2)} = ${total.toFixed(2)} par ${agentName}`;const otp = await initiateClientWithdrawalOtp({
+  clientWalletId: d.client,
+  amount,
+  currency: d.currency,
+  channel,
+  agentName
+});if(!otp?.success){const detail=String(otp?.message||otp?.error||'').trim();return `CON ${l==='fr'?`Échec de l’envoi de l’OTP${detail?` : ${detail}`:''}.`:`OTP delivery failed${detail?`: ${detail}`:'.'}`}\n0. Retour`;}await save(s,{...d,state:'AGENT_WITHDRAW_OTP',otpChannel:channel},'AGENT_WITHDRAW_OTP');const channelLabel=channel==='sms'?'SMS':channel==='whatsapp'?'WhatsApp':'e-mail';return `CON ${l==='fr'?`OTP envoyé au client par ${channelLabel}.\nEntrez l’OTP reçu pour autoriser le retrait :`:`OTP sent to the client by ${channelLabel}.\nEnter the OTP received to authorize the withdrawal:`}`;}
 async function agentMmOperator(u:any,s:Session,i:string,d:any,l:Lang){if(i==='0')return back(u,s,d,l,await getCountryByPhone(u.phone));const op=operatorCode(i);if(!op)return `CON ${T[l].invalid}`;const type=d.agentOp==='withdraw'?(({MPESA:'WD_MPESA',ORANGE:'WD_ORANGE_MONEY',AFRIMONEY:'WD_AFRIMONEY',AIRTEL:'WD_AIRTEL_MONEY',MTN:'WD_MTN_MOMO'} as any)[op]||'WD'):'DP_MM';const f=Number(await getUssdFee(d.amount,d.currency,type,u.country));await save(s,{...d,state:'AGENT_MM_CONFIRM',mmOperator:op,fee:f,feeType:type},'AGENT_MM_CONFIRM');return `CON ${d.amount.toFixed(2)} ${d.currency}\n${l==='fr'?'Frais':'Fee'}: ${f.toFixed(2)} ${d.currency}\n${T[l].confirm}`;}
 async function agentMmConfirm(u:any,s:Session,i:string,d:any,l:Lang,c:any){if(i==='0')return back(u,s,d,l,c);if(i!=='1')return `CON ${T[l].invalid}`;await save(s,{...d,state:'AGENT_MM_PIN'},'AGENT_MM_PIN');return `CON ${T[l].pin}`;}
 async function agentMmPin(u:any,s:Session,i:string,d:any,l:Lang){const ref=`USSD-AGMM-${Date.now()}-${u.id}`,x=await executeAgentMobileMoney(u,d.client,d.amount,d.currency,d.mmOperator||'AUTO',d.clientInfo?.phone||'',i,d.agentOp==='withdraw'?'payout':'collect',ref,d.feeType);await save(s,{...d,state:'MENU'},'MENU');return done(!!x.success,l,(x as any).reference||ref,err((x as any).error||'',l));}
@@ -1216,14 +1254,85 @@ async function agentPin(u:any,s:Session,i:string,d:any,l:Lang){
       : `CashPay\nReceived: ${amount.toFixed(2)} ${d.currency} | Commission: ${commission.toFixed(2)} ${d.currency}\nBalance: ${agentBalance.toFixed(2)} ${d.currency} | Ref: ${String((x as any).reference||'N/A')}`;
     await sendSms(String(u.phone||''),agentMessage).catch(()=>null);
   }
+  if(x.success && d.agentOp==='deposit' && (x as any).client){
+    const client:any=(x as any).client;
+    const reference=String((x as any).reference||'');
+    const message=l==='fr'
+      ? `CashPay : vous avez reçu un dépôt de ${Number(d.amount).toFixed(2)} ${d.currency}. Réf : ${reference}`
+      : `CashPay: you received a deposit of ${Number(d.amount).toFixed(2)} ${d.currency}. Ref: ${reference}`;
+    await ussdAlert(
+      {
+        ...client,
+        id:client.userId||client.id,
+        phone:client.phone,
+        email:client.email,
+        first_name:client.firstName||client.first_name||client.full_name,
+        notifications_channel:client.notifications_channel
+      },
+      l==='fr'?'Dépôt CashPay reçu':'CashPay deposit received',
+      message,
+      'transaction',
+      {reference,amount:Number(d.amount),currency:d.currency,type:'DP_AGENT'}
+    );
+  }
   await save(s,{...d,state:'MENU'},'MENU');
   return done(!!x.success,l,(x as any).reference,err((x as any).error||'',l));
 }
 async function agentBalancePin(u:any,s:Session,i:string,d:any,l:Lang){const p=await verifyUserPin(u.id,String(i||''));if(!p.success)return `CON ${l==='fr'?'Code PIN incorrect.':'Incorrect PIN.'}`;const b=await getUssdBalance(u.id,d.currency);await save(s,{...d,state:'MENU'},'MENU');return `END ${l==='fr'?`Mon solde : ${b.toFixed(2)} ${d.currency}`:`My balance: ${b.toFixed(2)} ${d.currency}`}`;}
 async function agentCommViewPin(u:any,s:Session,i:string,d:any,l:Lang){const p=await verifyUserPin(u.id,String(i||''));if(!p.success)return `CON ${l==='fr'?'Code PIN incorrect.':'Incorrect PIN.'}`;const st=await getCommissionStats(u.id,d.currency);await save(s,{...d,state:'COMM_MENU',comm:st},'COMM_MENU');return `CON ${l==='fr'?'Commissions':'Commissions'}\n${l==='fr'?'Disponible':'Available'}: ${Number(st.available||0).toFixed(2)} ${d.currency}\n${l==='fr'?'Aujourd’hui':'Today'}: ${Number(st.daily||0).toFixed(2)} ${d.currency}\n1. ${l==='fr'?'Basculer vers le compte principal':'Move to main account'}\n${T[l].back}`;}
-async function commMenu(u:any,s:Session,i:string,d:any,l:Lang){if(i==='0')return back(u,s,d,l,await getCountryByPhone(u.phone));if(i!=='1')return `CON ${T[l].invalid}`;if(Number(d.comm?.available||0)<=0)return `END ${l==='fr'?'Aucune commission disponible.':'No commission available.'}`;await save(s,{...d,state:'COMM_AMOUNT'},'COMM_AMOUNT');return `CON ${T[l].amount}`;}
-async function commAmount(u:any,s:Session,i:string,d:any,l:Lang){const a=Number(i),max=Number(d.comm?.available||0);if(!Number.isFinite(a)||a<=0||a>max)return `CON ${l==='fr'?'Montant invalide ou supérieur aux commissions disponibles.':'Invalid amount or greater than available commissions.'}`;await save(s,{...d,state:'COMM_PIN',amount:a},'COMM_PIN');return `CON ${T[l].pin}`;}
-async function commPin(u:any,s:Session,i:string,d:any,l:Lang){const x=await executeCommissionClaim(u,d.amount,d.currency,i);await save(s,{...d,state:'MENU'},'MENU');return done(!!x.success,l,(x as any).reference,err((x as any).error||'',l));}
+async function commMenu(u:any,s:Session,i:string,d:any,l:Lang){
+  if(i==='0')return back(u,s,d,l,await getCountryByPhone(u.phone));
+
+  const st=await getCommissionStats(u.id,d.currency);
+  const available=Number(st.available||0);
+
+  if(available<=0)return `END ${l==='fr'?'Aucune commission disponible.':'No commission available.'}`;
+
+  if(i==='1'){
+    await save(s,{...d,state:'COMM_PIN',amount:available,comm:st},'COMM_PIN');
+    return `CON ${l==='fr'
+      ? `Basculer tout : ${available.toFixed(2)} ${d.currency}\n${T[l].pin}`
+      : `Move all: ${available.toFixed(2)} ${d.currency}\n${T[l].pin}`}`;
+  }
+
+  if(i==='2'){
+    await save(s,{...d,state:'COMM_AMOUNT',comm:st},'COMM_AMOUNT');
+    return `CON ${l==='fr'
+      ? `Montant à basculer (max ${available.toFixed(2)} ${d.currency})`
+      : `Amount to move (max ${available.toFixed(2)} ${d.currency})`}`;
+  }
+
+  return `CON ${T[l].invalid}`;
+}
+
+async function commAmount(u:any,s:Session,i:string,d:any,l:Lang){
+  const a=Number(i);
+  const max=Number((await getCommissionStats(u.id,d.currency)).available||0);
+
+  if(!Number.isFinite(a)||a<=0||a>max){
+    return `CON ${l==='fr'
+      ? 'Montant invalide ou supérieur aux commissions disponibles.'
+      : 'Invalid amount or greater than available commissions.'}`;
+  }
+
+  await save(s,{...d,state:'COMM_PIN',amount:a},'COMM_PIN');
+  return `CON ${T[l].pin}`;
+}
+
+async function commPin(u:any,s:Session,i:string,d:any,l:Lang){
+  const x=await executeCommissionClaim(u,d.amount,d.currency,i);
+  await save(s,{...d,state:'MENU'},'MENU');
+
+  if(!x.success){
+    return done(false,l,undefined,err((x as any).error||'',l));
+  }
+
+  const remaining=Number((x as any).remainingCommission||0);
+
+  return `END ${l==='fr'
+    ? `Bascule réussie : ${Number(d.amount).toFixed(2)} ${d.currency}.\nCommission restante : ${remaining.toFixed(2)} ${d.currency}.`
+    : `Transfer successful: ${Number(d.amount).toFixed(2)} ${d.currency}.\nRemaining commission: ${remaining.toFixed(2)} ${d.currency}.`}`;
+}
 async function agentServices(u:any,s:Session,i:string,d:any,l:Lang){
   if(i==='0')return agentMenu(u,s,'6',d,l,await getCountryByPhone(u.phone));
   if(i==='1'){

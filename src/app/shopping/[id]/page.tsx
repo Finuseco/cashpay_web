@@ -15,42 +15,78 @@ type Props = {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const product = await getProductById(params.id);
-  
+
   if (!product) {
     return {
       title: 'Produit non trouvé',
       description: "Le produit demandé n'a pas pu être trouvé.",
-    }
+    };
   }
 
+  const productUrl = `https://app.cashpay-all.com/shopping/${product.id}`;
   const title = `${product.name} - JoJo Shopping`;
-  const description = product.description?.substring(0, 160) || `Achetez ${product.name} sur JoJo Shopping.`;
-  const imageUrl = product.image || 'https://placehold.co/1200x630.png';
+
+  const price = Number(product.sellingPrice);
+  const currency = product.currency || 'USD';
+
+  const priceText = Number.isFinite(price)
+    ? `Prix : ${price.toFixed(2)} ${currency}`
+    : '';
+
+  const description = [
+    product.description?.substring(0, 160),
+    priceText,
+  ]
+    .filter(Boolean)
+    .join(' — ') || `Découvrez ${product.name} sur JoJo Shopping.`;
+
+  const imageUrl =
+    product.image ||
+    'https://app.cashpay-all.com/images/jojo/produits/default.jpg';
 
   return {
-    title: title,
-    description: description,
+    metadataBase: new URL('https://app.cashpay-all.com'),
+
+    title,
+    description,
+
+    alternates: {
+      canonical: productUrl,
+    },
+
     openGraph: {
-      title: title,
-      description: description,
+      title,
+      description,
+      url: productUrl,
+      siteName: 'JoJo Shopping',
+      type: 'website',
+      locale: 'fr_FR',
       images: [
         {
           url: imageUrl,
+          secureUrl: imageUrl,
           width: 1200,
-          height: 630,
+          height: 1200,
+          type: 'image/jpeg',
           alt: product.name,
         },
       ],
-      type: 'article',
-      siteName: 'JoJo Shopping',
     },
+
     twitter: {
       card: 'summary_large_image',
-      title: title,
-      description: description,
+      title,
+      description,
       images: [imageUrl],
     },
-  }
+
+    other: {
+      'product:price:amount': Number.isFinite(price)
+        ? price.toFixed(2)
+        : '',
+      'product:price:currency': currency,
+    },
+  };
 }
 
 function ProductDetailLoading() {

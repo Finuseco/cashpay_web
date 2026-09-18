@@ -37,13 +37,17 @@ export default function SuperAgentLoans() {
 
     const fetchData = async () => {
         setIsLoading(true);
-        const current = await getAuthenticatedUser();
-        setSuperAgent(current);
-        if (current?.country) {
-            const data = await getCountryLoans(current.country);
-            setLoans(data);
-        }
-        setIsLoading(false);
+        try {
+            const current = await getAuthenticatedUser();
+            setSuperAgent(current);
+            if (current?.country) {
+                const data = await getCountryLoans(current.country);
+                setLoans(Array.isArray(data) ? data : []);
+            } else setLoans([]);
+        } catch {
+            setLoans([]);
+            openAlert({ title: 'Erreur', description: 'Impossible de charger les demandes LoanMe.', variant: 'error' });
+        } finally { setIsLoading(false); }
     };
 
     useEffect(() => {
@@ -60,21 +64,22 @@ export default function SuperAgentLoans() {
         if (!selectedLoan || !superAgent || !actionType) return;
 
         setIsProcessing(true);
-        let result;
-        
-        if (actionType === 'collect') {
-            result = await triggerManualLoanCollection(selectedLoan.id, superAgent.id, pin);
-        } else if (actionType === 'approve') {
-            // Le moteur LoanMe réel est déjà disponible : on le déclenche directement
-            // depuis l'interface SuperAgent sans modifier les actions backend existantes.
-            result = await approveLoanRequest(selectedLoan.id, superAgent.id);
-        } else {
-            result = await processLoanDecision(selectedLoan.id, actionType, superAgent.id, pin);
+        let result: any;
+        try {
+            if (actionType === 'collect') {
+                result = await triggerManualLoanCollection(Number(selectedLoan.id), Number(superAgent.id), pin);
+            } else if (actionType === 'approve' || actionType === 'reject') {
+                result = await processLoanDecision(Number(selectedLoan.id), actionType, Number(superAgent.id), pin);
+            } else {
+                return;
+            }
+        } catch (error: any) {
+            result = { success: false, error: error?.message || 'Impossible de traiter cette action.' };
+        } finally {
+            setIsProcessing(false);
         }
-        
-        setIsProcessing(false);
 
-        if (result.success) {
+        if (result?.success) {
             openAlert({
                 title: actionType === 'collect' ? 'Action de Recouvrement Terminée' : (actionType === 'approve' ? 'Prêt Approuvé' : 'Demande Rejetée'),
                 description: actionType === 'collect' 

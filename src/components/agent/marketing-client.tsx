@@ -288,25 +288,47 @@ export function MarketingClient({
   
   const handlePinConfirm = async (values: z.infer<typeof pinSchema>) => {
       setIsSubmittingBoost(true);
-      const result = await sendProductBoostEmail({
-          agent: agent,
-          products: selectedProducts,
-          packageCost: selectedPackage.price,
-          pin: values.pin,
-          layoutStyle: selectedLayout,
-      });
 
-      if (result.success) {
-          openAlert({ variant: 'success', title: 'Campagne Envoyée !', description: 'Votre e-mail promotionnel a été mis en file d\'attente pour envoi à tous les utilisateurs de CashPay.'});
-          setSelectedProducts([]);
-          setIsPinDialogOpen(false);
-      } else {
-          openAlert({ variant: 'error', title: 'Erreur', description: result.error });
+      try {
+          const result = await sendProductBoostEmail({
+              agent: agent,
+              products: selectedProducts,
+              packageCost: selectedPackage.price,
+              pin: values.pin,
+              layoutStyle: selectedLayout,
+          });
+
+          if (result.success) {
+              const recipientCount = result.recipientCount ?? 0;
+              const sentCount = result.sentCount ?? 0;
+              const failedCount = result.failedCount ?? 0;
+
+              openAlert({
+                  variant: failedCount > 0 ? 'warning' : 'success',
+                  title: failedCount > 0 ? 'Campagne traitée avec avertissement' : 'Campagne Envoyée !',
+                  description: `La campagne a été facturée et traitée pour ${recipientCount} adresse(s) e-mail. ${sentCount} e-mail(s) envoyé(s)${failedCount > 0 ? ` et ${failedCount} échec(s)` : ''}.`
+              });
+              setSelectedProducts([]);
+              setIsPinDialogOpen(false);
+          } else {
+              openAlert({
+                  variant: 'error',
+                  title: 'Erreur',
+                  description: result.error || 'Impossible de traiter la campagne e-mail.'
+              });
+          }
+      } catch (error: any) {
+          console.error('[Marketing Client] Product boost failed:', error);
+          openAlert({
+              variant: 'error',
+              title: 'Erreur',
+              description: error?.message || 'Une erreur interne est survenue. Veuillez réessayer ou contacter le support si le problème persiste.'
+          });
+      } finally {
+          setIsSubmittingBoost(false);
+          pinForm.reset();
       }
-      setIsSubmittingBoost(false);
-      pinForm.reset();
   }
-
   const boutiqueName = useMemo(() => {
       return agentProducts.length > 0 ? agentProducts[0].boutiqueName : 'Ma Boutique';
   }, [agentProducts]);

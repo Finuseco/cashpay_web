@@ -2,6 +2,7 @@
 
 import { db } from '@/lib/db';
 import { handleDbError } from './helpers';
+import { getAuthenticatedUser } from './user.actions';
 import type { User } from '@/lib/types';
 
 export interface Comment {
@@ -99,5 +100,64 @@ export async function postComment({ productId, user, text, parentCommentId }: Po
     } catch (error) {
         const dbError = await handleDbError(error, 'posting product comment');
         return { success: false, error: dbError.error };
+    }
+}
+
+export async function deleteComment(
+    commentId: number
+): Promise<{
+    success: boolean;
+    error?: string;
+}> {
+    const user = await getAuthenticatedUser();
+
+    if (!user) {
+        return {
+            success: false,
+            error: 'Vous devez être connecté pour supprimer un commentaire.',
+        };
+    }
+
+    try {
+        const { rows } = await db.query(
+            `
+            SELECT id
+            FROM product_comments
+            WHERE id = $1
+              AND user_id = $2
+            LIMIT 1
+            `,
+            [commentId, user.id]
+        );
+
+        if (rows.length === 0) {
+            return {
+                success: false,
+                error: 'Vous ne pouvez supprimer que vos propres commentaires.',
+            };
+        }
+
+        await db.query(
+            `
+            DELETE FROM product_comments
+            WHERE id = $1
+              AND user_id = $2
+            `,
+            [commentId, user.id]
+        );
+
+        return {
+            success: true,
+        };
+    } catch (error) {
+        const dbError = await handleDbError(
+            error,
+            'deleting product comment'
+        );
+
+        return {
+            success: false,
+            error: dbError.error,
+        };
     }
 }

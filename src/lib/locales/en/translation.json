@@ -1493,7 +1493,9 @@
   "emailVerificationRequired": "Please check e-mail availability.",
   "signatureRequired": "Signature mandatory.",
   "actionGridPaymentLink": "Pay Link",
-  "actionGridAds": "ads"
-  
-  
+  "actionGridAds": "ads",
+  "loanSummaryTitle": "LoanMe Summary",
+  "loanSummaryRemainingDebt": "Remaining Debt",
+  "loanSummaryRepaid": "Repaid",
+  "loanSummaryViewDetails": "View Details"
 }

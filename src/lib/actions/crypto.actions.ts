@@ -11,7 +11,7 @@ import { calculateTransactionFee } from './wallet.actions';
 import { getLiveCryptoPrice as getLiveCryptoPriceFromService } from '@/services/crypto-pricing';
 import { verifyCurrentUserPin } from './auth.actions';
 import crypto from 'crypto';
-import { getNewBitcoinAddress } from '@/services/bitcoin';
+import { getNewBitcoinAddress, listBitcoinTransactions } from '@/services/bitcoin';
 import { getAuthenticatedUser } from './user.actions';
 import { sendEmail } from '@/services/email';
 import type { PoolClient } from 'pg';
@@ -28,175 +28,75 @@ const SUPPORTED_CRYPTOS = ['BTC', 'ETH', 'USDT_ERC20', 'USDT_TRC20', 'AFC'];
  */
 export async function getUserCryptoAddresses(userId: number): Promise<Record<string, string>> {
     const connection = await db.getConnection();
+
     try {
         await connection.query('BEGIN');
 
-        const { rows } = await connection.query('SELECT currency_code, address FROM user_crypto_addresses WHERE user_id = $1', [userId]);
+        const { rows } = await connection.query(
+            'SELECT currency_code, address FROM user_crypto_addresses WHERE user_id = $1',
+            [userId]
+        );
+
         const addresses: Record<string, string> = {};
-        rows.forEach(row => {
+
+        rows.forEach((row) => {
             addresses[row.currency_code] = row.address;
         });
 
-        const missingCryptos = SUPPORTED_CRYPTOS.filter(crypto => !addresses[crypto]);
+        const missingCryptos = SUPPORTED_CRYPTOS.filter(
+            (crypto) => !addresses[crypto] && crypto !== 'BTC'
+        );
 
         if (missingCryptos.length > 0) {
-            console.log(`[Crypto] Generating new addresses for user ${userId} for: ${missingCryptos.join(', ')}`);
+            console.log(
+                `[Crypto] Generating addresses for user ${userId}: ${missingCryptos.join(', ')}`
+            );
+
             for (const cryptoCurrency of missingCryptos) {
                 let newAddress: string;
+
                 if (cryptoCurrency === 'BTC') {
-                    // Call the real Bitcoin Core RPC service
                     newAddress = await getNewBitcoinAddress(`user_${userId}`);
                 } else {
-                    // Generate a unique, deterministic (but not cryptographically secure) address for other cryptos as a placeholder
-                    const hash = crypto.createHash('sha256').update(`${cryptoCurrency}-${userId}-cashpay`).digest('hex');
-                    newAddress = `${cryptoCurrency.slice(0,3)}_${hash.slice(0, 16)}`;
+                    const hash = crypto
+                        .createHash('sha256')
+                        .update(`${cryptoCurrency}-${userId}-cashpay`)
+                        .digest('hex');
+
+                    newAddress = `${cryptoCurrency.slice(0, 3)}_${hash.slice(0, 16)}`;
                 }
-                
-                await connection.query('INSERT INTO user_crypto_addresses (user_id, currency_code, address) VALUES ($1, $2, $3)', [userId, cryptoCurrency, newAddress]);
+
+                await connection.query(
+                    'INSERT INTO user_crypto_addresses (user_id, currency_code, address) VALUES ($1, $2, $3)',
+                    [userId, cryptoCurrency, newAddress]
+                );
+
                 addresses[cryptoCurrency] = newAddress;
             }
         }
-        
+
         await connection.query('COMMIT');
+
         return addresses;
     } catch (error) {
         await connection.query('ROLLBACK');
-        const dbError = await handleDbError(error, 'getting/generating user crypto addresses');
-        // On critical error, we can't be sure what addresses are valid, so return empty
-        console.error("Critical error in getUserCryptoAddresses:", dbError.error);
+
+        const dbError = await handleDbError(
+            error,
+            'getting/generating user crypto addresses'
+        );
+
+        console.error(
+            'Critical error in getUserCryptoAddresses:',
+            dbError.error
+        );
+
         return {};
     } finally {
         connection.release();
     }
 }
 
-
-interface HandleDepositArgs {
-    userId: number;
-    currency: string;
-    amount: number;
-    address: string;
-}
-
-export async function handleCryptoDeposit(args: HandleDepositArgs): Promise<{ success: boolean; message: string }> {
-    const { userId, currency, amount, address } = args;
-
-    const connection = await db.getConnection();
-    try {
-        await connection.query('BEGIN');
-
-        const txHash = `mock_tx_${Date.now()}`;
-        const requiredConfirmations = 3;
-
-        const { rows } = await connection.query(`
-            INSERT INTO crypto_deposits (user_id, currency_code, amount, tx_hash, status, confirmations, required_confirmations)
-            VALUES ($1, $2, $3, $4, 'unconfirmed', 0, $5) RETURNING id
-        `, [userId, currency, amount, txHash, requiredConfirmations]);
-        
-        const depositId = rows[0].id;
-
-        // This simulates the background job that watches the blockchain
-        simulateConfirmations(depositId, userId, amount, currency, requiredConfirmations);
-
-        await connection.query('COMMIT');
-        return { success: true, message: "Simulation de dépôt lancée. Vous recevrez une notification lorsque les fonds seront crédités." };
-    } catch (error) {
-        await connection.query('ROLLBACK');
-        const dbError = await handleDbError(error, 'handling crypto deposit');
-        return { success: false, message: dbError.error };
-    } finally {
-        connection.release();
-    }
-}
-
-async function simulateConfirmations(depositId: number, userId: number, cryptoAmount: number, cryptoCurrency: string, requiredConfirmations: number) {
-    const connection = await db.getConnection();
-    try {
-        await connection.query('BEGIN');
-
-        // Simulate confirmations
-        for (let i = 1; i <= requiredConfirmations; i++) {
-            await new Promise(res => setTimeout(res, 1000)); // 1s delay per confirmation
-            await connection.query('UPDATE crypto_deposits SET confirmations = $1 WHERE id = $2', [i, depositId]);
-            console.log(`[Crypto Sim] Deposit ${depositId} has ${i} confirmations.`);
-        }
-        
-        // Get live exchange rate
-        const rateResult = await getLiveCryptoPrice(cryptoCurrency, 'USD');
-        if (!rateResult.success || !rateResult.price) {
-            throw new Error(`Taux de change non trouvé pour ${cryptoCurrency}.`);
-        }
-        const exchangeRate = rateResult.price;
-        const fiatValue = cryptoAmount * exchangeRate;
-        
-        const { rows: userRows } = await connection.query('SELECT * FROM users WHERE id = $1', [userId]);
-        if (userRows.length === 0) throw new Error("Utilisateur non trouvé pour le crédit final.");
-        const user = userRows[0] as User;
-
-        // Calculate and deduct fees
-        const fee = await calculateTransactionFee(fiatValue, 'USD', 'DP_CRYPTO', user.country, connection);
-        const finalCreditAmount = fiatValue - fee;
-        
-        if (finalCreditAmount <= 0) {
-             throw new Error(`Le montant après frais est nul ou négatif. Montant: ${fiatValue}, Frais: ${fee}`);
-        }
-
-        // Credit the user's FIAT wallet
-        const transactionResult = await createTransaction({
-            user: user,
-            typeCode: 'DP_CRYPTO',
-            amount: finalCreditAmount,
-            currency: 'USD',
-            description: `Dépôt de ${cryptoAmount.toFixed(6)} ${cryptoCurrency} (Valeur: ${fiatValue.toFixed(2)} USD)`,
-            metadata: { 
-                crypto_deposit_id: depositId,
-                crypto_amount: cryptoAmount,
-                crypto_currency: cryptoCurrency,
-                exchange_rate: exchangeRate,
-                fee_amount_usd: fee,
-                original_fiat_amount: fiatValue
-            },
-            status: 'Completed',
-            connection
-        });
-        
-        if (!transactionResult.success) {
-            throw new Error(transactionResult.error || "Échec de la transaction de crédit fiat.");
-        }
-
-        // Update deposit status to confirmed
-        await connection.query('UPDATE crypto_deposits SET status = $1 WHERE id = $2', ['confirmed', depositId]);
-
-        await connection.query('COMMIT');
-        console.log(`[Crypto Sim] User ${userId} credited with ${finalCreditAmount.toFixed(2)} USD.`);
-
-        // Notify user via Email
-        if (user.email) {
-            await sendEmail(user.email, 'Dépôt Crypto Confirmé', 'general', {
-                title: 'Dépôt Réussi',
-                greeting: `Bonjour ${user.first_name},`,
-                message: `Votre dépôt de <strong>${cryptoAmount.toFixed(6)} ${cryptoCurrency}</strong> a été confirmé. <br/>Après conversion et frais, <strong>${finalCreditAmount.toFixed(2)} USD</strong> ont été crédités sur votre portefeuille principal.`,
-                buttonText: 'Voir mes transactions',
-                buttonUrl: `${process.env.NEXT_PUBLIC_APP_URL}/transactions`,
-                signature: "L'équipe CashPay"
-            });
-        }
-
-        // Notify user in-app
-        await createNotification(
-            userId,
-            'Dépôt Réussi',
-            `Votre dépôt de ${cryptoAmount.toFixed(6)} ${cryptoCurrency} a été confirmé et ${finalCreditAmount.toFixed(2)} USD ont été crédités sur votre compte.`,
-            'general'
-        );
-
-    } catch (error) {
-        console.error(`[Crypto Sim] Failed to credit user for deposit ${depositId}:`, error);
-        await connection.query('ROLLBACK');
-    } finally {
-        connection.release();
-    }
-}
 
 
 interface WithdrawalRequestArgs {
@@ -231,7 +131,6 @@ export async function requestCryptoWithdrawal(args: WithdrawalRequestArgs): Prom
     );
 
     // 3. Record the withdrawal request for the backend worker to process
-    const simulatedTxHash = `mock_tx_${crypto.randomBytes(32).toString('hex')}`;
     
     const withdrawalData = {
         user_id: user.id,
@@ -239,13 +138,13 @@ export async function requestCryptoWithdrawal(args: WithdrawalRequestArgs): Prom
         amount,
         recipient_address: recipientAddress,
         status: 'pending', // Will be 'processing', then 'completed' or 'failed' by a worker
-        tx_hash: simulatedTxHash
+        tx_hash: null
     };
     await connection.query('INSERT INTO crypto_withdrawals (user_id, currency_code, amount, recipient_address, status, tx_hash) VALUES ($1, $2, $3, $4, $5, $6)', Object.values(withdrawalData));
 
     await connection.query('COMMIT');
     
-    console.log(`[Crypto Withdrawal] New withdrawal request created for user ${user.id}: ${amount} ${currency} to ${recipientAddress}. TxHash: ${simulatedTxHash}`);
+    console.log(`[Crypto Withdrawal] Real withdrawal request queued for user ${user.id}: ${amount} ${currency} to ${recipientAddress}.`);
     
     // Send email notification
     if (user.email) {
@@ -269,7 +168,179 @@ export async function requestCryptoWithdrawal(args: WithdrawalRequestArgs): Prom
   }
 }
 
+
+
+export async function activateBitcoinAccount(userId: number): Promise<{
+    success: boolean;
+    address?: string;
+    error?: string;
+}> {
+    const connection = await db.getConnection();
+
+    try {
+        await connection.query('BEGIN');
+
+        const { rows } = await connection.query(
+            'SELECT address FROM user_crypto_addresses WHERE user_id = $1 AND currency_code = $2 FOR UPDATE',
+            [userId, 'BTC']
+        );
+
+        let address: string;
+
+        if (rows.length > 0 && rows[0].address) {
+            address = rows[0].address;
+        } else {
+            address = await getNewBitcoinAddress(`user_${userId}`);
+
+            await connection.query(
+                'INSERT INTO user_crypto_addresses (user_id, currency_code, address) VALUES ($1, $2, $3)',
+                [userId, 'BTC', address]
+            );
+        }
+
+        await connection.query(
+            'INSERT INTO user_crypto_balances (user_id, currency_code, balance) VALUES ($1, $2, $3) ON CONFLICT (user_id, currency_code) DO NOTHING',
+            [userId, 'BTC', 0]
+        );
+
+        await connection.query('COMMIT');
+
+        return {
+            success: true,
+            address,
+        };
+    } catch (error: any) {
+        await connection.query('ROLLBACK');
+
+        const dbError = await handleDbError(
+            error,
+            'activating Bitcoin account'
+        );
+
+        console.error(
+            'Critical error in activateBitcoinAccount:',
+            dbError.error
+        );
+
+        return {
+            success: false,
+            error: dbError.error || error.message,
+        };
+    } finally {
+        connection.release();
+    }
+}
+
+
+export async function syncBitcoinBalances(): Promise<{ success: boolean; synchronized: number; credited: number; error?: string }> {
+    const connection = await db.getConnection();
+    let synchronized = 0;
+    let credited = 0;
+
+    try {
+        const { rows: addresses } = await connection.query(
+            "SELECT user_id, address FROM user_crypto_addresses WHERE currency_code = 'BTC'"
+        );
+
+        if (addresses.length === 0) {
+            return { success: true, synchronized: 0, credited: 0 };
+        }
+
+        const addressToUser = new Map<string, number>();
+        for (const row of addresses) {
+            addressToUser.set(String(row.address), Number(row.user_id));
+        }
+
+        const transactions = await listBitcoinTransactions(1000, 0, true);
+
+        for (const tx of transactions) {
+            if (
+                tx?.category !== "receive" ||
+                !tx?.txid ||
+                !tx?.address ||
+                !addressToUser.has(String(tx.address))
+            ) {
+                continue;
+            }
+
+            const amount = Number(tx.amount);
+            const confirmations = Math.max(0, Number(tx.confirmations || 0));
+
+            if (!Number.isFinite(amount) || amount <= 0) {
+                continue;
+            }
+
+            const userId = addressToUser.get(String(tx.address))!;
+            const txHash = String(tx.txid);
+            const status = confirmations >= 3 ? "confirmed" : "unconfirmed";
+
+            await connection.query("BEGIN");
+
+            try {
+                const existing = await connection.query(
+                    "SELECT id, user_id, status FROM crypto_deposits WHERE tx_hash = $1 FOR UPDATE",
+                    [txHash]
+                );
+
+                if (existing.rows.length === 0) {
+                    await connection.query(
+                        "INSERT INTO crypto_deposits (user_id, currency_code, amount, tx_hash, status, confirmations, required_confirmations) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                        [userId, "BTC", amount, txHash, status, confirmations, 3]
+                    );
+
+                    synchronized++;
+
+                    if (status === "confirmed") {
+                        await connection.query(
+                            "INSERT INTO user_crypto_balances (user_id, currency_code, balance) VALUES ($1, $2, $3) ON CONFLICT (user_id, currency_code) DO UPDATE SET balance = user_crypto_balances.balance + EXCLUDED.balance",
+                            [userId, "BTC", amount]
+                        );
+                        credited++;
+                    }
+                } else {
+                    const deposit = existing.rows[0];
+
+                    if (Number(deposit.user_id) === userId) {
+                        await connection.query(
+                            "UPDATE crypto_deposits SET confirmations = $1, status = $2 WHERE id = $3",
+                            [confirmations, status, deposit.id]
+                        );
+
+                        synchronized++;
+
+                        if (status === "confirmed" && deposit.status !== "confirmed") {
+                            await connection.query(
+                                "UPDATE user_crypto_balances SET balance = balance + $1 WHERE user_id = $2 AND currency_code = $3",
+                                [amount, userId, "BTC"]
+                            );
+                            credited++;
+                        }
+                    }
+                }
+
+                await connection.query("COMMIT");
+            } catch (error) {
+                await connection.query("ROLLBACK");
+                throw error;
+            }
+        }
+
+        return { success: true, synchronized, credited };
+    } catch (error: any) {
+        console.error("[Bitcoin Sync] Failed:", error);
+        return {
+            success: false,
+            synchronized,
+            credited,
+            error: error?.message || "Bitcoin synchronization failed."
+        };
+    } finally {
+        connection.release();
+    }
+}
+
 export async function getCryptoBalances(userId: number): Promise<CryptoBalance[]> {
+    await syncBitcoinBalances();
     try {
         const { rows } = await db.query('SELECT currency_code, balance FROM user_crypto_balances WHERE user_id = $1', [userId]);
         const balancesMap = new Map(rows.map(row => [row.currency_code, parseFloat(row.balance)]));

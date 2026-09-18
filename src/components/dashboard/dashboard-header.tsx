@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import type { User, Currency, Notification, Card } from "@/lib/types";
 import { CurrencyCard } from "./currency-card";
+import { BitcoinBalanceCard } from "./bitcoin-balance-card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +29,11 @@ import { ScrollArea } from "../ui/scroll-area";
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useFooterStore } from "@/hooks/use-footer-store";
+import { getCryptoBalances, getUserCryptoAddresses, activateBitcoinAccount } from "@/lib/actions/crypto.actions";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DepositFlow } from "@/components/crypto/deposit-flow";
+import { WithdrawalFlow } from "@/components/crypto/withdrawal-flow";
+import { ConversionFlow } from "@/components/crypto/conversion-flow";
 
 function NotificationItem({ notification }: { notification: Notification }) {
     return (
@@ -52,7 +58,36 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
   const [renderedPageTitle, setRenderedPageTitle] = useState(pageTitle);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [cryptoBalances, setCryptoBalances] = useState<any[]>([]);
+  const [bitcoinAction, setBitcoinAction] = useState<"receive" | "send" | "buy" | "sell" | null>(null);
+  const [isBitcoinActivated, setIsBitcoinActivated] = useState(false);
   const { isVisible: isFooterVisible, toggleVisibility: toggleFooterVisibility } = useFooterStore();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCryptoBalances = async () => {
+      if (!user?.id) return;
+
+      try {
+        const balances = await getCryptoBalances(user.id);
+        const addresses = await getUserCryptoAddresses(user.id);
+
+        if (!cancelled) {
+          setIsBitcoinActivated(Boolean(addresses.BTC));
+          setCryptoBalances(balances);
+        }
+      } catch (error) {
+        console.error("[DashboardHeader] Failed to load crypto balances:", error);
+      }
+    };
+
+    loadCryptoBalances();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     setIsClient(true);
@@ -200,6 +235,32 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
                             />
                         )
                     })}
+
+                    <BitcoinBalanceCard
+                        btcBalance={
+                            Number(
+                                cryptoBalances.find(
+                                    (item) => item.currency_code === "BTC"
+                                )?.balance ?? 0
+                            )
+                        }
+                        onReceive={() => setBitcoinAction("receive")}
+                        onSend={() => setBitcoinAction("send")}
+                        onBuy={() => setBitcoinAction("buy")}
+                        onSell={() => setBitcoinAction("sell")}
+                        onActivate={async () => {
+                          if (!user?.id) return;
+                          const result = await activateBitcoinAccount(user.id);
+                          if (result.success) {
+                            setIsBitcoinActivated(true);
+                            const balances = await getCryptoBalances(user.id);
+                            setCryptoBalances(balances);
+                          } else {
+                            console.error("[DashboardHeader] Bitcoin activation failed:", result.error);
+                          }
+                        }}
+                        isActivated={isBitcoinActivated}
+                    />
                 </div>
             </div>
          ) : renderedPageTitle ? (
@@ -207,6 +268,51 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
              ) : null}
      
            </div>
+
+           {bitcoinAction && user && (
+             <Dialog open={!!bitcoinAction} onOpenChange={(open) => !open && setBitcoinAction(null)}>
+               <DialogContent className="w-[calc(100%-24px)] max-w-lg max-h-[85vh] overflow-y-auto bg-zinc-900 border-zinc-700 p-0">
+                 <DialogHeader className="px-5 pt-5">
+                   <DialogTitle className="text-white">
+                     {bitcoinAction === "receive" && "Recevoir du Bitcoin"}
+                     {bitcoinAction === "send" && "Envoyer du Bitcoin"}
+                     {bitcoinAction === "buy" && "Acheter du Bitcoin"}
+                     {bitcoinAction === "sell" && "Vendre du Bitcoin"}
+                   </DialogTitle>
+                 </DialogHeader>
+
+                 <div className="px-4 pb-5">
+                   {bitcoinAction === "receive" && (
+                     <DepositFlow user={user} />
+                   )}
+
+                   {bitcoinAction === "send" && (
+                     <WithdrawalFlow
+                       user={user}
+                       balances={cryptoBalances}
+                     />
+                   )}
+
+                   {bitcoinAction === "buy" && (
+                     <ConversionFlow
+                       user={user}
+                       balances={cryptoBalances}
+                       fiatCurrencies={currencies || []}
+                     />
+                   )}
+
+                   {bitcoinAction === "sell" && (
+                     <ConversionFlow
+                       user={user}
+                       balances={cryptoBalances}
+                       fiatCurrencies={currencies || []}
+                     />
+                   )}
+                 </div>
+               </DialogContent>
+             </Dialog>
+           )}
+
            {children && 
              <div className="container mx-auto">
                  {children}

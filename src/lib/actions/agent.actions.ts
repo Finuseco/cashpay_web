@@ -4,11 +4,17 @@ import type { User, Product, Boutique, Seller, ProductVariation } from '@/lib/ty
 import { db } from '../db';
 import { handleDbError, saveBase64Image, getUserFromDb } from './helpers';
 import { verifyUserPin, verifyCurrentUserPin, verifyOtp, sendAndStoreOtp } from './auth.actions';
-import { createTransaction } from './transaction.actions';
+import { createTransaction, sendTransactionNotifications } from './transaction.actions';
 import { generateReferenceCode, formatUser, currentPrice, countryToCode } from '../utils';
 import type { PoolClient } from 'pg';
+import { headers } from 'next/headers';
+import UAParser from 'ua-parser-js';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
 import crypto from 'crypto';
 import { sendSms } from '@/services/sms';
+import { sendEmail } from '@/services/email';
+import { sendWhatsAppTextMessage } from '@/services/whatsapp';
 import { processMaxiCashMobilePayment, processMaxiCashPayout } from '@/services/maxicash';
 
 const safeParse = (val: any, fallback: any) => {
@@ -302,19 +308,83 @@ export async function processQrSale(buyerUserId: number, orderPayload: any) {
     } finally { connection.release(); }
 }
 
-export async function getAgentBoutiques(agentId: number): Promise<Boutique[]> {
-    const { rows } = await db.query('SELECT id, name, address FROM boutiques WHERE agent_id = $1', [agentId]);
-    return rows.map(r => ({ id: r.id.toString(), name: r.name, address: r.address }));
+export async function getAgentBoutiques(agentId: number):
+Promise<(Boutique & { whatsapp_public_number?: string | null })[]> {
+    const { rows } = await db.query(
+        'SELECT id, name, address, whatsapp_public_number FROM boutiques WHERE agent_id = $1',
+        [agentId]
+    );
+
+    return rows.map(r => ({
+        id: r.id.toString(),
+        name: r.name,
+        address: r.address,
+        whatsapp_public_number: r.whatsapp_public_number
+    }));
 }
 
-export async function addOrUpdateBoutique(data: Partial<Boutique>, agentId: number) {
+export async function addOrUpdateBoutique(
+    data: Partial<Boutique> & { whatsapp_public_number?: string | null },
+    agentId: number
+) {
     if (data.id) {
-        await db.query('UPDATE boutiques SET name = $1, address = $2 WHERE id = $3 AND agent_id = $4', [data.name, data.address, data.id, agentId]);
-        return { success: true, boutique: data };
-    } else {
-        const { rows } = await db.query('INSERT INTO boutiques (agent_id, name, address) VALUES ($1, $2, $3) RETURNING id', [agentId, data.name, data.address]);
-        return { success: true, boutique: { ...data, id: rows[0].id.toString() } };
+        const { rows } = await db.query(
+            `UPDATE boutiques
+             SET name = $1,
+                 address = $2,
+                 whatsapp_public_number = $3
+             WHERE id = $4
+               AND agent_id = $5
+             RETURNING id, name, address, whatsapp_public_number`,
+            [
+                data.name,
+                data.address,
+                data.whatsapp_public_number || null,
+                data.id,
+                agentId
+            ]
+        );
+
+        if (!rows.length) {
+            return {
+                success: false,
+                error: 'Boutique introuvable ou accès non autorisé.'
+            };
+        }
+
+        return {
+            success: true,
+            boutique: {
+                id: rows[0].id.toString(),
+                name: rows[0].name,
+                address: rows[0].address,
+                whatsapp_public_number: rows[0].whatsapp_public_number
+            }
+        };
     }
+
+    const { rows } = await db.query(
+        `INSERT INTO boutiques
+            (agent_id, name, address, whatsapp_public_number)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, name, address, whatsapp_public_number`,
+        [
+            agentId,
+            data.name,
+            data.address,
+            data.whatsapp_public_number || null
+        ]
+    );
+
+    return {
+        success: true,
+        boutique: {
+            id: rows[0].id.toString(),
+            name: rows[0].name,
+            address: rows[0].address,
+            whatsapp_public_number: rows[0].whatsapp_public_number
+        }
+    };
 }
 
 export async function deleteBoutique(id: string, agentId: number) {
@@ -519,14 +589,270 @@ export async function confirmClientTransfer(args: { senderWalletId: string; reci
     });
 }
 
+export async function initiateClientWithdrawalOtp(args: {
+    clientWalletId: string;
+    amount: number;
+    currency: string;
+    channel: 'sms' | 'email' | 'whatsapp';
+    agentName?: string;
+}) {
+    const client = await getUserFromDb({
+        walletId: args.clientWalletId
+    });
+
+    if (!client) {
+        return {
+            success: false,
+            error: 'Client non trouvé.'
+        };
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const otpType = 'agent_withdrawal';
+    const amountText = `${args.amount} ${args.currency}`;
+    const agentText = args.agentName || 'Agent CashPay';
+
+    try {
+        await db.query(
+            `INSERT INTO otps
+                (user_id, code, type, channel, expires_at)
+             VALUES
+                ($1::integer, $2::text, $3::text, $4::text, $5::timestamp)`,
+            [
+                client.id,
+                otp,
+                otpType,
+                args.channel,
+                expiresAt
+            ]
+        );
+
+        const headerList = await headers();
+        const ip = (headerList.get('x-forwarded-for') ?? '127.0.0.1')
+            .split(',')[0]
+            .trim();
+
+        const userAgentString = headerList.get('user-agent') ?? '';
+        const countryFromHeader =
+            headerList.get('x-vercel-ip-country') || client.country || '';
+
+        const parser = new UAParser(userAgentString);
+        const uaResult = parser.getResult();
+
+        let deviceType = uaResult.device.type || 'Ordinateur';
+        if (deviceType === 'mobile' || deviceType === 'tablet') {
+            deviceType = uaResult.device.vendor
+                ? `${uaResult.device.vendor} ${uaResult.device.model}`
+                : 'Mobile';
+        } else {
+            deviceType = 'Ordinateur';
+        }
+
+        const expirationText = '10 minutes';
+
+        const smsMessage =
+            `CashPay - Retrait Cash\n` +
+            `Montant : ${amountText}\n` +
+            `Agent : ${agentText}\n` +
+            `Code de retrait : ${otp}\n` +
+            `Valable ${expirationText}. Ne partagez jamais ce code.`;
+
+        const whatsappMessage =
+            `*CashPay - Retrait Cash*\n` +
+            `Montant : ${amountText}\n` +
+            `Agent : ${agentText}\n\n` +
+            `Votre code de retrait : *${otp}*\n` +
+            `Valable pendant ${expirationText}.\n` +
+            `Ne partagez jamais ce code.`;
+
+        const emailData = {
+            title: 'Confirmation de retrait CashPay',
+            greeting: `Bonjour ${client.first_name || 'Client'},`,
+            intro:
+                `Une demande de retrait Cash a été initiée pour ` +
+                `<strong>${amountText}</strong> auprès de ` +
+                `<strong>${agentText}</strong>.<br><br>` +
+                `Votre code de retrait est :`,
+            otpCode: otp,
+            warning:
+                `Ce code est valable pendant ${expirationText}. ` +
+                `Il autorise la validation de ce retrait uniquement. ` +
+                `Ne le communiquez à personne.`,
+            signature: "L'équipe de sécurité CashPay",
+            ipAddress: ip,
+            deviceType,
+            browser: `${uaResult.browser.name || ''} ${uaResult.browser.version || ''}`.trim(),
+            operatingSystem: `${uaResult.os.name || ''} ${uaResult.os.version || ''}`.trim(),
+            location: countryFromHeader,
+            loginTime: format(
+                new Date(),
+                "d MMMM yyyy 'à' HH:mm:ss",
+                { locale: fr }
+            )
+        };
+
+        let destination = '';
+        let sendSuccess = false;
+        let sendMessage = '';
+
+        if (args.channel === 'email') {
+            if (!client.email) {
+                return {
+                    success: false,
+                    error: 'Adresse email du client indisponible.',
+                    backupOtp: otp,
+                    userId: client.id
+                };
+            }
+
+            const result = await sendEmail(
+                client.email,
+                'Code de retrait CashPay',
+                'otp',
+                emailData
+            );
+
+            destination = client.email;
+            sendSuccess = result.success;
+            sendMessage = result.message;
+
+        } else if (args.channel === 'whatsapp') {
+            if (!client.phone) {
+                return {
+                    success: false,
+                    error: 'Numéro WhatsApp du client indisponible.',
+                    backupOtp: otp,
+                    userId: client.id
+                };
+            }
+
+            const result = await sendWhatsAppTextMessage(
+                client.phone,
+                whatsappMessage
+            );
+
+            destination = client.phone;
+            sendSuccess = result.success;
+            sendMessage = result.message;
+
+        } else {
+            if (!client.phone) {
+                return {
+                    success: false,
+                    error: 'Numéro de téléphone du client indisponible.',
+                    backupOtp: otp,
+                    userId: client.id
+                };
+            }
+
+            const result = await sendSms(client.phone, smsMessage);
+
+            destination = client.phone;
+            sendSuccess = result.success;
+            sendMessage = result.message;
+        }
+
+        if (!sendSuccess) {
+            console.error(
+                `[Withdrawal OTP] Échec ${args.channel} pour user ${client.id}:`,
+                sendMessage
+            );
+
+            return {
+                success: false,
+                error: `L'envoi du code de retrait par ${args.channel} a échoué.`,
+                backupOtp: otp,
+                userId: client.id
+            };
+        }
+
+        console.log(
+            `[Withdrawal OTP] Code de retrait généré pour user ${client.id}, ` +
+            `montant ${amountText}, agent "${agentText}", canal ${args.channel}.`
+        );
+
+        return {
+            success: true,
+            message: `Le code de retrait a été envoyé à ${destination}.`,
+            destination,
+            userId: client.id
+        };
+
+    } catch (error: any) {
+        console.error('[Withdrawal OTP] Erreur:', error);
+
+        return {
+            success: false,
+            error: error?.message || "Erreur lors de l'envoi du code de retrait.",
+            userId: client.id
+        };
+    }
+}
+
+async function verifyClientWithdrawalOtp(
+    userId: number,
+    code: string
+): Promise<{ success: true } | { success: false; error: string }> {
+    const connection = await db.getConnection();
+
+    try {
+        await connection.query('BEGIN');
+
+        const { rows } = await connection.query(
+            `SELECT id
+             FROM otps
+             WHERE user_id = $1::integer
+               AND code = $2::text
+               AND type = 'agent_withdrawal'
+               AND used = false
+               AND expires_at > NOW()
+             ORDER BY id DESC
+             LIMIT 1
+             FOR UPDATE`,
+            [userId, code]
+        );
+
+        if (rows.length === 0) {
+            await connection.query('ROLLBACK');
+            return {
+                success: false,
+                error: 'Le code de retrait est invalide ou a expiré.'
+            };
+        }
+
+        await connection.query(
+            `UPDATE otps
+             SET used = true
+             WHERE id = $1::integer`,
+            [rows[0].id]
+        );
+
+        await connection.query('COMMIT');
+
+        return { success: true };
+
+    } catch (error: any) {
+        await connection.query('ROLLBACK');
+        console.error('[Withdrawal OTP] Erreur de vérification:', error);
+
+        return {
+            success: false,
+            error: "Une erreur est survenue lors de la vérification du code de retrait."
+        };
+    } finally {
+        connection.release();
+    }
+}
+
 export async function confirmWithdrawal(args: { agent: User, clientWalletId: string, amount: number, currency: 'USD' | 'EUR' | 'CDF', code: string, method: 'otp' | 'pin' }) {
     const { agent: partialAgent, clientWalletId, amount, currency, code, method } = args;
     const client = await getUserFromDb({ walletId: clientWalletId });
     if (!client) return { success: false, error: 'Client non trouvé.' };
 
     if (method === 'otp') {
-        const otpRes = await verifyOtp(client.id, code);
-        if (!otpRes.success) return { success: false, error: 'OTP incorrect.' };
+        const otpRes = await verifyClientWithdrawalOtp(client.id, code);
+        if (!otpRes.success) return { success: false, error: otpRes.error };
     } else {
         const pinRes = await verifyUserPin(client.id, code);
         if (!pinRes.success) return { success: false, error: 'PIN incorrect.' };
@@ -544,13 +870,139 @@ export async function confirmWithdrawal(args: { agent: User, clientWalletId: str
             metadata: { agent_id: agent.id }, connection
         });
         if (!clientTx.success) throw new Error(clientTx.error);
-        const agentTx = await createTransaction({
-            user: agent, typeCode: 'WD_AGENT', amount, currency,
-            description: `Retrait Client (${client.full_name}) - Encaissement digital`,
-            metadata: { client_wallet_id: clientWalletId }, status: 'Completed', connection
-        });
-        if (!agentTx.success) throw new Error(agentTx.error);
+        const { rows: agentWalletRows } = await connection.query(
+            `SELECT balances
+             FROM wallets
+             WHERE user_id = $1::integer
+             FOR UPDATE`,
+            [agent.id]
+        );
+
+        if (agentWalletRows.length === 0) {
+            throw new Error("Portefeuille de l'agent non trouvé.");
+        }
+
+        const agentBalances =
+            typeof agentWalletRows[0].balances === 'string'
+                ? JSON.parse(agentWalletRows[0].balances)
+                : (agentWalletRows[0].balances || {});
+
+        agentBalances[currency] =
+            Number(agentBalances[currency] || 0) + Number(amount);
+
+        await connection.query(
+            `UPDATE wallets
+             SET balances = $1::jsonb
+             WHERE user_id = $2::integer`,
+            [JSON.stringify(agentBalances), agent.id]
+        );
+
+        // Commission spécifique au retrait agent : 33,3 % des frais du retrait.
+        const withdrawalFee = Math.round(
+            (Number(clientTx.fee || 0) + Number.EPSILON) * 100
+        ) / 100;
+
+        const commission = Math.round(
+            (withdrawalFee * 0.3333333333 + Number.EPSILON) * 100
+        ) / 100;
+
+        if (commission > 0) {
+            const { rows: commissionRows } = await connection.query(
+                `SELECT commission_balance
+                 FROM wallets
+                 WHERE user_id = $1::integer
+                 FOR UPDATE`,
+                [agent.id]
+            );
+
+            if (commissionRows.length === 0) {
+                throw new Error("Portefeuille de commissions de l'agent non trouvé.");
+            }
+
+            const commissionBalances =
+                typeof commissionRows[0].commission_balance === 'string'
+                    ? JSON.parse(commissionRows[0].commission_balance)
+                    : (commissionRows[0].commission_balance || {});
+
+            commissionBalances[currency] =
+                Math.round(
+                    (Number(commissionBalances[currency] || 0) +
+                        commission +
+                        Number.EPSILON) * 100
+                ) / 100;
+
+            await connection.query(
+                `UPDATE wallets
+                 SET commission_balance = $1::jsonb
+                 WHERE user_id = $2::integer`,
+                [JSON.stringify(commissionBalances), agent.id]
+            );
+        }
+
+        // Valeurs utilisées pour la notification après validation définitive.
+        const availableBalance = Number(agentBalances[currency] || 0);
+        const withdrawalCommission = Number(commission || 0);
+
+        const agentNotificationMessage =
+            `CashPay : Retrait confirmé chez votre agence. ` +
+            `Montant : ${Number(amount).toFixed(2)} ${currency}. ` +
+            `Solde disponible : ${availableBalance.toFixed(2)} ${currency}. ` +
+            `Commission gagnée : ${withdrawalCommission.toFixed(2)} ${currency}. ` +
+            `Réf : ${clientTx.reference}.`;
+
         await connection.query('COMMIT');
+
+    try {
+      await sendTransactionNotifications(
+        client,
+        {
+          description: `Retrait Cash effectué auprès de ${agent.full_name || agent.first_name || 'Agent'}`,
+          amount: Number(amount),
+          currency,
+          fee: Number(clientTx.fee || 0),
+          reference: String(clientTx.reference || ''),
+          newBalance: Number(clientTx.senderNewBalance || 0),
+          typeCode: 'WD'
+        }
+      );
+    } catch (notificationError) {
+      console.error('[Agent Withdrawal] Erreur notification client:', notificationError);
+    }
+
+
+
+        // Notification spécifique à l'agent : SMS + email uniquement.
+        // Les notifications ne bloquent jamais la transaction déjà validée.
+        try {
+            if (agent.phone) {
+                await sendSms(agent.phone, agentNotificationMessage);
+            }
+
+            if (agent.email) {
+                await sendEmail(
+                    agent.email,
+                    'Retrait Cash confirmé - CashPay',
+                    'general',
+                    {
+                        title: 'Retrait Cash confirmé',
+                        greeting: `Bonjour ${agent.first_name || agent.full_name},`,
+                        message:
+                            `Un retrait Cash a été confirmé dans votre agence.<br/>` +
+                            `<strong>Montant :</strong> ${Number(amount).toFixed(2)} ${currency}<br/>` +
+                            `<strong>Solde disponible :</strong> ${availableBalance.toFixed(2)} ${currency}<br/>` +
+                            `<strong>Commission gagnée :</strong> ${withdrawalCommission.toFixed(2)} ${currency}<br/>` +
+                            `<strong>Référence :</strong> ${clientTx.reference}`,
+                        buttonText: 'Voir mes transactions',
+                        buttonUrl: `${process.env.NEXT_PUBLIC_APP_URL}/transactions`,
+                        signature: "L'équipe CashPay"
+                    }
+                );
+            }
+        } catch (notificationError) {
+            console.error('[Agent Withdrawal] Erreur notification agent:', notificationError);
+        }
+
+        return { success: true };
         return { success: true };
     } catch(e: any) {
         await connection.query('ROLLBACK');

@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "baseUrl": "../..",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "outDir": "../../.loan-runner"
+  },
+  "include": [
+    "loan-repayments-runner.ts",
+    "../../src/lib/actions/loan.actions.ts"
+  ]
+}

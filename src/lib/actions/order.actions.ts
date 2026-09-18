@@ -191,28 +191,48 @@ export async function getOrderByIdForAgent(orderIdOrRef: string, agentId: number
 export async function updateOrderStatus(orderId: string, agentId: number, status: 'shipped' | 'delivered' | 'cancelled'): Promise<{ success: boolean; error?: string }> {
     try {
         const { rows: orderRows } = await db.query(`
-            SELECT o.id 
-            FROM orders o 
+            SELECT o.id
+            FROM orders o
             JOIN order_items oi ON o.id = oi.order_id
             JOIN products p ON oi.product_id = p.id
-            WHERE (o.id::text = $1 OR o.reference = $1) AND p.agent_id = $2 
+            WHERE (o.id::text = $1 OR o.reference = $1) AND p.agent_id = $2
             LIMIT 1
         `, [orderId, agentId]);
 
         if (orderRows.length === 0) {
             return { success: false, error: "Commande non trouvée ou vous n'avez pas la permission de la modifier." };
         }
-        
+
         const validOrderId = orderRows[0].id;
 
         await db.query('UPDATE orders SET status = $1 WHERE id = $2', [status, validOrderId]);
-        
+
+        await db.query(`
+            UPDATE boutiques b
+            SET completed_orders_count = (
+                SELECT COUNT(DISTINCT o.id)
+                FROM orders o
+                JOIN order_items oi ON oi.order_id = o.id
+                JOIN products p ON p.id = oi.product_id
+                WHERE p.boutique_id = b.id
+                  AND o.status = 'delivered'
+            ), updated_at = CURRENT_TIMESTAMP
+            WHERE b.id IN (
+                SELECT DISTINCT p.boutique_id
+                FROM order_items oi
+                JOIN products p ON p.id = oi.product_id
+                WHERE oi.order_id = $1
+                  AND p.boutique_id IS NOT NULL
+            )
+        `, [validOrderId]);
+
         return { success: true };
     } catch (error) {
         const dbError = await handleDbError(error, 'updating order status');
         return { success: false, error: dbError.error };
     }
 }
+
 
 /**
  * Vérifie le statut de paiement d'une commande auprès du fournisseur (ex: M-Pesa).

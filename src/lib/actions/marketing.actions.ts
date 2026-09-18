@@ -236,7 +236,7 @@ function generateProductsHtml(products: Product[], layout: string, baseUrl: stri
     return html;
 }
 
-export async function sendProductBoostEmail(args: ProductBoostArgs): Promise<{ success: boolean; error?: string }> {
+export async function sendProductBoostEmail(args: ProductBoostArgs): Promise<{ success: boolean; error?: string; sentCount?: number; failedCount?: number; recipientCount?: number }> {
     const { agent, products, packageCost, pin, layoutStyle } = args;
     const connection = await db.getConnection();
 
@@ -250,16 +250,55 @@ export async function sendProductBoostEmail(args: ProductBoostArgs): Promise<{ s
 
         const agentCountryCode = countryToCode(agent.country);
         
-        // Cible prioritairement le portefeuille pays, sinon GBL, sinon utilise l'ID forcé CD0100000002
+        // Le wallet de revenus est lu depuis la configuration réelle de revenue_wallets.
+        // Priorité au wallet du pays, puis au wallet GBL.
         const { rows: revenueWalletRows } = await connection.query(
-            "SELECT wallet_id FROM revenue_wallets WHERE revenue_type = 'transaction_fees' AND (country_code = $1 OR country_code = 'GBL') AND is_active = true ORDER BY (country_code = $1) DESC LIMIT 1",
+            `
+            SELECT wallet_id, revenue_type, country_code
+            FROM revenue_wallets
+            WHERE is_active = true
+              AND (
+                    country_code = $1
+                    OR (revenue_type = 'GBL' AND country_code = 'GBL')
+                  )
+            ORDER BY
+                CASE
+                    WHEN country_code = $1 AND revenue_type = 'GBL' THEN 1
+                    WHEN country_code = $1 THEN 2
+                    WHEN revenue_type = 'GBL' AND country_code = 'GBL' THEN 3
+                    ELSE 4
+                END
+            LIMIT 1
+            `,
             [agentCountryCode]
         );
-        
-        const revenueWalletId = revenueWalletRows.length > 0 ? revenueWalletRows[0].wallet_id : 'CD0100000002';
-        
-        const { rows: revenueUserRows } = await connection.query('SELECT id FROM users WHERE id_wallet = $1', [revenueWalletId]);
-        const revenueUserId = revenueUserRows[0]?.id || null;
+
+        if (revenueWalletRows.length === 0) {
+            throw new Error(
+                `Aucun wallet de revenus actif n'est configuré pour le pays ${agentCountryCode}.`
+            );
+        }
+
+        const revenueWalletId = String(revenueWalletRows[0].wallet_id).trim();
+
+        // Ne jamais utiliser le wallet personnel de l'agent comme wallet de revenus.
+        if (revenueWalletId === String(agent.id_wallet).trim()) {
+            throw new Error(
+                'Le wallet de revenus configuré correspond au wallet de l’agent.'
+            );
+        }
+
+        // Vérifie que le wallet configuré existe réellement.
+        const { rows: revenueWalletCheckRows } = await connection.query(
+            'SELECT id_wallet FROM wallets WHERE id_wallet = $1 LIMIT 1',
+            [revenueWalletId]
+        );
+
+        if (revenueWalletCheckRows.length === 0) {
+            throw new Error(
+                `Le wallet de revenus ${revenueWalletId} n'existe pas dans la table wallets.`
+            );
+        }
         
         // Fetch boutique name for branding
         const { rows: boutiqueRows } = await connection.query(
@@ -275,7 +314,7 @@ export async function sendProductBoostEmail(args: ProductBoostArgs): Promise<{ s
             currency: 'USD',
             description: `Campagne e-mail pour ${products.length} produits de la boutique ${boutiqueName}.`,
             metadata: { productIds: products.map(p => p.id), layout: layoutStyle, boutiqueName },
-            receiver_id: revenueUserId,
+            receiver_wallet_id: revenueWalletId,
             connection,
         });
 
@@ -297,28 +336,66 @@ export async function sendProductBoostEmail(args: ProductBoostArgs): Promise<{ s
         
         console.log(`[Marketing Action] Campaign for boutique ${boutiqueName} committed. Starting immediate email dispatch.`);
         
-        // Envoi immédiat des e-mails à tous les utilisateurs actifs
-        const { rows: targetUsers } = await connection.query("SELECT email, first_name FROM users WHERE email IS NOT NULL AND status = 'Active'");
+        // Envoi à TOUS les utilisateurs qui possèdent une adresse e-mail.
+        // Aucun filtrage par statut : toute adresse non vide de users est une cible.
+        const { rows: targetUsers } = await connection.query(`
+            SELECT email, first_name
+            FROM users
+            WHERE email IS NOT NULL
+              AND TRIM(email) <> ''
+        `);
+
         const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.cashpay-all.com';
         const productsHtml = generateProductsHtml(products, layoutStyle, baseUrl);
+        const templateKey = `product_boost_${layoutStyle}` as any;
 
+        let sentCount = 0;
+        let failedCount = 0;
+
+        // Un échec individuel ne doit pas annuler la transaction déjà validée.
         for (const recipient of targetUsers) {
             try {
-                const templateKey = `product_boost_${layoutStyle}` as any;
-                
-                await sendEmail(recipient.email, `Découvrez les nouveautés de ${boutiqueName}`, templateKey, {
-                    agentName: boutiqueName, // Template still uses agentName placeholder
-                    agentCountry: agent.country || 'International',
-                    agentId: agent.id,
-                    base_url: baseUrl,
-                    productsHtml
-                });
-            } catch (e) {
-                console.error(`Failed to send campaign email to ${recipient.email}:`, e);
+                const emailResult = await sendEmail(
+                    String(recipient.email).trim(),
+                    `Découvrez les nouveautés de ${boutiqueName}`,
+                    templateKey,
+                    {
+                        agentName: boutiqueName,
+                        agentCountry: agent.country || 'International',
+                        agentId: agent.id,
+                        base_url: baseUrl,
+                        productsHtml
+                    }
+                );
+
+                if (emailResult.success) {
+                    sentCount++;
+                } else {
+                    failedCount++;
+                    console.error(
+                        `[Marketing Action] Failed to send campaign email to ${recipient.email}:`,
+                        emailResult.message
+                    );
+                }
+            } catch (e: any) {
+                failedCount++;
+                console.error(
+                    `[Marketing Action] Failed to send campaign email to ${recipient.email}:`,
+                    e?.message || e
+                );
             }
         }
 
-        return { success: true };
+        console.log(
+            `[Marketing Action] Campaign completed: ${sentCount}/${targetUsers.length} emails sent, ${failedCount} failed.`
+        );
+
+        return {
+            success: true,
+            sentCount,
+            failedCount,
+            recipientCount: targetUsers.length
+        };
 
     } catch (error: any) {
         await connection.query('ROLLBACK');

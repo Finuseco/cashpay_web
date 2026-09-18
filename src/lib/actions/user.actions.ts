@@ -6,7 +6,7 @@ import { generateToken, verifyToken } from '../jwt';
 import { cookies, headers } from 'next/headers';
 import { sendSms } from '@/services/sms';
 import { sendEmail } from '@/services/email';
-import { sendWhatsAppTextMessage } from '@/services/whatsapp';
+import { sendWhatsAppAuthenticationTemplate } from '@/services/whatsapp';
 import { db } from '@/lib/db';
 import { handleDbError, saveBase64Image, getUserFromDb } from './helpers';
 import { formatUser, countryToCode } from '../utils';
@@ -374,7 +374,7 @@ export async function sendAndStoreOtp(userId: number, type: string, channel: 'sm
                 sendSuccess = true;
             } else if (user.phone && (channel === 'sms' || channel === 'whatsapp')) {
                 if (channel === 'whatsapp') {
-                    const whatsAppResult = await sendWhatsAppTextMessage(user.phone, smsMessage);
+                    const whatsAppResult = await sendWhatsAppAuthenticationTemplate(user.phone, otp);
                     sendSuccess = whatsAppResult.success;
                 } else { // 'sms'
                     const smsResult = await sendSms(user.phone, smsMessage);
@@ -415,7 +415,7 @@ export async function sendRegistrationOtp(destination: string, channel: 'sms' | 
         
         let sendResult;
         if (channel === 'whatsapp') {
-            sendResult = await sendWhatsAppTextMessage(destination, message);
+            sendResult = await sendWhatsAppAuthenticationTemplate(destination, otp);
         } else {
             sendResult = await sendSms(destination, message);
         }

@@ -6,7 +6,7 @@ import { handleDbError, saveBase64Image, getUserFromDb } from './helpers';
 import { generateReferenceCode, type TransactionTypeCode, formatUser, countryToCode } from '../utils';
 import { sendSms } from '@/services/sms';
 import { sendEmail } from '@/services/email';
-import { sendWhatsAppTextMessage } from '@/services/whatsapp';
+import { sendWhatsAppUtilityTemplate } from '@/services/whatsapp';
 import type { User, Transaction, CartItem } from '@/lib/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -75,7 +75,11 @@ export async function sendTransactionNotifications(
 
         const preferredChannels = user.notifications_channel || ['sms', 'whatsapp'];
         for (const channel of preferredChannels) {
-            if (channel === 'whatsapp' && user.phone) await sendWhatsAppTextMessage(user.phone, senderSms);
+            if (channel === 'whatsapp' && user.phone) {
+        await sendWhatsAppUtilityTemplate(user.phone, [
+            senderSms
+        ]);
+    }
             if (channel === 'sms' && user.phone) await sendSms(user.phone, senderSms);
         }
 
@@ -234,7 +238,8 @@ export async function createTransaction(args: CreateTransactionArgs): Promise<{ 
         let receiverInfo: any = undefined;
         let receiverNewBalance: number | undefined;
 
-        const isInternalCredit = status === 'Completed' && ['TR', 'PAYMENT', 'WG', 'POS_SALE', 'SALE', 'TICKET_BUY', 'MKTG_FEE', 'GROUP_CONTRIBUTION', 'REF_REWARD'].includes(typeCode);
+        const isInternalCredit = status === 'Completed' && ['TR', 'PAYMENT', 'WG', 'POS_SALE', 'SALE', 'TICKET_BUY', 'MKTG_FEE',
+  'DP_AGENT', 'GROUP_CONTRIBUTION', 'REF_REWARD'].includes(typeCode);
 
         if (isInternalCredit && (receiverIdToUse || receiverWalletId)) {
             let creditAmount = amount; // On crédite le montant original en devise originale

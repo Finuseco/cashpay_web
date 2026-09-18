@@ -6,7 +6,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import type { User, CryptoBalance } from '@/lib/types';
@@ -76,16 +75,25 @@ export function WithdrawalFlow({ user, balances }: WithdrawalFlowProps) {
                         <FormField control={form.control} name="crypto" render={({ field }) => ( 
                             <FormItem>
                                 <FormLabel>Retirer en</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <FormControl><SelectTrigger className="bg-zinc-700 border-zinc-600"><SelectValue/></SelectTrigger></FormControl>
-                                    <SelectContent className="bg-zinc-800 text-white border-zinc-700">
-                                        {balances.map(b => (
-                                            <SelectItem key={b.currency_code} value={b.currency_code}>
-                                                {b.currency_code} (Solde: {b.balance.toFixed(8)})
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <FormControl>
+  <div className="space-y-2">
+    {balances.map(b => (
+      <label
+        key={b.currency_code}
+        className="flex items-center gap-3 rounded-lg border border-zinc-600 bg-zinc-700 p-3 text-white"
+      >
+        <input
+          type="radio"
+          name="withdrawal-currency"
+          value={b.currency_code}
+          checked={field.value === b.currency_code}
+          onChange={() => field.onChange(b.currency_code)}
+        />
+        <span>{b.currency_code} (Solde: {b.balance.toFixed(8)})</span>
+      </label>
+    ))}
+  </div>
+</FormControl>
                                 <FormMessage />
                             </FormItem> 
                         )}/>

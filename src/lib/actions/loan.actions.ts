@@ -15,7 +15,7 @@ import { verifyUserPin } from './auth.actions';
 import { formatUser, generateReferenceCode } from '../utils';
 import type { PoolClient } from 'pg';
 
-export type LoanRepaymentFrequency = 'weekly' | 'monthly';
+export type LoanRepaymentFrequency = 'weekly' | 'monthly' | 'quarterly';
 
 export interface LoanRepayment {
     id: number;
@@ -41,6 +41,8 @@ export interface LoanInstallment {
 }
 
 export interface LoanHistory extends Loan {
+    principal_amount?: number;
+    total_repayment?: number;
     status: 'pending' | 'approved' | 'rejected' | 'repaid' | 'defaulted';
     repayments: LoanRepayment[];
     schedule?: LoanInstallment[];
@@ -64,18 +66,44 @@ interface CreateLoanArgs {
 const money = (v: any) => Math.max(0, Number.parseFloat(String(v ?? 0)) || 0);
 const roundMoney = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 
-function resolveRepaymentPlan(durationMonths: number, frequency?: LoanRepaymentFrequency, installmentCount?: number) {
-    // One-month loans are weekly by design. Four weeks is the default; five is explicitly supported.
-    if (durationMonths === 1) {
-        const count = installmentCount == null ? 4 : Math.trunc(installmentCount);
-        if (count < 4 || count > 5) throw new Error('Pour un prêt d’un mois, le nombre d’échéances hebdomadaires doit être de 4 ou 5.');
-        return { frequency: 'weekly' as const, count };
-    }
-    const resolvedFrequency = frequency || 'monthly';
-    if (resolvedFrequency !== 'monthly') throw new Error('Les prêts de plus d’un mois utilisent actuellement des échéances mensuelles.');
-    const count = Math.trunc(installmentCount ?? durationMonths);
-    if (count !== durationMonths) throw new Error('Le nombre d’échéances mensuelles doit correspondre à la durée du prêt.');
-    return { frequency: 'monthly' as const, count };
+async function ensureLoanInterestRates(connection: any) {
+  await connection.query(`CREATE TABLE IF NOT EXISTS loan_interest_rates (
+    duration_months INTEGER PRIMARY KEY,
+    interest_rate NUMERIC(8,4) NOT NULL CHECK (interest_rate >= 0),
+    guarantee_rate NUMERIC(8,4) NOT NULL DEFAULT 0.20 CHECK (guarantee_rate >= 0),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await connection.query(`INSERT INTO loan_interest_rates(duration_months,interest_rate,guarantee_rate)
+    VALUES (1,24.00,0.20),(3,21.00,0.20),(6,21.00,0.20),(12,21.00,0.20),(24,21.00,0.20)
+    ON CONFLICT (duration_months) DO NOTHING`);
+}
+export async function getLoanInterestRates(): Promise<Record<number,number>> {
+  try {
+    await ensureLoanInterestRates(db);
+    const {rows}=await db.query(`SELECT duration_months,interest_rate FROM loan_interest_rates WHERE enabled=TRUE`);
+    return Object.fromEntries(rows.map((r:any)=>[Number(r.duration_months),Number(r.interest_rate)]));
+  } catch { return {1:24,3:21,6:21,12:21,24:21}; }
+}
+async function getConfiguredLoanInterestRate(connection:any,durationMonths:number) {
+  await ensureLoanInterestRates(connection);
+  const {rows}=await connection.query(`SELECT interest_rate FROM loan_interest_rates WHERE duration_months=$1 AND enabled=TRUE LIMIT 1`,[durationMonths]);
+  if(!rows.length) throw new Error(`Aucun taux d’intérêt LoanMe configuré pour ${durationMonths} mois.`);
+  return Number(rows[0].interest_rate);
+}
+
+function resolveRepaymentPlan(durationMonths:number,frequency?:LoanRepaymentFrequency,installmentCount?:number){
+  if(durationMonths===1){
+    const count=installmentCount==null?4:Math.trunc(installmentCount);
+    if(frequency&&frequency!=='weekly') throw new Error('Un prêt de 1 mois doit être remboursé chaque semaine.');
+    if(count<4||count>5) throw new Error('Pour un prêt d’un mois, le nombre d’échéances hebdomadaires doit être de 4 ou 5.');
+    return {frequency:'weekly' as const,count};
+  }
+  const selected=frequency||(durationMonths===3?'monthly':'quarterly');
+  const expected=selected==='weekly'?Math.round(durationMonths*4.345):selected==='monthly'?durationMonths:Math.max(1,Math.round(durationMonths/3));
+  const count=Math.trunc(installmentCount??expected);
+  if(count!==expected) throw new Error(`La fréquence ${selected} pour un prêt de ${durationMonths} mois doit comporter ${expected} échéances.`);
+  return {frequency:selected,count};
 }
 
 async function ensureLoanPlanColumns(connection: any) {
@@ -96,7 +124,7 @@ async function createLoanInstallmentSchedule(connection: PoolClient, loanId: num
     for (let n = 1; n <= count; n++) {
         const amount = n === count ? roundMoney(totalRepayment - allocated) : installmentAmount;
         allocated = roundMoney(allocated + amount);
-        const dueDate = frequency === 'weekly' ? addDays(approvalDate, n * 7) : addMonths(approvalDate, n);
+        const dueDate = frequency === 'weekly' ? addDays(approvalDate, n * 7) : addMonths(approvalDate, frequency === 'quarterly' ? n * 3 : n);
         await connection.query(`
             INSERT INTO loan_installments
               (loan_id, installment_number, due_date, amount, penalty_amount, paid_amount, status)
@@ -129,9 +157,9 @@ async function ensureLoanInstallments(connection: PoolClient, loan: any) {
     const { rows } = await connection.query('SELECT COUNT(*)::int AS count FROM loan_installments WHERE loan_id=$1', [loan.id]);
     if (Number(rows[0]?.count) > 0) return;
     if (!loan.approval_date || loan.status !== 'approved') return;
-    const frequency: LoanRepaymentFrequency = loan.repayment_frequency === 'weekly' ? 'weekly' : 'monthly';
-    const count = Math.trunc(Number(loan.installment_count || (frequency === 'weekly' ? 4 : loan.duration)));
-    const total = money(loan.amount) * (1 + (money(loan.interest_rate) / 100) * Number(loan.duration));
+    const frequency: LoanRepaymentFrequency = loan.repayment_frequency === 'weekly' ? 'weekly' : loan.repayment_frequency === 'quarterly' ? 'quarterly' : 'monthly';
+    const count = Math.trunc(Number(loan.installment_count || (frequency === 'weekly' ? Math.round(Number(loan.duration) * 4.345) : frequency === 'quarterly' ? Number(loan.duration) / 3 : loan.duration))); 
+    const total = roundMoney(money(loan.amount) * (1 + money(loan.interest_rate) / 100));
     await createLoanInstallmentSchedule(connection, Number(loan.id), new Date(loan.approval_date), total, frequency, count);
 }
 
@@ -221,6 +249,7 @@ export async function createLoanApplication(args: CreateLoanArgs): Promise<{ suc
         if (requestedAmount <= 0) throw new Error('Montant de prêt invalide.');
 
         await connection.query('BEGIN');
+        const configuredInterestRate = await getConfiguredLoanInterestRate(connection, durationMonths);
         const { rows: activeRows } = await connection.query(`
             SELECT id,status FROM loans
             WHERE user_id=$1 AND status IN ('pending','approved')
@@ -240,7 +269,7 @@ export async function createLoanApplication(args: CreateLoanArgs): Promise<{ suc
         if (balance + 0.005 < guarantee) {
             throw new Error(`Solde de garantie insuffisant. Il faut au moins ${guarantee.toFixed(2)} ${normalizedCurrency} (20% du montant demandé). Votre solde est de ${balance.toFixed(2)} ${normalizedCurrency}.`);
         }
-        const totalRepayment = roundMoney(requestedAmount * (1 + (interestRate / 100) * durationMonths));
+        const totalRepayment = roundMoney(requestedAmount * (1 + configuredInterestRate / 100));
         const installmentAmount = roundMoney(totalRepayment / plan.count);
         await ensureLoanPlanColumns(connection);
         await connection.query(`
@@ -249,7 +278,7 @@ export async function createLoanApplication(args: CreateLoanArgs): Promise<{ suc
              monthly_payment, remaining_balance, request_date, repayment_frequency,
              installment_count, installment_amount)
           VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11,$12)
-        `, [user.id, user.id_wallet, requestedAmount, normalizedCurrency, interestRate, durationMonths,
+        `, [user.id, user.id_wallet, requestedAmount, normalizedCurrency, configuredInterestRate, durationMonths,
             installmentAmount, totalRepayment, new Date(), plan.frequency, plan.count, installmentAmount]);
         await connection.query('COMMIT');
 
@@ -271,12 +300,12 @@ export async function getLoanForUser(userId: number): Promise<Loan | null> {
                    approval_date AS start_date,
                    CASE WHEN repayment_frequency='weekly'
                         THEN approval_date + (installment_count * interval '7 days')
-                        ELSE approval_date + (duration * interval '1 month') END AS end_date
+                        ELSE approval_date + (CASE WHEN repayment_frequency='quarterly' THEN installment_count * 3 ELSE duration END * interval '1 month') END AS end_date
             FROM loans WHERE user_id=$1 AND status='approved'
             ORDER BY request_date DESC LIMIT 1`, [userId]);
         if (!rows.length) return null;
         const loan = rows[0];
-        const totalAmount = money(loan.amount) * (1 + (money(loan.interest_rate) / 100 * Number(loan.duration)));
+        const totalAmount = money(loan.amount) * (1 + money(loan.interest_rate) / 100);
         return {
             id: loan.id, amount: totalAmount,
             repaid_amount: totalAmount - money(loan.remaining_balance), currency: loan.currency,
@@ -428,7 +457,7 @@ export async function approveLoanRequest(loanId: number, adminUserId: number): P
         const loan = loanRows[0];
         const user: User = loan as unknown as User;
         const plan = resolveRepaymentPlan(Number(loan.duration), loan.repayment_frequency, loan.installment_count);
-        const totalRepayment = roundMoney(money(loan.amount) * (1 + (money(loan.interest_rate) / 100 * Number(loan.duration))));
+        const totalRepayment = roundMoney(money(loan.amount) * (1 + money(loan.interest_rate) / 100));
         const installmentAmount = roundMoney(totalRepayment / plan.count);
 
         await connection.query(`UPDATE loans SET status='approved',approval_date=NOW(),remaining_balance=$1,repayment_frequency=$2,installment_count=$3,installment_amount=$4,monthly_payment=$4 WHERE id=$5`, [totalRepayment, plan.frequency, plan.count, installmentAmount, loanId]);
@@ -439,7 +468,7 @@ export async function approveLoanRequest(loanId: number, adminUserId: number): P
         // Les fournisseurs SMS/WhatsApp/e-mail ne doivent jamais bloquer la réponse du Server Action.
         await connection.query('COMMIT');
 
-        const approvalMessage = `CashPay: Bonne nouvelle ! Votre prêt de ${loan.amount} ${loan.currency} a été approuvé et les fonds ont été ajoutés à votre portefeuille. Première échéance dans ${plan.frequency === 'weekly' ? '7 jours' : '1 mois'}.`;
+        const approvalMessage = `CashPay: Bonne nouvelle ! Votre prêt de ${loan.amount} ${loan.currency} a été approuvé et les fonds ont été ajoutés à votre portefeuille. Première échéance dans ${plan.frequency === 'weekly' ? '7 jours' : plan.frequency === 'quarterly' ? '3 mois' : '1 mois'}.`;
         void notifyLoanUser(
             user,
             'Votre prêt LoanMe est approuvé',
@@ -525,8 +554,8 @@ export async function getLoanHistory(userId:number):Promise<LoanHistory[]> {
             let {rows:scheduleRows}=await db.query('SELECT * FROM loan_installments WHERE loan_id=$1 ORDER BY installment_number ASC',[loan.id]);
 
             if(!scheduleRows.length && loan.status==='approved' && loan.approval_date){
-                const frequency:LoanRepaymentFrequency = loan.repayment_frequency==='weekly' ? 'weekly' : 'monthly';
-                const count=Math.trunc(Number(loan.installment_count || (frequency==='weekly' ? 4 : loan.duration)));
+                const frequency:LoanRepaymentFrequency = loan.repayment_frequency==='weekly' ? 'weekly' : loan.repayment_frequency==='quarterly' ? 'quarterly' : 'monthly';
+                const count=Math.trunc(Number(loan.installment_count || (frequency==='weekly' ? Math.round(Number(loan.duration)*4.345) : frequency==='quarterly' ? Number(loan.duration)/3 : loan.duration)));
                 if(count>0){
                     const totalAmount=roundMoney(money(loan.amount)*(1+(money(loan.interest_rate)/100*Number(loan.duration))));
                     const installmentAmount=roundMoney(totalAmount/count);
@@ -534,7 +563,7 @@ export async function getLoanHistory(userId:number):Promise<LoanHistory[]> {
                     for(let n=1;n<=count;n++){
                         const amount=n===count?roundMoney(totalAmount-allocated):installmentAmount;
                         allocated=roundMoney(allocated+amount);
-                        const dueDate=frequency==='weekly'?addDays(new Date(loan.approval_date),n*7):addMonths(new Date(loan.approval_date),n);
+                        const dueDate=frequency==='weekly'?addDays(new Date(loan.approval_date),n*7):addMonths(new Date(loan.approval_date),frequency==='quarterly'?n*3:n);
                         await db.query(`INSERT INTO loan_installments (loan_id,installment_number,due_date,amount,penalty_amount,paid_amount,status) VALUES ($1,$2,$3,$4,0,0,'pending') ON CONFLICT (loan_id,installment_number) DO NOTHING`,[loan.id,n,dueDate,amount]);
                     }
                     const refreshed=await db.query('SELECT * FROM loan_installments WHERE loan_id=$1 ORDER BY installment_number ASC',[loan.id]);
@@ -601,6 +630,8 @@ export async function getLoanHistory(userId:number):Promise<LoanHistory[]> {
             history.push({
                 id:loan.id,
                 amount:totalAmount,
+                principal_amount:money(loan.amount),
+                total_repayment:totalAmount,
                 repaid_amount:repaidAmount,
                 currency:loan.currency,
                 interest_rate:loan.interest_rate,

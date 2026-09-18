@@ -26,12 +26,21 @@ import {
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { AddEditBoutiqueForm } from "./add-edit-boutique-form";
 import type { Boutique, User } from "@/lib/types";
+
+type BoutiqueWithWhatsApp = Boutique & {
+  whatsapp_public_number?: string | null;
+};
 import { getAuthenticatedUser } from "@/lib/actions/user.actions";
 import { addOrUpdateBoutique, deleteBoutique } from "@/lib/actions/agent.actions";
 
-export function BoutiquesClient({ initialBoutiques }: { initialBoutiques: Boutique[] }) {
+export function BoutiquesClient({
+  initialBoutiques
+}: {
+  initialBoutiques: BoutiqueWithWhatsApp[];
+}) {
   const { openAlert } = useAlertDialog();
-  const [boutiques, setBoutiques] = useState<Boutique[]>(initialBoutiques);
+  const [boutiques, setBoutiques] =
+    useState<BoutiqueWithWhatsApp[]>(initialBoutiques);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingBoutique, setEditingBoutique] = useState<Boutique | null>(null);
   const [agent, setAgent] = useState<User | null>(null);
@@ -44,7 +53,12 @@ export function BoutiquesClient({ initialBoutiques }: { initialBoutiques: Boutiq
     fetchAgent();
   }, []);
 
-  const handleFormSubmit = async (boutiqueData: Omit<Boutique, 'id' | 'country_code'> & { id?: string }) => {
+  const handleFormSubmit = async (
+    boutiqueData: Omit<Boutique, 'id' | 'country_code'> & {
+      id?: string;
+      whatsapp_public_number: string;
+    }
+  ) => {
     if (!agent) {
       openAlert({ variant: 'error', title: 'Erreur', description: 'Agent non authentifié.' });
       return;

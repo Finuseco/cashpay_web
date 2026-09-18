@@ -23,7 +23,7 @@ import { Separator } from "../ui/separator";
 const currencySymbols: Record<string, string> = { USD: '$', EUR: '€', CDF: 'FC' };
 const supportedDurations = [1, 3, 6, 12, 24];
 
-export function LoanForm({ user, currencies, interestRate = 3.66, durations = supportedDurations }: { user: User | null, currencies: Currency[], interestRate?: number, durations?: number[] }) {
+export function LoanForm({ user, currencies, interestRate = 21, interestRates = {}, durations = supportedDurations }: { user: User | null, currencies: Currency[], interestRate?: number, interestRates?: Record<number, number>, durations?: number[] }) {
   const { openAlert } = useAlertDialog();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const allowedDurations = durations.length ? durations : supportedDurations;
@@ -32,6 +32,7 @@ export function LoanForm({ user, currencies, interestRate = 3.66, durations = su
     amount: z.coerce.number().positive("Montant invalide."),
     purpose: z.string({ required_error: "Motif requis." }),
     duration: z.coerce.number().refine(v => allowedDurations.includes(v), "Durée de remboursement invalide."),
+    repaymentFrequency: z.enum(["weekly","monthly","quarterly"]).optional(),
   }), [allowedDurations.join(",")]);
 
 
@@ -44,12 +45,13 @@ export function LoanForm({ user, currencies, interestRate = 3.66, durations = su
   
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: { currency: "USD", amount: 20, duration: allowedDurations[0] || 1, purpose: 'personal' },
+    defaultValues: { currency: "USD", amount: 20, duration: allowedDurations[0] || 1, repaymentFrequency: "weekly", purpose: 'personal' },
   });
 
   const watchedCurrency = form.watch("currency");
   const watchedAmount = form.watch("amount");
   const watchedDuration = form.watch("duration");
+  const watchedFrequency = form.watch("repaymentFrequency");
 
   const config = useMemo(() => {
     return { symbol: currencySymbols[watchedCurrency] || watchedCurrency };
@@ -63,50 +65,56 @@ export function LoanForm({ user, currencies, interestRate = 3.66, durations = su
     : null;
 
   const calculation = useMemo(() => {
-    const interestRatePerMonth = Number(interestRate) / 100;
-    const amount = Number(watchedAmount) || 0;
     const duration = Number(watchedDuration) || 1;
-    const totalRepayment = amount * (1 + (interestRatePerMonth * duration));
-    const monthlyPayment = totalRepayment / duration;
-    return { totalRepayment, monthlyPayment };
-  }, [watchedAmount, watchedDuration, interestRate]);
+    const rate = Number(interestRates[duration] ?? interestRate);
+    const amount = Number(watchedAmount) || 0;
+    const totalRepayment = amount * (1 + rate / 100);
+    const frequency = duration === 1 ? "weekly" : (watchedFrequency || "monthly");
+    const installmentCount = frequency === "weekly"
+      ? (duration === 1 ? 4 : Math.round(duration * 4.345))
+      : frequency === "quarterly" ? Math.max(1, Math.round(duration / 3)) : duration;
+    const installmentAmount = installmentCount > 0 ? totalRepayment / installmentCount : totalRepayment;
+    return { totalRepayment, installmentAmount, installmentCount, rate, frequency };
+  }, [watchedAmount, watchedDuration, watchedFrequency, interestRate, interestRates]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!user) return;
+    if (!user || isSubmitting) return;
     setIsSubmitting(true);
-    const result = await createLoanApplication({
+    try {
+      const result = await createLoanApplication({
         user, amount: values.amount, currency: values.currency,
         durationMonths: values.duration, purpose: values.purpose,
-        interestRate
-    });
-    setIsSubmitting(false);
-
-    if (result.success) {
-        openAlert({ title: "Demande Transmise", description: "Votre dossier est en cours de validation par le service financier.", variant: 'success' });
-        form.reset();
-    } else {
+        interestRate: calculation.rate, repaymentFrequency: values.repaymentFrequency, installmentCount: calculation.installmentCount
+      });
+      if (result.success) {
+        openAlert({ title: "Demande transmise", description: "Votre dossier est en cours de validation par le service financier.", variant: 'success' });
+        form.reset({ currency: values.currency, amount: 20, duration: allowedDurations[0] || 1, repaymentFrequency: "weekly", purpose: 'personal' });
+      } else {
         openAlert({ title: "Erreur", description: result.error || "Échec de l'envoi.", variant: 'error' });
-    }
+      }
+    } catch (error: any) {
+      openAlert({ title: "Erreur", description: error?.message || "Échec de l'envoi.", variant: 'error' });
+    } finally { setIsSubmitting(false); }
   }
 
 
   return (
-    <Card className="shadow-2xl border-none bg-white rounded-3xl overflow-hidden">
-      <CardHeader className="bg-zinc-50 border-b border-zinc-100">
-        <CardTitle className="text-xl text-zinc-900">Calculateur de Prêt</CardTitle>
+    <Card className="shadow-2xl border-none bg-[#000E38] rounded-3xl overflow-hidden">
+      <CardHeader className="bg-[#071a4a] border-b border-[#FF6600]/30">
+        <CardTitle className="text-xl text-white">Calculateur de Prêt</CardTitle>
         <CardDescription>Saisissez le montant et choisissez la durée de remboursement.</CardDescription>
       </CardHeader>
       <CardContent className="pt-8">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
             <div className="space-y-4">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Devise du prêt</Label>
+              <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-200">Devise du prêt</Label>
               <FormField control={form.control} name="currency" render={({ field }) => (
                 <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-3">
                   {['USD', 'EUR', 'CDF'].map(cur => (
                     <div key={cur}>
                       <RadioGroupItem value={cur} id={`lc-${cur}`} className="sr-only" />
-                      <Label htmlFor={`lc-${cur}`} className={cn("flex items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all h-12 font-black", field.value === cur ? "border-primary bg-primary/5 text-primary shadow-sm" : "border-zinc-100 text-zinc-400 hover:bg-zinc-50")}>
+                      <Label htmlFor={`lc-${cur}`} className={cn("flex items-center justify-center p-3 border-2 rounded-xl cursor-pointer transition-all h-12 font-black", field.value === cur ? "border-[#FF6600] bg-[#FF6600]/10 text-[#FF6600] shadow-sm" : "border-white/15 text-zinc-300 hover:bg-[#FF6600]/10")}>
                         {cur}
                       </Label>
                     </div>
@@ -117,27 +125,27 @@ export function LoanForm({ user, currencies, interestRate = 3.66, durations = su
 
             <FormField control={form.control} name="amount" render={({ field }) => (
                 <FormItem className="space-y-2">
-                  <FormLabel className="text-xs font-bold uppercase text-zinc-500">Montant souhaité ({config.symbol})</FormLabel>
+                  <FormLabel className="text-xs font-bold uppercase text-zinc-200">Montant souhaité ({config.symbol})</FormLabel>
                   <FormControl>
-                     <Input type="number" {...field} className="h-16 text-4xl font-black text-center border-zinc-200 focus:border-primary focus:ring-primary/20 bg-zinc-50" placeholder="0.00" />
+                     <Input type="number" {...field} className="h-16 text-4xl font-black text-center border-white/20 focus:border-[#FF6600] focus:ring-[#FF6600]/20 bg-[#071a4a]" placeholder="0.00" />
                   </FormControl>
                   <div className="flex justify-between px-1">
-                      <span className="text-[10px] font-bold text-zinc-400">GARANTIE : 20%</span>
-                      <span className="text-[10px] font-bold text-zinc-400">TAUX : {Number(interestRate).toFixed(2)}% / mois</span>
+                      <span className="text-[10px] font-bold text-zinc-300">GARANTIE : 20%</span>
+                      <span className="text-[10px] font-bold text-zinc-300">INTÉRÊT : {Number(calculation.rate).toFixed(2)}%</span>
                   </div>
                   <FormMessage />
                 </FormItem>
             )}/>
 
             <div className="space-y-4">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Durée de remboursement (Mois)</Label>
+              <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-200">Durée de remboursement (Mois)</Label>
               <FormField control={form.control} name="duration" render={({ field }) => (
-                <RadioGroup onValueChange={(val) => field.onChange(Number(val))} value={field.value.toString()} className="grid grid-cols-4 gap-2">
+                <RadioGroup onValueChange={(val) => { const d=Number(val); field.onChange(d); form.setValue("repaymentFrequency", d===1 ? "weekly" : (d===3 ? "monthly" : "quarterly")); }} value={field.value.toString()} className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   {allowedDurations.map(m => (
                     <div key={m}>
                       <RadioGroupItem value={m.toString()} id={`dur-${m}`} className="sr-only" />
-                      <Label htmlFor={`dur-${m}`} className={cn("flex flex-col items-center justify-center border-2 rounded-xl cursor-pointer transition-all h-12", field.value === m ? "border-primary bg-primary/5 text-primary font-black" : "border-zinc-100 text-zinc-400 hover:bg-zinc-50")}>
-                        <span className="text-sm">{m}</span>
+                      <Label htmlFor={`dur-${m}`} className={cn("flex flex-col items-center justify-center border-2 rounded-xl cursor-pointer transition-all h-12", field.value === m ? "border-[#FF6600] bg-[#FF6600]/10 text-[#FF6600] font-black" : "border-white/15 text-zinc-300 hover:bg-[#FF6600]/10")}>
+                        <span className="text-sm">{m} <span className="text-[9px] uppercase">mois</span></span>
                       </Label>
                     </div>
                   ))}
@@ -146,13 +154,24 @@ export function LoanForm({ user, currencies, interestRate = 3.66, durations = su
             </div>
 
             <div className="space-y-4">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Motif du prêt</Label>
+              <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-200">Mode de remboursement</Label>
+              <FormField control={form.control} name="repaymentFrequency" render={({ field }) => (
+                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
+                  {(Number(watchedDuration) === 1 ? [{v:"weekly",l:"Chaque semaine"}] : [{v:"weekly",l:"Chaque semaine"},{v:"monthly",l:"Chaque mois"},{v:"quarterly",l:"Chaque trimestre"}]).map((f:any) => (
+                    <div key={f.v}><RadioGroupItem value={f.v} id={`lf-${f.v}`} className="sr-only" /><Label htmlFor={`lf-${f.v}`} className={cn("flex items-center justify-center p-3 border-2 rounded-xl cursor-pointer h-12 text-xs font-bold", field.value === f.v ? "border-[#FF6600] bg-[#FF6600]/10 text-[#FF6600]" : "border-white/15 text-zinc-300")}>{f.l}</Label></div>
+                  ))}
+                </RadioGroup>
+              )}/>
+            </div>
+
+            <div className="space-y-4">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-200">Motif du prêt</Label>
               <FormField control={form.control} name="purpose" render={({ field }) => (
                 <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
                   {loanPurposes.map(p => (
                     <div key={p.id}>
                       <RadioGroupItem value={p.id} id={`lp-${p.id}`} className="sr-only" />
-                      <Label htmlFor={`lp-${p.id}`} className={cn("flex items-center justify-center p-2 border-2 rounded-xl cursor-pointer transition-all text-[10px] font-black uppercase tracking-tighter text-center h-12", field.value === p.id ? "border-primary bg-primary/5 text-primary shadow-sm" : "border-zinc-100 text-zinc-400 hover:bg-zinc-50")}>
+                      <Label htmlFor={`lp-${p.id}`} className={cn("flex items-center justify-center p-2 border-2 rounded-xl cursor-pointer transition-all text-[10px] font-black uppercase tracking-tighter text-center h-12", field.value === p.id ? "border-[#FF6600] bg-[#FF6600]/10 text-[#FF6600] shadow-sm" : "border-white/15 text-zinc-300 hover:bg-[#FF6600]/10")}>
                         {p.label}
                       </Label>
                     </div>
@@ -161,15 +180,15 @@ export function LoanForm({ user, currencies, interestRate = 3.66, durations = su
               )}/>
             </div>
 
-            <div className="p-6 bg-primary/5 rounded-[2rem] border border-primary/10 shadow-inner space-y-4">
+            <div className="p-6 bg-[#FF6600]/10 rounded-[2rem] border border-[#FF6600]/10 shadow-inner space-y-4">
                 <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Échéance</span>
-                    <span className="text-2xl font-black text-primary">{config.symbol}{calculation.monthlyPayment.toFixed(2)}</span>
+                    <span className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Échéance</span>
+                    <span className="text-2xl font-black text-[#FF6600]">{config.symbol}{calculation.installmentAmount.toFixed(2)}</span>
                 </div>
-                <Separator className="bg-primary/10" />
-                <div className="flex justify-between items-center text-[10px] font-bold text-zinc-400 uppercase">
+                <Separator className="bg-[#FF6600]/10" />
+                <div className="flex justify-between items-center text-[10px] font-bold text-zinc-300 uppercase">
                     <span>Intérêt total estimé</span>
-                    <span className="text-green-600">+{config.symbol}{(calculation.totalRepayment - watchedAmount).toFixed(2)}</span>
+                    <span className="text-[#FF6600]">+{config.symbol}{(calculation.totalRepayment - watchedAmount).toFixed(2)}</span>
                 </div>
             </div>
 

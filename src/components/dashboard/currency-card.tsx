@@ -48,7 +48,7 @@ export function CurrencyCard({ code, balance, idWallet, holderName, symbol, clas
   return (
     <Card 
         className={cn(
-            "w-96 h-40 flex-shrink-0 transition-shadow duration-300 hover:shadow-xl text-primary-foreground rounded-2xl shadow-lg relative overflow-hidden",
+            "w-[19.2rem] h-40 flex-shrink-0 transition-shadow duration-300 hover:shadow-xl text-primary-foreground rounded-2xl shadow-lg relative overflow-hidden",
             currencyColors[code] || 'bg-gray-500'
         )}
         style={{ '--tw-shadow-color': 'hsl(var(--primary) / 0.5)' } as React.CSSProperties}

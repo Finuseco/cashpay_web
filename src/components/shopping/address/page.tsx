@@ -10,7 +10,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { getUserAddresses, addOrUpdateUserAddress, deleteUserAddress } from '@/lib/actions/address.actions';
 import { countries } from '@/lib/countries';
@@ -80,9 +79,76 @@ const AddressForm = ({ onSave, initialData, closeDialog, userCountryCode }: { on
                 <FormField control={form.control} name="label" render={({ field }) => ( <FormItem><FormLabel>Label (ex: Domicile, Bureau)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
                 <FormField control={form.control} name="fullName" render={({ field }) => ( <FormItem><FormLabel>Nom complet du destinataire</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
                 <FormField control={form.control} name="phone" render={({ field }) => ( <FormItem><FormLabel>Téléphone</FormLabel><FormControl><Input type="tel" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                <FormField control={form.control} name="countryCode" render={({ field }) => ( <FormItem><FormLabel>Pays</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Sélectionnez un pays" /></SelectTrigger></FormControl><SelectContent>{countries.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}</SelectContent></Select><FormMessage /></FormItem> )}/>
+                <FormField
+                    control={form.control}
+                    name="countryCode"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Pays</FormLabel>
+                            <FormControl>
+                                <div
+                                    role="radiogroup"
+                                    aria-label="Pays"
+                                    className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-52 overflow-y-auto rounded-lg border p-2 bg-background"
+                                >
+                                    {countries.map((country) => (
+                                        <label
+                                            key={country.code}
+                                            className={`flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer text-sm transition-colors ${field.value === country.code ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted'}`}
+                                        >
+                                            <input
+                                                type="radio"
+                                                name={field.name}
+                                                value={country.code}
+                                                checked={field.value === country.code}
+                                                onChange={() => field.onChange(country.code)}
+                                                className="h-4 w-4 accent-primary"
+                                            />
+                                            <span className="truncate">{country.name}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+
                 {selectedCountry && provincesForSelectedCountry.length > 0 && (
-                    <FormField control={form.control} name="province" render={({ field }) => ( <FormItem><FormLabel>Province/État</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Sélectionnez une province" /></SelectTrigger></FormControl><SelectContent>{provincesForSelectedCountry.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select><FormMessage /></FormItem> )}/>
+                    <FormField
+                        control={form.control}
+                        name="province"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Province / État</FormLabel>
+                                <FormControl>
+                                    <div
+                                        role="radiogroup"
+                                        aria-label="Province ou État"
+                                        className="grid grid-cols-2 gap-2 max-h-52 overflow-y-auto rounded-lg border p-2 bg-background"
+                                    >
+                                        {provincesForSelectedCountry.map((province) => (
+                                            <label
+                                                key={province}
+                                                className={`flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer text-sm transition-colors ${field.value === province ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted'}`}
+                                            >
+                                                <input
+                                                    type="radio"
+                                                    name={field.name}
+                                                    value={province}
+                                                    checked={field.value === province}
+                                                    onChange={() => field.onChange(province)}
+                                                    className="h-4 w-4 accent-primary"
+                                                />
+                                                <span className="truncate">{province}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
                 )}
                 <FormField control={form.control} name="city" render={({ field }) => ( <FormItem><FormLabel>Ville</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
                 <FormField control={form.control} name="address" render={({ field }) => ( <FormItem><FormLabel>Adresse complète</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>

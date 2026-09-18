@@ -20,10 +20,49 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import { Skeleton } from '@/components/ui/skeleton';
 import { calculateTransactionFee } from '@/lib/actions/wallet.actions';
-import { currentPrice } from '@/lib/utils';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+
+const getCartUnitPrice = (item: CartItem, quantity: number): number => {
+    const basePrice = Number(item.sellingPrice || 0);
+
+    if (!Number.isFinite(basePrice) || basePrice < 0) {
+        return 0;
+    }
+
+    const packages: any[] = Array.isArray(item.promotionalPackages)
+        ? item.promotionalPackages
+        : [];
+
+    let effectivePrice = basePrice;
+    let bestThreshold = 0;
+
+    for (const pkg of packages) {
+        const threshold = Number(
+            pkg?.quantity ??
+            pkg?.minQuantity ??
+            pkg?.min_quantity
+        );
+
+        const promoPrice = Number(pkg?.price);
+
+        if (
+            !Number.isInteger(threshold) ||
+            threshold <= 0 ||
+            !Number.isFinite(promoPrice) ||
+            promoPrice < 0
+        ) {
+            continue;
+        }
+
+        if (quantity >= threshold && threshold > bestThreshold) {
+            effectivePrice = promoPrice;
+            bestThreshold = threshold;
+        }
+    }
+
+    return Math.round(effectivePrice * 100) / 100;
+};
 
 const CircleCheckbox = ({ checked, onCheckedChange }: { checked: boolean, onCheckedChange: (checked: boolean) => void }) => (
     <button
@@ -80,7 +119,27 @@ const SellerGroup = ({
                         </div>
                         <div className="flex-1 min-w-0">
                             <p className="text-sm line-clamp-2 text-foreground font-medium">{item.name}</p>
-                            <p className="font-bold text-base mt-1 text-primary">${currentPrice(item, item.quantity).toFixed(2)}</p>
+                            <div className="mt-1">
+                                {(() => {
+                                    const activePrice = getCartUnitPrice(item, Number(item.quantity));
+                                    const basePrice = Number(item.sellingPrice || 0);
+                                    const isPromotional = activePrice < basePrice;
+
+                                    return (
+                                        <>
+                                            <p className="font-bold text-base text-primary">
+                                                ${activePrice.toFixed(2)}
+                                            </p>
+
+                                            {isPromotional && (
+                                                <p className="text-xs text-muted-foreground line-through">
+                                                    ${basePrice.toFixed(2)}
+                                                </p>
+                                            )}
+                                        </>
+                                    );
+                                })()}
+                            </div>
                             <div className="flex items-center border rounded-md w-fit mt-2">
                                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onQuantityChange(item.id, item.quantity - 1)}><Minus className="h-3 w-3" /></Button>
                                 <span className="px-2 text-foreground text-sm font-bold min-w-[2rem] text-center">{item.quantity}</span>
@@ -171,25 +230,156 @@ export function CartClient() {
 
     const handleQuantityChange = async (id: string, qty: number) => {
         if (!user) return;
+
+        const item = cartItems.find(cartItem => cartItem.id === id);
+        if (!item) return;
+
+        const stock = Number(item.stock || 0);
+
+        if (qty > stock) {
+            openAlert({
+                title: "Stock insuffisant",
+                description: `La quantité disponible pour ${item.name} est de ${stock}.`,
+                variant: "warning"
+            });
+            return;
+        }
+
         const res = await updateUserCart(user.id, id, qty);
+
         if (res.success && res.cart) {
             setCartItems(res.cart);
             window.dispatchEvent(new Event('jojo-cart-updated'));
         }
     };
 
+    const shippingAddressId = pinForm.watch('shippingAddressId');
+
+    const selectedShippingAddress = useMemo(() => {
+
+        return addresses.find(
+            address =>
+                address.id.toString() === shippingAddressId.toString()
+        ) || null;
+    }, [addresses, shippingAddressId]);
+
     const calculation = useMemo(() => {
         const selectedItems = cartItems.filter(item => selectedIds.has(item.id));
-        if (selectedItems.length === 0) return { subtotal: 0, weight: 0, shipping: 0, currency: 'USD' };
-        
-        const subtotal = selectedItems.reduce((s, i) => s + currentPrice(i, i.quantity) * i.quantity, 0);
-        const weight = selectedItems.reduce((s, i) => s + (i.weight || 0) * i.quantity, 0);
-        
-        const shippingRate = selectedItems.find(i => i.shippingRates && i.shippingRates.length > 0)?.shippingRates?.[0]?.pricePerKg || 0;
-        const shipping = weight * shippingRate;
-        
-        return { subtotal, weight, shipping, currency: selectedItems[0]?.currency || 'USD' };
-    }, [cartItems, selectedIds]);
+
+        if (selectedItems.length === 0) {
+            return {
+                subtotal: 0,
+                weight: 0,
+                shipping: 0,
+                shippingAvailable: true,
+                shippingError: "",
+                currency: "USD"
+            };
+        }
+
+        const subtotal = selectedItems.reduce(
+            (sum, item) =>
+                sum + getCartUnitPrice(item, Number(item.quantity)) * item.quantity,
+            0
+        );
+
+        const weight = selectedItems.reduce(
+            (sum, item) =>
+                sum + (Number(item.weight) || 0) * Number(item.quantity),
+            0
+        );
+
+        let shipping = 0;
+        let shippingAvailable = true;
+        let shippingError = "";
+
+        if (wantsShipping && selectedShippingAddress) {
+            const addressCountry = String(
+                selectedShippingAddress.countryCode || ""
+            ).trim().toLowerCase();
+
+            const addressProvince = String(
+                selectedShippingAddress.province || ""
+            ).trim().toLowerCase();
+
+            for (const item of selectedItems) {
+                if (item.categoryId === "cat-livre") {
+                    continue;
+                }
+
+                const rates = Array.isArray(item.shippingRates)
+                    ? item.shippingRates
+                    : [];
+
+                const exactRate = rates.find(rate => {
+                    const rateCountry = String(
+                        rate?.country || ""
+                    ).trim().toLowerCase();
+
+                    const rateProvince = String(
+                        rate?.province || ""
+                    ).trim().toLowerCase();
+
+                    return (
+                        rateCountry === addressCountry &&
+                        rateProvince === addressProvince
+                    );
+                });
+
+                const countryRate = rates.find(rate => {
+                    const rateCountry = String(
+                        rate?.country || ""
+                    ).trim().toLowerCase();
+
+                    const rateProvince = String(
+                        rate?.province || ""
+                    ).trim().toLowerCase();
+
+                    return (
+                        rateCountry === addressCountry &&
+                        rateProvince === ""
+                    );
+                });
+
+                const matchingRate = exactRate || countryRate;
+
+                if (!matchingRate) {
+                    shippingAvailable = false;
+                    shippingError =
+                        "Aucun tarif de livraison n'est configuré pour cette destination.";
+                    continue;
+                }
+
+                const rate = Number(matchingRate.rate);
+
+                if (!Number.isFinite(rate) || rate < 0) {
+                    shippingAvailable = false;
+                    shippingError =
+                        "Le tarif de livraison configuré pour ce produit est invalide.";
+                    continue;
+                }
+
+                shipping +=
+                    (Number(item.weight) || 0) *
+                    Number(item.quantity) *
+                    rate;
+            }
+        }
+
+        return {
+            subtotal: Math.round(subtotal * 100) / 100,
+            weight: Math.round(weight * 100) / 100,
+            shipping: Math.round(shipping * 100) / 100,
+            shippingAvailable,
+            shippingError,
+            currency: selectedItems[0]?.currency || "USD"
+        };
+    }, [
+        cartItems,
+        selectedIds,
+        wantsShipping,
+        selectedShippingAddress
+    ]);
 
     useEffect(() => {
         const loadVat = async () => {
@@ -227,12 +417,30 @@ export function CartClient() {
             return;
         }
 
+        if (values.wantsShipping && !calculation.shippingAvailable) {
+            openAlert({
+                title: "Livraison indisponible",
+                description:
+                    calculation.shippingError ||
+                    "Aucun tarif de livraison n'est configuré pour cette destination.",
+                variant: "warning"
+            });
+            return;
+        }
+
         setIsProcessing(true);
         const items = cartItems.filter(i => selectedIds.has(i.id));
         const res = await createOrder({
-            user, items, totalPrice: total, currency: calculation.currency,
-            pin: values.pin, shippingCost: finalShippingCost, vatAmount,
-            shippingAddressId: values.wantsShipping ? values.shippingAddressId : undefined
+            user,
+            items,
+            totalPrice: 0,
+            currency: calculation.currency,
+            pin: values.pin,
+            shippingCost: 0,
+            vatAmount: 0,
+            shippingAddressId: values.wantsShipping
+                ? values.shippingAddressId
+                : undefined
         });
         setIsProcessing(false);
         if (res.success) {
@@ -298,20 +506,50 @@ export function CartClient() {
                                                 <FormItem>
                                                     <FormLabel>Adresse de livraison</FormLabel>
                                                     {addresses.length > 0 ? (
-                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                            <FormControl>
-                                                                <SelectTrigger>
-                                                                    <SelectValue placeholder="Choisir une adresse" />
-                                                                </SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                {addresses.map(addr => (
-                                                                    <SelectItem key={addr.id} value={addr.id.toString()}>
-                                                                        {addr.label} ({addr.city})
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
+                                                        <FormControl>
+                                                            <div
+                                                                role="radiogroup"
+                                                                aria-label="Adresse de livraison"
+                                                                className="space-y-2 max-h-60 overflow-y-auto rounded-lg border p-2 bg-background"
+                                                            >
+                                                                {addresses.map(addr => {
+                                                                    const value = addr.id.toString();
+                                                                    const selected = field.value === value;
+
+                                                                    return (
+                                                                        <label
+                                                                            key={addr.id}
+                                                                            className={cn(
+                                                                                "flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors",
+                                                                                selected
+                                                                                    ? "border-primary bg-primary/10"
+                                                                                    : "border-border hover:bg-muted"
+                                                                            )}
+                                                                        >
+                                                                            <input
+                                                                                type="radio"
+                                                                                name={field.name}
+                                                                                value={value}
+                                                                                checked={selected}
+                                                                                onChange={() => field.onChange(value)}
+                                                                                className="mt-1 h-4 w-4 accent-primary shrink-0"
+                                                                            />
+                                                                            <span className="min-w-0">
+                                                                                <span className="block font-medium text-sm">
+                                                                                    {addr.label}
+                                                                                </span>
+                                                                                <span className="block text-xs text-muted-foreground mt-1">
+                                                                                    {addr.fullName} · {addr.address}, {addr.city}
+                                                                                </span>
+                                                                                <span className="block text-xs text-muted-foreground">
+                                                                                    {addr.province} · {addr.phone}
+                                                                                </span>
+                                                                            </span>
+                                                                        </label>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </FormControl>
                                                     ) : (
                                                         <div className="space-y-2">
                                                             <p className="text-xs text-destructive">Aucune adresse trouvée.</p>
@@ -331,9 +569,20 @@ export function CartClient() {
                                     <div className="flex justify-between"><span>Produits ({selectedIds.size})</span><span>${calculation.subtotal.toFixed(2)}</span></div>
                                     <div className={cn("flex justify-between transition-opacity", !wantsShipping && "opacity-30 line-through")}>
                                         <span>Livraison</span>
-                                        <span>${calculation.shipping.toFixed(2)}</span>
+                                        <span>
+                                              {!wantsShipping
+                                                  ? "$0.00"
+                                                  : calculation.shippingAvailable
+                                                      ? `$${calculation.shipping.toFixed(2)}`
+                                                      : "Indisponible"}
+                                          </span>
                                     </div>
-                                    <div className="flex justify-between"><span>TVA</span><span>${vatAmount.toFixed(2)}</span></div>
+                                    {wantsShipping && !calculation.shippingAvailable && calculation.shippingError && (
+                                          <p className="text-xs text-destructive">
+                                              {calculation.shippingError}
+                                          </p>
+                                      )}
+                                      <div className="flex justify-between"><span>TVA</span><span>${vatAmount.toFixed(2)}</span></div>
                                     <div className="flex justify-between font-bold text-lg pt-2 border-t mt-2 text-primary">
                                         <span>Total</span>
                                         <span>${total.toFixed(2)}</span>
@@ -355,7 +604,7 @@ export function CartClient() {
                                     </FormItem>
                                 )} />
 
-                                <Button type="submit" variant="gradient" className="w-full h-12 font-bold" disabled={isProcessing}>
+                                <Button type="submit" variant="gradient" className="w-full h-12 font-bold" disabled={isProcessing || (wantsShipping && !calculation.shippingAvailable)}>
                                     {isProcessing && <Loader2 className="animate-spin mr-2 h-4 w-4"/>} Payer ${total.toFixed(2)}
                                 </Button>
                             </form>

@@ -190,9 +190,9 @@ export async function registerNewAccount(data: any): Promise<{ success: boolean;
         await connection.query('INSERT INTO wallets (user_id, id_wallet, balances) VALUES ($1, $2, $3::jsonb)', [userId, id_wallet, initialBalances]);
         
         await connection.query(
-            `INSERT INTO user_documents (user_id, id_type, id_number, id_front_image, id_issued_date, id_expiry_date) 
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [userId, formData.id_type, formData.id_number, idFrontImagePath, validateDate(formData.id_issued_date), validateDate(formData.id_expiry_date)]
+            `INSERT INTO user_documents (user_id, id_type, id_number, id_front_image)
+             VALUES ($1, $2, $3, $4)`,
+            [userId, formData.id_type, formData.id_number, idFrontImagePath]
         );
 
         await connection.query('COMMIT');

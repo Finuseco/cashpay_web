@@ -1627,5 +1627,9 @@
   "paypalDepositTitle": "PayPal",
   "paypalDepositDesc": "Utilisez votre compte PayPal pour recharger votre solde CashPay.",
   "actionGridPaymentLink": "Paiment par lien",
-  "actionGridAds": "Adsens"
+  "actionGridAds": "Adsens",
+  "loanSummaryTitle": "Résumé du prêt",
+  "loanSummaryRemainingDebt": "Dette restante",
+  "loanSummaryRepaid": "Remboursé",
+  "loanSummaryViewDetails": "Voir les détails"
 }

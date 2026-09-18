@@ -208,8 +208,6 @@ const formSchema = z.object({
     address: z.string().min(5, "L'adresse est requise."),
     id_type: z.enum(['passport', 'national_id', 'driver_license'], { required_error: "Le type de pièce est requis." }),
     id_number: z.string().min(3, "Le numéro de pièce est requis."),
-    id_issued_date: z.date({ required_error: "La date d'émission de la pièce est requise." }),
-    id_expiry_date: z.date({ required_error: "La date d'expiration de la pièce est requise." }),
     profession: z.string().min(2, "La profession est requise."),
     nationality: z.string().min(2, "La nationalité est requise."),
     income_per_month: z.coerce.number({ required_error: "Le revenu est requis." }).min(0, "Le revenu doit être un nombre positif ou nul."),
@@ -234,6 +232,9 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
       const [registeredUser, setRegisteredUser] = React.useState<User | null>(null);
     const router = useRouter();
     const [isSubmitting, setIsSubmitting] = React.useState(false);
+    const [validationDialog, setValidationDialog] = React.useState<{ open: boolean; message: string }>({ open: false, message: '' });
+    const [registrationSuccessDialog, setRegistrationSuccessDialog] = React.useState(false);
+    const [pendingRegisteredUser, setPendingRegisteredUser] = React.useState<User | null>(null);
 
     const [profilePhoto, setProfilePhoto] = React.useState<string | null>(null);
     const [idFrontImage, setIdFrontImage] = React.useState<string | null>(null);
@@ -258,8 +259,6 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
             email: '',
             id_number: '',
             id_type: 'national_id',
-            id_issued_date: undefined,
-            id_expiry_date: undefined,
             nationality: countryName.split(' ')[0] || '',
             profession: '',
             birth_place: '',
@@ -346,12 +345,41 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
         }
     };
 
+    const onInvalid = (errors: any) => {
+        const firstError = Object.entries(errors)[0] as [string, any] | undefined;
+        const messages: Record<string, string> = {
+            account_type: 'Veuillez sélectionner le type de compte.',
+            company_name: 'Veuillez saisir le nom de l’entreprise.',
+            first_name: 'Veuillez saisir le prénom.',
+            last_name: 'Veuillez saisir le nom.',
+            gender: 'Veuillez sélectionner le genre.',
+            marital_status: 'Veuillez sélectionner l’état civil.',
+            birth_date: 'Veuillez saisir la date de naissance.',
+            birth_place: 'Veuillez saisir le lieu de naissance.',
+            email: 'Veuillez saisir une adresse email valide.',
+            city: 'Veuillez saisir la ville.',
+            address: 'Veuillez saisir l’adresse complète.',
+            id_type: 'Veuillez sélectionner le type de pièce.',
+            id_number: 'Veuillez saisir le numéro de pièce.',
+            profession: 'Veuillez saisir la profession.',
+            nationality: 'Veuillez saisir la nationalité.',
+            income_per_month: 'Veuillez saisir le revenu mensuel.',
+            representative_name: 'Veuillez saisir le nom du garant.',
+            representative_contact: 'Veuillez saisir le téléphone du garant.',
+            representative_relation: 'Veuillez sélectionner le lien de parenté du garant.'
+        };
+        setValidationDialog({
+            open: true,
+            message: firstError ? (messages[firstError[0]] || firstError[1]?.message || 'Veuillez compléter les informations demandées.') : 'Veuillez compléter les informations demandées.'
+        });
+    };
+
     async function onSubmit(values: z.infer<typeof formSchema>) {
-        if (!profilePhoto) { toast({ title: t('errorTitle'), description: t('errorProfilePhoto'), variant: 'destructive' }); return; }
-        if (!idFrontImage) { toast({ title: t('errorTitle'), description: t('errorIdScan'), variant: 'destructive' }); return; }
-        if (!signatureData) { toast({ title: t('errorTitle'), description: t('errorSignature'), variant: 'destructive' }); return; }
-        if (emailState.status !== 'verified') { toast({ title: t('errorTitle'), description: t('errorEmailNotVerified'), variant: 'destructive' }); return; }
-        if (accountType === 'business' && !values.company_name) { form.setError('company_name', { message: 'Le nom de l\'entreprise est requis' }); return; }
+        if (!profilePhoto) { setValidationDialog({ open: true, message: t('errorProfilePhoto') }); return; }
+        if (!idFrontImage) { setValidationDialog({ open: true, message: t('errorIdScan') }); return; }
+        if (!signatureData) { setValidationDialog({ open: true, message: t('errorSignature') }); return; }
+        if (emailState.status !== 'verified') { setValidationDialog({ open: true, message: t('errorEmailNotVerified') }); return; }
+        if (accountType === 'business' && !values.company_name) { form.setError('company_name', { message: 'Le nom de l\'entreprise est requis' }); setValidationDialog({ open: true, message: 'Veuillez saisir le nom de l’entreprise.' }); return; }
         
         setIsSubmitting(true);
         try {
@@ -377,8 +405,8 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
             const result = await registerNewAccount(registrationData);
 
               if (result.success && result.id_wallet) {
-                  toast({ title: t('registrationSuccess'), description: t('welcomeMessage', { id_wallet: result.id_wallet }), variant: 'success' });
-                  setRegisteredUser(result.user);
+                  setPendingRegisteredUser(result.user || null);
+                  setRegistrationSuccessDialog(true);
               } else {
                   throw new Error(result.error || t('registrationFailedMessage'));
               }
@@ -396,7 +424,7 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
 
       return (
         <>
-            <Card className="w-full max-w-5xl mx-auto bg-gradient-to-br from-[#000E38] to-[#001E6C] text-white shadow-2xl rounded-3xl border-0 relative">
+            <Card className="w-full max-w-5xl mx-auto bg-[#000E38] text-white shadow-2xl rounded-3xl border-0 relative">
                 <div className="absolute top-4 right-4 z-10">
                     <div className="flex items-center gap-1 rounded-full border border-white/20 bg-black/20 p-1 text-xs font-medium">
                         <Button onClick={() => setCurrentLang('fr')} size="sm" className={cn("rounded-full h-6 px-3", currentLang === 'fr' ? 'bg-primary text-white' : 'bg-transparent text-white/70 hover:bg-white/10')}>FR</Button>
@@ -410,7 +438,7 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
                 </CardHeader>
                 <CardContent className="p-6 sm:p-10">
                       <Form {...form}>
-                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-10">
+                        <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-10">
                             
                             <div className="flex flex-col items-center space-y-6">
                                 <div className="relative">
@@ -472,10 +500,12 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
       <Input
         type="date"
         className="h-12 bg-white/5 border-white/10"
-        value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
+        value={field.value ? format(field.value, 'yyyy-MM-dd') : ''}
         onChange={(e) => {
           const value = e.target.value
-          field.onChange(value ? new Date(value + 'T00:00:00') : undefined)
+          if (!value) { field.onChange(undefined); return; }
+          const [year, month, day] = value.split('-').map(Number)
+          field.onChange(new Date(year, month - 1, day))
         }}
         max={new Date().toISOString().split('T')[0]}
         min="1920-01-01"
@@ -547,44 +577,6 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
                                         {idNumberState.message && <FormDescription className={cn(idNumberState.status === 'error' && 'text-red-500', idNumberState.status === 'verified' && 'text-green-500', "flex items-center gap-1 mt-1")}>{idNumberState.status === 'error' ? <AlertCircle className="h-4 w-4"/> : <CheckCircle className="h-4 w-4"/>} {idNumberState.message}</FormDescription>}
                                     </FormItem>
                                 )}/>
-
-                                <FormField control={form.control} name="id_issued_date" render={({ field }) => (
-  <FormItem>
-      <FormLabel>{t('idIssuedDate')} *</FormLabel>
-      <FormControl>
-          <Input
-              type="date"
-              className="h-12 bg-white/5 border-white/10"
-              value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-              onChange={(e) => {
-                  const value = e.target.value;
-                  field.onChange(value ? new Date(value + 'T00:00:00') : undefined);
-              }}
-              max={new Date().toISOString().split('T')[0]}
-          />
-      </FormControl>
-      <FormMessage />
-  </FormItem>
-)}/>
-
-                                <FormField control={form.control} name="id_expiry_date" render={({ field }) => (
-  <FormItem>
-      <FormLabel>{t('idExpiryDate')} *</FormLabel>
-      <FormControl>
-          <Input
-              type="date"
-              className="h-12 bg-white/5 border-white/10"
-              value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-              onChange={(e) => {
-                  const value = e.target.value;
-                  field.onChange(value ? new Date(value + 'T00:00:00') : undefined);
-              }}
-              min={new Date().toISOString().split('T')[0]}
-          />
-      </FormControl>
-      <FormMessage />
-  </FormItem>
-                                )}/>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                     <FormField control={form.control} name="profession" render={({ field }) => ( <FormItem><FormLabel>{t('profession')} *</FormLabel><FormControl><div className="relative"><Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400"/><Input className="h-12 pl-10 bg-white/5 border-white/10" {...field} /></div></FormControl><FormMessage/></FormItem> )}/>
                                     <FormField control={form.control} name="nationality" render={({ field }) => ( <FormItem><FormLabel>{t('nationality')} *</FormLabel><FormControl><div className="relative"><Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400"/><Input className="h-12 pl-10 bg-white/5 border-white/10" {...field} /></div></FormControl><FormMessage/></FormItem> )}/>
@@ -651,6 +643,33 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
                     </Form>
                 </CardContent>
             </Card>
+
+            <AlertDialog open={validationDialog.open} onOpenChange={(open) => setValidationDialog(v => ({ ...v, open }))}>
+                <AlertDialogContent className="bg-[#000E38] text-white border-primary">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{t('errorTitle')}</AlertDialogTitle>
+                    </AlertDialogHeader>
+                    <p className="text-white/80 text-sm">{validationDialog.message}</p>
+                    <AlertDialogFooter>
+                        <AlertDialogAction onClick={() => setValidationDialog(v => ({ ...v, open: false }))}>OK</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={registrationSuccessDialog} onOpenChange={setRegistrationSuccessDialog}>
+                <AlertDialogContent className="bg-[#000E38] text-white border-primary">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{t('registrationSuccess')}</AlertDialogTitle>
+                    </AlertDialogHeader>
+                    <p className="text-white/80 text-sm">{pendingRegisteredUser ? t('welcomeMessage', { id_wallet: pendingRegisteredUser.id_wallet || '' }) : t('registrationSuccess')}</p>
+                    <AlertDialogFooter>
+                        <AlertDialogAction onClick={() => {
+                            setRegistrationSuccessDialog(false);
+                            if (pendingRegisteredUser) setRegisteredUser(pendingRegisteredUser);
+                        }}>OK</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             <AlertDialog open={cameraModal.open} onOpenChange={(open) => !open && setCameraModal({open: false, target: null})}>
                 <AlertDialogContent className="bg-black text-white border-primary">

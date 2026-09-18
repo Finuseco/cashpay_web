@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
+import type { CarouselApi } from '@/components/ui/carousel';
 import { Card } from '@/components/ui/card';
 import type { Product } from '@/lib/types';
 import { ProductCard } from './product-card';
@@ -32,6 +33,33 @@ const QuickLink = ({ icon: Icon, label, onClick }: { icon: React.ElementType, la
 export function JojoMarketClient({ products }: { products: Product[] }) {
     const { openAlert } = useAlertDialog();
     const router = useRouter();
+    const [carouselApi, setCarouselApi] = useState<CarouselApi>();
+    const [headerSlide, setHeaderSlide] = useState(0);
+
+    const headerSlides = [
+        { image: "/images/banner1.png", title: "Women's", subtitle: "Fashion", action: "Shop Now >>", alt: "Mode femme" },
+        { image: "/images/banner2.png", title: "Men's", subtitle: "Fashion", action: "Discover Now >>", alt: "Mode homme" },
+        { image: "/images/banner3.png", title: "International", subtitle: "Shopping", action: "Explore Now >>", alt: "Shopping international" },
+        { image: "/images/banner4.png", title: "Worldwide", subtitle: "Delivery", action: "Discover >>", alt: "Livraison internationale" },
+        { image: "/images/banner5.png", title: "Fast", subtitle: "Delivery", action: "Shop Now >>", alt: "Livraison rapide" },
+    ];
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setHeaderSlide((current) => (current + 1) % headerSlides.length);
+        }, 5000);
+        return () => clearInterval(interval);
+    }, []);
+
+    useEffect(() => {
+        if (!carouselApi) return;
+
+        const interval = setInterval(() => {
+            carouselApi.scrollNext();
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, [carouselApi]);
 
     const handleComingSoon = (featureName: string) => {
         openAlert({
@@ -43,15 +71,49 @@ export function JojoMarketClient({ products }: { products: Product[] }) {
     
     return (
         <div className="space-y-4">
-            {/* Top Banner */}
-            <div className="relative h-40 bg-pink-200 p-4 flex items-center">
-                <div className="relative z-10">
-                    <h2 className="text-2xl font-bold text-pink-800">Women's</h2>
-                    <h2 className="text-2xl font-bold text-pink-800">Clothing</h2>
-                    <Button variant="link" className="p-0 text-pink-700 font-bold">Shop Now &gt;&gt;</Button>
-                </div>
-                <div className="absolute right-0 bottom-0">
-                    <Image src="/images/jojo/jojo5.png" width={180} height={160} alt="Woman in dress" data-ai-hint="woman fashion" />
+            {/* Animated Top Banner - display only */}
+            <div className="relative h-40 overflow-hidden bg-pink-200">
+                {headerSlides.map((slide, index) => (
+                    <div
+                        key={slide.image}
+                        className={`absolute inset-0 flex items-center p-4 transition-all duration-700 ease-in-out ${
+                            index === headerSlide
+                                ? "translate-x-0 opacity-100"
+                                : "translate-x-2 opacity-0 pointer-events-none"
+                        }`}
+                        aria-hidden={index !== headerSlide}
+                    >
+                        <div className="relative z-10">
+                            <h2 className="text-2xl font-bold text-pink-800">{slide.title}</h2>
+                            <h2 className="text-2xl font-bold text-pink-800">{slide.subtitle}</h2>
+                            <Button variant="link" className="p-0 text-pink-700 font-bold">
+                                {slide.action}
+                            </Button>
+                        </div>
+
+                        <div className="absolute right-0 bottom-0 h-full w-[58%]">
+                            <Image
+                                src={slide.image}
+                                fill
+                                sizes="58vw"
+                                alt={slide.alt}
+                                className="object-contain object-right-bottom"
+                            />
+                        </div>
+                    </div>
+                ))}
+
+                <div className="absolute bottom-2 left-4 z-20 flex gap-1.5">
+                    {headerSlides.map((slide, index) => (
+                        <span
+                            key={slide.image}
+                            className={`h-1 rounded-full transition-all duration-500 ${
+                                index === headerSlide
+                                    ? "w-5 bg-pink-800"
+                                    : "w-1.5 bg-pink-400"
+                            }`}
+                        />
+                    ))}
                 </div>
             </div>
 
@@ -63,26 +125,32 @@ export function JojoMarketClient({ products }: { products: Product[] }) {
                 <QuickLink icon={Album} label="New Arrival" onClick={() => handleComingSoon('New Arrival')} />
             </div>
 
-             {/* Anniversary Banner */}
+             {/* JoJo Shopping Banner */}
             <div className="px-2">
-                 <Carousel
+                <Carousel
                     opts={{
                         align: "start",
                         loop: true,
                     }}
-                    >
+                    setApi={setCarouselApi}
+                >
                     <CarouselContent>
-                        <CarouselItem>
-                            <Card className="overflow-hidden">
-                                <Image src="/images/jojo/jojo1.png" width={600} height={200} alt="Anniversary Sale 1" className="w-full" data-ai-hint="electronics sale" />
-                            </Card>
-                        </CarouselItem>
-                         <CarouselItem>
-                            <Card className="overflow-hidden">
-                                <Image src="/images/jojo/jojo2.png" width={600} height={200} alt="Anniversary Sale 2" className="w-full" data-ai-hint="fashion clothes" />
-                            </Card>
-                        </CarouselItem>
+                        {Array.from({ length: 10 }, (_, index) => `jojo${index + 1}.png`).map((image, index) => (
+                            <CarouselItem key={image}>
+                                <Card className="overflow-hidden">
+                                    <Image
+                                        src={`/images/jojo/${image}`}
+                                        width={600}
+                                        height={200}
+                                        alt={`JoJo Shopping - Bannière ${index + 1}`}
+                                        className="w-full"
+                                    />
+                                </Card>
+                            </CarouselItem>
+                        ))}
                     </CarouselContent>
+                    <CarouselPrevious />
+                    <CarouselNext />
                 </Carousel>
             </div>
 

@@ -1,5 +1,4 @@
-
-'use client';
+"use client;"
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -16,12 +15,9 @@ import {
 } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  RadioGroup,
+  RadioGroupItem,
+} from "@/components/ui/radio-group";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { createTransaction } from "@/lib/actions/transaction.actions";
@@ -29,7 +25,7 @@ import { Loader2, UserCheck, ShieldCheck, ArrowDown, Info, ShoppingCart, Chevron
 import type { User, Currency, CartItem } from '@/lib/types';
 import { getWalletInfo, type WalletInfo, calculateTransactionFee } from '@/lib/actions/wallet.actions';
 import { Skeleton } from "../ui/skeleton";
-import { getExchangeRatesForCountry, type ExchangeRate } from "@/lib/actions/exchange.actions";
+import { getExchangeRatesForCountry, type ExchangeRate } from '@/lib/actions/exchange.actions';
 import { getCountryByCode, countryToCode, currentPrice, generateReferenceCode } from '@/lib/utils';
 import Image from "next/image";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "../ui/input-otp";
@@ -243,11 +239,11 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
   return (
     <>
     <Dialog open={isPinDialogOpen} onOpenChange={setIsPinDialogOpen}>
-        <DialogContent className="max-w-xs p-6 bg-zinc-900 border-zinc-800 text-white rounded-[2rem]">
+        <DialogContent className="max-w-xs p-6 bg-[#000E38] border-white/10 text-white rounded-xl">
             <DialogHeader className="text-center">
-                <div className="h-12 w-12 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-2"><ShieldCheck className="text-primary"/></div>
+                <div className="h-12 w-12 bg-[#FF6600]/10 border border-[#FF6600]/30 rounded-lg flex items-center justify-center mx-auto mb-2"><ShieldCheck className="text-[#FF6600]"/></div>
                 <DialogTitle>Validation PIN</DialogTitle>
-                <DialogDescription className="text-zinc-400 text-xs">Confirmation du débit de {totalWithFee.toFixed(2)} {paymentCurrency}.</DialogDescription>
+                <DialogDescription className="text-slate-400 text-xs">Confirmation du débit de {totalWithFee.toFixed(2)} {paymentCurrency}.</DialogDescription>
             </DialogHeader>
              <Form {...pinForm}>
                 <form onSubmit={pinForm.handleSubmit(handlePinConfirm)} className="space-y-6 pt-4 text-center">
@@ -268,29 +264,29 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
         </DialogContent>
     </Dialog>
 
-    <Card className="border-none shadow-2xl bg-white rounded-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-300">
-      <CardHeader className="text-center bg-primary/5 pb-4 border-b border-primary/10">
-        <div className="h-12 w-12 bg-white rounded-full shadow-sm flex items-center justify-center mx-auto mb-3">
-            <ShoppingCart className="h-6 w-6 text-primary" />
+    <Card className="border-none shadow-2xl !bg-[#000E38] rounded-xl overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+      <CardHeader className="text-center !bg-[#07194D] pb-4 border-b border-white/10">
+        <div className="h-12 w-12 bg-[#07194D] border border-white/10 rounded-lg flex items-center justify-center mx-auto mb-3">
+            <ShoppingCart className="h-6 w-6 text-[#FF6600]" />
         </div>
         {isLoading ? <div className="space-y-2"><Skeleton className="h-6 w-32 mx-auto"/><Skeleton className="h-4 w-48 mx-auto"/></div> : (
             <>
                 <CardTitle className="text-xl font-bold">{paymentData.sellerName || recipientInfo?.userName || "Destinataire"}</CardTitle>
                 <div className="flex items-center justify-center gap-2 mt-1">
-                    <p className="text-xs font-mono text-primary font-bold">{recipientWalletId}</p>
+                    <p className="text-xs font-mono text-[#FF6600] font-bold">{recipientWalletId}</p>
                     {recipientCountryDetails && <Image src={`https://flagcdn.com/w20/${recipientCountryDetails.code.toLowerCase()}.png`} width={16} height={12} alt="" className="rounded-sm" />}
                 </div>
             </>
         )}
       </CardHeader>
-      <CardContent className="pt-6 space-y-6">
+      <CardContent className="pt-5 space-y-5">
         {Array.isArray(paymentData.items) && paymentData.items.length > 0 && (
             <div className="space-y-3">
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-400 pl-1">Récapitulatif Articles</h4>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 pl-1">Récapitulatif Articles</h4>
                 <div className="space-y-2 max-h-32 overflow-y-auto pr-1 custom-scrollbar">
                     {paymentData.items.map(item => (
-                        <div key={item.id} className="flex justify-between items-center text-xs p-2 bg-zinc-50 rounded-lg">
-                            <span className="font-bold flex-1 truncate">{item.name} <span className="text-zinc-400 font-normal">x{item.quantity}</span></span>
+                        <div key={item.id} className="flex justify-between items-center text-xs p-2 !bg-[#07194D] rounded-lg">
+                            <span className="font-bold flex-1 truncate">{item.name} <span className="text-slate-400 font-normal">x{item.quantity}</span></span>
                             <span className="font-black">${(currentPrice(item, item.quantity) * item.quantity).toFixed(2)}</span>
                         </div>
                     ))}
@@ -298,9 +294,9 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
             </div>
         )}
 
-        <div className="p-6 bg-primary/5 rounded-[2rem] text-center border-2 border-dashed border-primary/10 shadow-inner">
-            <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Montant Total</p>
-            <p className="text-4xl font-black text-primary mt-1">{paymentData.currency === 'EUR' ? '€' : '$'}{finalAmount.toFixed(2)}</p>
+        <div className="p-6 !bg-[#07194D] rounded-xl text-center border-2 border-dashed border-white/10 shadow-inner">
+            <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Montant Total</p>
+            <p className="text-2xl md:text-3xl font-black text-[#FF6600] mt-1">{paymentData.currency === 'EUR' ? '€' : '$'}{finalAmount.toFixed(2)}</p>
         </div>
 
         <Form {...detailsForm}>
@@ -310,42 +306,82 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
                   name="paymentCurrency"
                   render={({ field }) => (
                       <FormItem>
-                          <FormLabel className="text-[10px] font-black uppercase tracking-widest text-zinc-500 pl-1">Payer avec le portefeuille</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                              <FormControl><SelectTrigger className="h-12 rounded-xl bg-zinc-50"><SelectValue /></SelectTrigger></FormControl>
-                              <SelectContent>
-                                  {userCurrencies.map(c => (
-                                      <SelectItem key={c.code} value={c.code}>
-                                          <div className="flex items-center gap-2">
-                                              <span className="font-bold">{c.code}</span>
-                                              <span className="text-zinc-400">({c.symbol}{c.balance})</span>
-                                          </div>
-                                      </SelectItem>
-                                  ))}
-                              </SelectContent>
-                          </Select>
+                          <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400 pl-1">Payer avec le portefeuille</FormLabel>
+
+                          <FormControl>
+                              <RadioGroup
+                                  value={field.value}
+                                  onValueChange={field.onChange}
+                                  className="grid gap-2.5"
+                              >
+                                  {userCurrencies.map((currency) => {
+                                      const balance = parseBalance(currency.balance);
+                                      const isSelected = field.value === currency.code;
+
+                                      return (
+                                          <label
+                                              key={currency.code}
+                                              htmlFor={`payment-currency-${currency.code}`}
+                                              className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-all ${
+                                                  isSelected
+                                                      ? "border-primary bg-[#07194D] shadow-sm"
+                                                      : "border-white/10 bg-[#07194D] hover:border-primary/30"
+                                              }`}
+                                          >
+                                              <RadioGroupItem
+                                                  id={`payment-currency-${currency.code}`}
+                                                  value={currency.code}
+                                                  className="shrink-0"
+                                              />
+
+                                              <div className="flex-1 min-w-0">
+                                                  <div className="flex items-center justify-between gap-3">
+                                                      <div className="flex items-center gap-2">
+                                                          <Wallet className="h-4 w-4 text-[#FF6600] shrink-0" />
+                                                          <span className="font-black text-sm">{currency.code}</span>
+                                                          {currency.symbol && (
+                                                              <span className="text-xs text-slate-400">{currency.symbol}</span>
+                                                          )}
+                                                      </div>
+
+                                                      <span className="font-bold text-sm text-white">
+                                                          {balance.toFixed(2)}
+                                                      </span>
+                                                  </div>
+
+                                                  <p className="text-[10px] text-slate-400 mt-1">
+                                                      Solde disponible
+                                                  </p>
+                                              </div>
+                                          </label>
+                                      );
+                                  })}
+                              </RadioGroup>
+                          </FormControl>
+
+                          <FormMessage />
                       </FormItem>
                   )}
               />
-              
-              <div className="p-4 bg-zinc-50 rounded-2xl space-y-2 text-xs border border-zinc-100">
+
+              <div className="p-4 !bg-[#07194D] rounded-lg space-y-2 text-xs border border-white/10">
                   <div className="flex justify-between">
-                    <span className="text-zinc-500">Estimation débit</span>
+                    <span className="text-slate-400">Estimation débit</span>
                     <span className="font-bold">{debitedAmount.toFixed(2)} {paymentCurrency}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-zinc-500">Frais réseau</span>
+                    <span className="text-slate-400">Frais réseau</span>
                     <span className="font-bold text-orange-600">+{fee.toFixed(2)} {paymentCurrency}</span>
                   </div>
-                  <Separator className="bg-zinc-200" />
-                  <div className="flex justify-between items-center font-black text-primary text-sm pt-1">
+                  <Separator className="bg-white/10" />
+                  <div className="flex justify-between items-center font-black text-[#FF6600] text-sm pt-1">
                       <span className="uppercase tracking-widest">Total Net</span>
                       <span>{totalWithFee.toFixed(2)} {paymentCurrency}</span>
                   </div>
               </div>
             
             {!hasSufficientBalance && !isLoading && (
-                 <Alert variant="destructive" className="rounded-xl bg-red-50 border-red-100">
+                 <Alert variant="destructive" className="rounded-xl bg-red-950/40 border-red-500/30">
                     <AlertTitle className="text-xs font-black uppercase">Solde insuffisant</AlertTitle>
                     <AlertDescription className="text-[10px]">
                         Veuillez recharger votre portefeuille {paymentCurrency} pour valider cet achat.
@@ -354,10 +390,10 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
             )}
             
             <div className="flex flex-col gap-3">
-                <Button type="submit" variant="gradient" className="w-full h-14 text-lg font-black shadow-xl rounded-2xl" disabled={isLoading || isSubmitting || !hasSufficientBalance}>
+                <Button type="submit" variant="gradient" className="w-full h-12 text-base font-black shadow-xl rounded-lg" disabled={isLoading || isSubmitting || !hasSufficientBalance}>
                     PAYER MAINTENANT
                 </Button>
-                <Button type="button" variant="ghost" onClick={onSuccess} className="text-zinc-400 font-bold uppercase text-[10px] tracking-widest">Annuler la transaction</Button>
+                <Button type="button" variant="ghost" onClick={onSuccess} className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Annuler la transaction</Button>
             </div>
           </form>
         </Form>

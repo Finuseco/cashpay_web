@@ -1,9 +1,12 @@
 'use server';
+
+import { generateReferenceCode } from '../utils';
 import { db } from '@/lib/db';
 import { formatUser, countryToCode } from '@/lib/utils';
 import { createTransaction } from '@/lib/actions/transaction.actions';
 import { calculateTransactionFee } from '@/lib/actions/wallet.actions';
 import { verifyUserPin } from '@/lib/actions/auth.actions';
+import { confirmWithdrawal } from '@/lib/actions/agent.actions';
 import { countries } from '@/lib/countries';
 import { createSubscription } from '@/lib/actions/subscription.actions';
 import { purchaseCard } from '@/lib/actions/card.actions';
@@ -12,6 +15,7 @@ import { getExchangeRatesForCountry } from '@/lib/actions/exchange.actions';
 import type { User } from '@/lib/types';
 import crypto from 'crypto';
 import { sendSms } from '@/services/sms';
+import { sendEmail } from '@/services/email';
 
 const digits=(v:string)=>v.replace(/\D/g,'');
 const variants=(v:string)=>{const n=digits(v);return [...new Set([n,`+${n}`,n.replace(/^243/,'0'),n.replace(/^0/,'243')])];};
@@ -45,16 +49,51 @@ async function creditAgentCommission(agentId:number,currency:string,amount:numbe
 }
 
 export async function executeClientAgentWithdrawal(client:User,agentRef:string,amount:number,currency:string,pin:string){
-  const p=await verifyUserPin(client.id,pin);
-  if(!p.success)return {success:false,error:'Code PIN incorrect.'};
-  const agent=await getUssdRecipientInfo(agentRef);
-  if(!agent.success)return agent;
-  const {rows}=await db.query('SELECT 1 FROM boutiques WHERE agent_id=$1 LIMIT 1',[agent.userId]);
-  if(!rows.length)return {success:false,error:'Cet utilisateur n’est pas un agent CashPay.'};
-  const tx=await createTransaction({user:client,typeCode:'TR',amount,currency,description:`Retrait Cash auprès de ${agent.firstName}`,metadata:{channel:'USSD',operation:'CLIENT_AGENT_WITHDRAWAL',agent_id:agent.userId,agent_wallet_id:agent.walletId}});
-  if(!tx.success)return tx;
-  const share=await creditAgentCommission(Number(agent.userId),currency,amount);
-  return {...tx,commission:share.commission,commissionRate:share.rate,agent:agent};
+  const agentInfo=await getUssdRecipientInfo(agentRef);
+  if(!agentInfo.success)return agentInfo;
+
+  const role=String(agentInfo.role||'').trim().toLowerCase();
+  if(role!=='agent'){
+    return {
+      success:false,
+      error:'Ce portefeuille n’est pas un portefeuille agent CashPay.'
+    };
+  }
+
+  const {rows:boutiqueRows}=await db.query(
+    'SELECT 1 FROM boutiques WHERE agent_id=$1 LIMIT 1',
+    [agentInfo.userId]
+  );
+  if(!boutiqueRows.length){
+    return {
+      success:false,
+      error:'Ce portefeuille n’est pas un portefeuille agent CashPay.'
+    };
+  }
+
+  const {rows:agentRows}=await db.query(
+    'SELECT * FROM users WHERE id=$1 LIMIT 1',
+    [agentInfo.userId]
+  );
+  if(!agentRows.length){
+    return {success:false,error:'Agent introuvable.'};
+  }
+
+  const agent=formatUser(agentRows[0]) as User;
+
+  const result=await confirmWithdrawal({
+    agent,
+    clientWalletId:String((client as any).id_wallet||''),
+    amount:Number(amount),
+    currency:String(currency).toUpperCase() as 'USD'|'EUR'|'CDF',
+    code:String(pin||''),
+    method:'pin'
+  });
+
+  return {
+    ...result,
+    agent:agentInfo
+  };
 }
 
 export async function initiateAgentCashWithdrawal(agent:User,clientRef:string,amount:number,currency:string){
@@ -93,9 +132,159 @@ export async function authorizeAgentCashWithdrawal(client:User,otp:string){
 }
 export async function getUssdExchangeRates(user:User){return getExchangeRatesForCountry(countryToCode(user.country));}
 export async function executeUssdTransfer(sender:User,recipientRef:string,amount:number,currency:string,pin:string){const p=await verifyUserPin(sender.id,pin);if(!p.success)return {success:false,error:'Code PIN incorrect.'};const r=await getUssdRecipientInfo(recipientRef);if(!r.success)return r;return createTransaction({user:sender,typeCode:'TR',amount,currency,description:`Transfert CashPay vers ${r.firstName}`,receiver_id:r.userId!,receiver_wallet_id:r.walletId!,metadata:{channel:'USSD'}});}
-export async function executeAgentDeposit(agent:User,clientRef:string,amount:number,currency:string,pin:string){const p=await verifyUserPin(agent.id,pin);if(!p.success)return {success:false,error:'Code PIN incorrect.'};const c=await getUssdRecipientInfo(clientRef);if(!c.success)return c;return createTransaction({user:agent,typeCode:'DP_AGENT',amount,currency,description:`Dépôt CashPay vers ${c.firstName}`,receiver_id:c.userId!,receiver_wallet_id:c.walletId!,metadata:{channel:'USSD'}});}
+export async function executeAgentDeposit(agent:User,clientRef:string,amount:number,currency:string,pin:string){const p=await verifyUserPin(agent.id,pin);if(!p.success)return {success:false,error:'Code PIN incorrect.'};const c=await getUssdRecipientInfo(clientRef);if(!c.success)return c;const tx=await createTransaction({user:agent,typeCode:'DP_AGENT',amount,currency,description:`Dépôt CashPay vers ${c.firstName}`,receiver_id:c.userId!,receiver_wallet_id:c.walletId!,metadata:{channel:'USSD'}});if(!tx.success)return tx;return {...tx,client:c};}
 export async function executeAgentWithdraw(agent:User,clientRef:string,amount:number,currency:string,pin:string){const p=await verifyUserPin(agent.id,pin);if(!p.success)return {success:false,error:'Code PIN incorrect.'};const c=await getUssdRecipientInfo(clientRef);if(!c.success)return c;const {rows}=await db.query('SELECT * FROM users WHERE id=$1 LIMIT 1',[c.userId]);if(!rows.length)return {success:false,error:'Client introuvable.'};const client:any=formatUser(rows[0]);const tx=await createTransaction({user:client,typeCode:'TR',amount,currency,description:`Retrait CashPay auprès de ${agent.full_name||agent.first_name||'Agent'}`,metadata:{channel:'USSD',operation:'AGENT_WITHDRAWAL',agent_id:agent.id,agent_wallet_id:agent.id_wallet}});if(!tx.success)return tx;const share=await creditAgentCommission(agent.id,currency,amount);return {...tx,commission:share.commission,commissionRate:share.rate};}
-export async function executeCommissionClaim(user:User,amount:number,currency:string,pin:string){const p=await verifyUserPin(user.id,pin);if(!p.success)return {success:false,error:'Code PIN incorrect.'};return createTransaction({user,typeCode:'MLM_COMM_CLAIM',amount,currency,sourceCurrency:'COMMISSION',description:`Bascule des commissions vers ${currency}`,metadata:{channel:'USSD',currency}});}
+export async function executeCommissionClaim(user:User,amount:number,currency:string,pin:string){
+  const p=await verifyUserPin(user.id,pin);
+  if(!p.success)return {success:false,error:'Code PIN incorrect.'};
+
+  const ccy=String(currency||'').toUpperCase();
+  const requested=Number(amount);
+
+  if(!Number.isFinite(requested)||requested<=0){
+    return {success:false,error:'Montant de commission invalide.'};
+  }
+
+  const connection=await db.getConnection();
+
+  try{
+    await connection.query('BEGIN');
+
+    const {rows:userRows}=await connection.query(
+      `SELECT phone,email,first_name,full_name
+       FROM users
+       WHERE id=$1::integer
+       LIMIT 1`,
+      [user.id]
+    );
+
+    if(!userRows.length)throw new Error('Utilisateur introuvable.');
+
+    const agentPhone=userRows[0].phone||'';
+    const agentEmail=userRows[0].email||'';
+    const agentFirstName=userRows[0].first_name||userRows[0].full_name||'Agent';
+
+    const {rows}=await connection.query(
+      `SELECT commission_balance, balances
+       FROM wallets
+       WHERE user_id=$1::integer
+       FOR UPDATE`,
+      [user.id]
+    );
+
+    if(!rows.length)throw new Error('Portefeuille introuvable.');
+
+    const commissionBalances=json(rows[0].commission_balance);
+    const mainBalances=json(rows[0].balances);
+
+    const available=Number(commissionBalances[ccy]||0);
+
+    if(available<=0)throw new Error('Aucune commission disponible.');
+    if(requested>available)throw new Error('Montant supérieur aux commissions disponibles.');
+
+    const transferAmount=Number(requested.toFixed(2));
+    const remaining=Number((available-transferAmount).toFixed(2));
+    const newMainBalance=Number((Number(mainBalances[ccy]||0)+transferAmount).toFixed(2));
+
+    commissionBalances[ccy]=remaining;
+    mainBalances[ccy]=newMainBalance;
+
+    await connection.query(
+      `UPDATE wallets
+       SET commission_balance=$1::jsonb,
+           balances=$2::jsonb
+       WHERE user_id=$3::integer`,
+      [
+        JSON.stringify(commissionBalances),
+        JSON.stringify(mainBalances),
+        user.id
+      ]
+    );
+
+    const reference_code=generateReferenceCode('MLM_COMM_CLAIM' as any);
+
+    const {rows:logRows}=await connection.query(
+      `INSERT INTO transactions (
+        reference_code,type_code,status,amount,currency,
+        fee,description,sender_id,receiver_id,
+        sender_wallet_id,receiver_wallet_id,metadata
+      )
+      VALUES (
+        $1::text,'MLM_COMM_CLAIM','Completed',$2::numeric,$3::text,
+        0::numeric,$4::text,$5::integer,$5::integer,
+        $6::text,$6::text,$7::jsonb
+      )
+      RETURNING id`,
+      [
+        reference_code,
+        transferAmount,
+        ccy,
+        `Bascule des commissions vers ${ccy}`,
+        user.id,
+        user.id_wallet,
+        JSON.stringify({
+          channel:'USSD',
+          currency:ccy,
+          source:'commission_balance',
+          remainingCommission:remaining
+        })
+      ]
+    );
+
+    await connection.query('COMMIT');
+
+    const notificationMessage =
+      `CashPay : Bascule de commission confirmée. ` +
+      `Montant : ${transferAmount.toFixed(2)} ${ccy}. ` +
+      `Commission restante : ${remaining.toFixed(2)} ${ccy}. ` +
+      `Solde principal : ${newMainBalance.toFixed(2)} ${ccy}. ` +
+      `Réf : ${reference_code}.`;
+
+    try {
+      if(agentPhone){
+        await sendSms(agentPhone,notificationMessage).catch(()=>null);
+      }
+
+      if(agentEmail){
+        await sendEmail(
+          agentEmail,
+          'Bascule de commission confirmée - CashPay',
+          'general',
+          {
+            title:'Bascule de commission confirmée',
+            greeting:`Bonjour ${agentFirstName},`,
+            message:
+              `Votre bascule de commission a été confirmée.<br/>` +
+              `<strong>Montant basculé :</strong> ${transferAmount.toFixed(2)} ${ccy}<br/>` +
+              `<strong>Commission restante :</strong> ${remaining.toFixed(2)} ${ccy}<br/>` +
+              `<strong>Solde principal :</strong> ${newMainBalance.toFixed(2)} ${ccy}<br/>` +
+              `<strong>Référence :</strong> ${reference_code}`,
+            buttonText:'Voir mes transactions',
+            buttonUrl:`${process.env.NEXT_PUBLIC_APP_URL||'https://app.cashpay-all.com'}/transactions`,
+            signature:"L'équipe CashPay"
+          }
+        ).catch(()=>null);
+      }
+    } catch(notificationError) {
+      console.error('[USSD Commission Claim] Erreur notification:',notificationError);
+    }
+
+    return {
+      success:true,
+      reference:reference_code,
+      transactionId:logRows[0]?.id,
+      amount:transferAmount,
+      currency:ccy,
+      remainingCommission:remaining,
+      newMainBalance
+    };
+  }catch(e:any){
+    await connection.query('ROLLBACK');
+    return {success:false,error:e.message};
+  }finally{
+    connection.release();
+  }
+}
 export async function executeUssdExchange(user:User,amount:number,currency:string,toCurrency:string,rate:number,pin:string){const p=await verifyUserPin(user.id,pin);if(!p.success)return {success:false,error:'Code PIN incorrect.'};return createTransaction({user,typeCode:'EXCHANGE',amount,currency,description:`Échange ${currency} vers ${toCurrency}`,metadata:{channel:'USSD',fromCurrency:currency,toCurrency,toAmount:amount*rate,rate}});}
 export async function fetchUssdHistory(userId:number,currency:string,page=0){try{const limit=5;const {rows}=await db.query('SELECT type_code,amount,currency,created_at FROM transactions WHERE (sender_id=$1 OR receiver_id=$1) AND currency=$2 ORDER BY created_at DESC LIMIT $3 OFFSET $4',[userId,currency,limit,page*limit]);return {items:rows.map(r=>({type:r.type_code,amount:Number(r.amount),currency:r.currency,date:r.created_at})),hasNext:rows.length===limit};}catch{return {items:[],hasNext:false};}}
 export async function getCommissionStats(userId:number,currency:string){try{const available=await getCommissionBalance(userId,currency);const {rows}=await db.query("SELECT COALESCE(SUM(amount),0) total FROM transactions WHERE receiver_id=$1 AND type_code='MLM_COMM' AND currency=$2 AND created_at>=CURRENT_DATE",[userId,currency]);return {available,daily:Number(rows[0]?.total||0)};}catch{return {available:0,daily:0};}}

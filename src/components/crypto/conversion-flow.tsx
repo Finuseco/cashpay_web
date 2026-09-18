@@ -6,7 +6,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import type { User, CryptoBalance, Currency } from '@/lib/types';
@@ -84,7 +83,14 @@ const CryptoToFiat = ({ user, balances, fiatCurrencies }: ConversionFlowProps) =
     return (
         <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                <FormField control={form.control} name="crypto" render={({ field }) => ( <FormItem><FormLabel>Convertir depuis</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="bg-zinc-700 border-zinc-600"><SelectValue/></SelectTrigger></FormControl><SelectContent className="bg-zinc-800 text-white border-zinc-700">{balances.map(b => ( <SelectItem key={b.currency_code} value={b.currency_code}>{b.currency_code} (Solde: {b.balance.toFixed(8)})</SelectItem> ))}</SelectContent></Select><FormMessage /></FormItem> )}/>
+                <FormField control={form.control} name="crypto" render={({ field }) => ( <FormItem><FormLabel>Convertir depuis</FormLabel><FormControl>
+<div className="space-y-2">{balances.map(b => (
+<label key={b.currency_code} className="flex items-center gap-3 rounded-lg border border-zinc-600 bg-zinc-700 p-3 text-white">
+<input type="radio" name="conversion-crypto" value={b.currency_code} checked={field.value === b.currency_code} onChange={() => field.onChange(b.currency_code)} />
+<span>{b.currency_code} (Solde: {b.balance.toFixed(8)})</span>
+</label>
+))}</div>
+</FormControl><FormMessage /></FormItem> )}/>
                 <FormField control={form.control} name="amount" render={({ field }) => ( <FormItem><FormLabel>Montant à convertir</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value || ''} className="bg-zinc-700 border-zinc-600" /></FormControl><FormMessage /></FormItem> )}/>
                 <div className="h-10 flex items-center justify-center">{isFetchingRate ? <Loader2 className="animate-spin"/> : usdValue !== null ? <p className="text-lg font-bold text-green-400">≈ ${usdValue.toFixed(2)} USD</p> : null}</div>
                 <FormField control={form.control} name="pin" render={({ field }) => (<FormItem><FormLabel>Votre PIN de sécurité</FormLabel><FormControl><div className="flex justify-center"><InputOTP maxLength={4} {...field}><InputOTPGroup><InputOTPSlot index={0} /><InputOTPSlot index={1} /><InputOTPSlot index={2} /><InputOTPSlot index={3} /></InputOTPGroup></InputOTP></div></FormControl><FormMessage/></FormItem>)}/>
@@ -137,12 +143,26 @@ const FiatToCrypto = ({ user, balances, fiatCurrencies }: ConversionFlowProps) =
     return (
         <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                <FormField control={form.control} name="fiat" render={({ field }) => ( <FormItem><FormLabel>Payer avec</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="bg-zinc-700 border-zinc-600"><SelectValue/></SelectTrigger></FormControl><SelectContent className="bg-zinc-800 text-white border-zinc-700">{fiatCurrencies.map(c => ( <SelectItem key={c.code} value={c.code}>{c.code} (Solde: {c.balance})</SelectItem> ))}</SelectContent></Select><FormMessage /></FormItem> )}/>
+                <FormField control={form.control} name="fiat" render={({ field }) => ( <FormItem><FormLabel>Payer avec</FormLabel><FormControl>
+<div className="space-y-2">{fiatCurrencies.map(c => (
+<label key={c.code} className="flex items-center gap-3 rounded-lg border border-zinc-600 bg-zinc-700 p-3 text-white">
+<input type="radio" name="conversion-fiat" value={c.code} checked={field.value === c.code} onChange={() => field.onChange(c.code)} />
+<span>{c.code} (Solde: {c.balance})</span>
+</label>
+))}</div>
+</FormControl><FormMessage /></FormItem> )}/>
                 <FormField control={form.control} name="amount" render={({ field }) => ( <FormItem><FormLabel>Montant</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} className="bg-zinc-700 border-zinc-600" /></FormControl><FormMessage /></FormItem> )}/>
                 <div className="h-10 flex flex-col items-center justify-center text-center">
                     {isFetchingRate ? <Loader2 className="animate-spin"/> : cryptoValue !== null ? (<><ArrowDown className="h-5 w-5 text-zinc-400 mb-1"/><p className="text-lg font-bold text-green-400">≈ {cryptoValue.toFixed(8)} {selectedCrypto}</p></>) : null}
                 </div>
-                <FormField control={form.control} name="crypto" render={({ field }) => ( <FormItem><FormLabel>Acheter</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="bg-zinc-700 border-zinc-600"><SelectValue/></SelectTrigger></FormControl><SelectContent className="bg-zinc-800 text-white border-zinc-700">{SUPPORTED_CRYPTOS.map(c => ( <SelectItem key={c} value={c}>{c}</SelectItem> ))}</SelectContent></Select><FormMessage /></FormItem> )}/>
+                <FormField control={form.control} name="crypto" render={({ field }) => ( <FormItem><FormLabel>Acheter</FormLabel><FormControl>
+<div className="space-y-2">{SUPPORTED_CRYPTOS.map(c => (
+<label key={c} className="flex items-center gap-3 rounded-lg border border-zinc-600 bg-zinc-700 p-3 text-white">
+<input type="radio" name="buy-crypto" value={c} checked={field.value === c} onChange={() => field.onChange(c)} />
+<span>{c}</span>
+</label>
+))}</div>
+</FormControl><FormMessage /></FormItem> )}/>
                 <FormField control={form.control} name="pin" render={({ field }) => (<FormItem><FormLabel>Votre PIN de sécurité</FormLabel><FormControl><div className="flex justify-center"><InputOTP maxLength={4} {...field}><InputOTPGroup><InputOTPSlot index={0} /><InputOTPSlot index={1} /><InputOTPSlot index={2} /><InputOTPSlot index={3} /></InputOTPGroup></InputOTP></div></FormControl><FormMessage/></FormItem>)}/>
                 <Button type="submit" className="w-full" disabled={isLoading || isFetchingRate}> {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Confirmer l'Achat </Button>
             </form>

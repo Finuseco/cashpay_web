@@ -1,68 +1,63 @@
 'use server';
 
-/**
- * @fileoverview Service de messagerie via l'API WhatChimp.
- * Spécialisé pour l'envoi de notifications, alertes et codes OTP.
- * Documentation : https://help.whatchimp.com/docs/whatchimp-apis/whatchimp-messaging-api
- */
-
 interface WhatsAppResponse {
   success: boolean;
   message: string;
   data?: any;
 }
 
-const WHATCHIMP_API_URL = 'https://api.whatchimp.com/v1/send-message';
-const WHATCHIMP_API_KEY = process.env.WHATCHIMP_API_KEY;
+const WHATSAPP_API_VERSION = 'v23.0';
+const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
 
-/**
- * Envoie un message textuel via WhatChimp.
- * 
- * @param to Le numéro de téléphone du destinataire au format international (ex: 243853868021).
- * @param text Le contenu du message.
- * @returns Une promesse résolue avec le statut de l'envoi.
- */
-export async function sendWhatsAppTextMessage(to: string, text: string): Promise<WhatsAppResponse> {
-  
-  // 1. Vérification de la configuration
-  if (!WHATCHIMP_API_KEY || WHATCHIMP_API_KEY === 'YOUR_API_KEY') {
-    const errorMessage = 'Clé API WhatChimp non configurée dans le fichier .env.';
-    console.warn(`[WhatsApp Service] ${errorMessage}`);
-    
-    // Fallback console pour le développement
-    console.log("--- MOCK WHATCHIMP ---");
-    console.log(`Destinataire : ${to}`);
-    console.log(`Message : ${text}`);
-    console.log("----------------------");
-    
-    return { success: true, message: 'Message simulé (Clé API manquante).' };
+export async function sendWhatsAppTextMessage(
+  to: string,
+  text: string
+): Promise<WhatsAppResponse> {
+  if (!WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_ACCESS_TOKEN) {
+    console.warn(
+      '[WhatsApp Service] Configuration Meta WhatsApp Cloud API absente.'
+    );
+    return {
+      success: false,
+      message: 'WhatsApp Cloud API non configurée.'
+    };
   }
 
-  // 2. Formatage du numéro (WhatChimp attend des chiffres uniquement)
   const sanitizedNumber = to.replace(/\D/g, '');
 
-  // 3. Optimisation pour OTP (Press to copy)
-  // Si le message contient un code à 6 chiffres, on s'assure qu'il est bien mis en évidence
-  let finalMessage = text;
-  if (text.includes('code') || text.includes('OTP')) {
-      // On ajoute des sauts de ligne pour isoler le code et faciliter la copie sur mobile
-      finalMessage = text.replace(/(\d{6})/, '\n\n*$1*\n\n');
+  if (!sanitizedNumber) {
+    return {
+      success: false,
+      message: 'Numéro WhatsApp invalide.'
+    };
   }
 
+  const url =
+    `https://graph.facebook.com/${WHATSAPP_API_VERSION}/` +
+    `${WHATSAPP_PHONE_NUMBER_ID}/messages`;
+
   const payload = {
-    receiver: sanitizedNumber,
-    message: finalMessage,
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: sanitizedNumber,
+    type: 'text',
+    text: {
+      preview_url: false,
+      body: text
+    }
   };
-  
+
   try {
-    console.log(`[WhatsApp Service] Envoi via WhatChimp vers ${sanitizedNumber}...`);
-    
-    const response = await fetch(WHATCHIMP_API_URL, {
+    console.log(
+      `[WhatsApp Service] Envoi via Meta Cloud API vers ${sanitizedNumber}...`
+    );
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'X-API-Key': WHATCHIMP_API_KEY,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(payload),
       cache: 'no-store'
@@ -71,18 +66,39 @@ export async function sendWhatsAppTextMessage(to: string, text: string): Promise
     const responseData = await response.json();
 
     if (!response.ok) {
-      console.error('[WhatsApp Service] Erreur API WhatChimp :', responseData);
-      return { 
-        success: false, 
-        message: responseData.message || responseData.error || 'Échec de l\'envoi du message WhatsApp.' 
+      console.error(
+        '[WhatsApp Service] Erreur Meta Cloud API:',
+        responseData
+      );
+
+      return {
+        success: false,
+        message:
+          responseData?.error?.message ||
+          "Échec de l'envoi du message WhatsApp.",
+        data: responseData
       };
     }
 
-    console.log(`[WhatsApp Service] Message envoyé avec succès à ${sanitizedNumber}.`);
-    return { success: true, message: 'Message envoyé avec succès.', data: responseData };
+    console.log(
+      `[WhatsApp Service] Message envoyé avec succès à ${sanitizedNumber}.`
+    );
 
+    return {
+      success: true,
+      message: 'Message WhatsApp envoyé avec succès.',
+      data: responseData
+    };
   } catch (error: any) {
-    console.error('[WhatsApp Service] Erreur critique lors de l\'appel API :', error);
-    return { success: false, message: `Une erreur inattendue est survenue : ${error.message}` };
+    console.error(
+      '[WhatsApp Service] Erreur lors de l’appel Meta Cloud API:',
+      error
+    );
+
+    return {
+      success: false,
+      message:
+        error?.message || "Erreur inattendue lors de l'envoi WhatsApp."
+    };
   }
 }

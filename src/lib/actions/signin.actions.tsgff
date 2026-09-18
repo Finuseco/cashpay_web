@@ -2,7 +2,7 @@
 
 import { db } from '@/lib/db';
 import { handleDbError, saveBase64Image } from './helpers';
-import { formatUser, countryToCode } from '../utils';
+import { formatUser } from '../utils';
 import { countries } from '../countries';
 import * as bcrypt from 'bcryptjs';
 import { generateToken } from '../jwt';
@@ -50,6 +50,10 @@ export async function sendEmailOtp(email: string) {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     
     try {
+        await db.query('BEGIN');
+        // Invalidate previous OTPs for this email
+        await db.query("UPDATE registration_otps SET used = true WHERE destination = $1 AND used = false", [email]);
+        // Insert new OTP
         await db.query('INSERT INTO registration_otps (destination, code, expires_at) VALUES ($1, $2, $3)', [email, otp, expiresAt]);
         
         await sendEmail(email, 'Votre Code de Vérification CashPay', 'otp', {
@@ -59,8 +63,11 @@ export async function sendEmailOtp(email: string) {
             signature: "L'équipe CashPay All"
         });
 
+        await db.query('COMMIT');
         return { success: true };
     } catch (error) {
+        await db.query('ROLLBACK');
+        console.error("Send OTP Error:", error);
         return { success: false, error: "Échec de l'envoi de l'OTP." };
     }
 }
@@ -83,12 +90,15 @@ export async function verifyEmailOtp(email: string, otp: string) {
 export async function registerNewAccount(data: any): Promise<{ success: boolean; id_wallet?: string; token?: string; user?: User; error?: string }> {
     const { ...formData } = data;
     
+    console.log("[Register Action] Starting registration for:", formData.email || formData.phone);
+
     if (!formData.phone || !formData.countryCode || !formData.country) {
         return { success: false, error: "Informations de contact manquantes." };
     }
 
-    const countryInfo = countries.find(c => c.code === formData.countryCode);
+    const countryInfo = countries.find(c => c.code.toUpperCase() === formData.countryCode.toUpperCase());
     if (!countryInfo) {
+        console.error(`Invalid country code: ${formData.countryCode}`);
         return { success: false, error: "Pays invalide." };
     }
 
@@ -97,32 +107,25 @@ export async function registerNewAccount(data: any): Promise<{ success: boolean;
     try {
         await connection.query('BEGIN');
 
-        const agencyPrefix = `${countryInfo.code}01`;
+        const sanitizedLang = (formData.language || 'fr').split('-')[0].toLowerCase().substring(0, 2);
+
+        const agencyPrefix = `${countryInfo.code.toUpperCase()}01`;
         const id_wallet = await generateUniqueWalletId(agencyPrefix, connection);
         const rawPin = Math.floor(1000 + Math.random() * 9000).toString();
         const pinHash = await bcrypt.hash(rawPin, 10);
         
         const profilePhotoPath = await saveBase64Image(formData.profile_photo, 'avatars', id_wallet);
         const idFrontImagePath = await saveBase64Image(formData.id_front_image, 'documents', `${id_wallet}_front`);
-        const idBackImagePath = formData.id_back_image
-            ? await saveBase64Image(formData.id_back_image, 'documents', `${id_wallet}_back`)
-            : null;
         const signatureImagePath = await saveBase64Image(formData.signature_image, 'signatures', id_wallet);
 
         const isBusiness = formData.account_type === 'business';
         const role = isBusiness ? 'PartnerB2B' : 'Client';
         
-        // Fix check_language constraint by using only 2 chars code
-        const sanitizedLang = (formData.language || 'fr').split('-')[0].toLowerCase().substring(0, 2);
-
         const fullName = isBusiness 
-            ? (formData.company_name || 'ENTREPRISE').toUpperCase() 
+            ? (formData.company_name || 'ENTREPRISE SANS NOM').toUpperCase() 
             : `${formData.first_name} ${formData.last_name} ${formData.middle_name || ''}`.trim().toUpperCase();
 
-        let apiKey = null;
-        let apiSecret = null;
-        let testApiKey = null;
-        let testApiSecret = null;
+        let apiKey = null, apiSecret = null, testApiKey = null, testApiSecret = null;
 
         if (isBusiness) {
             apiKey = `cp_live_${crypto.randomBytes(12).toString('hex')}`;
@@ -131,14 +134,13 @@ export async function registerNewAccount(data: any): Promise<{ success: boolean;
             testApiSecret = `csk_test_${crypto.randomBytes(24).toString('hex')}`;
         }
 
-        // Handle possible date range error
-        let birthDate = null;
-        if (formData.birth_date) {
-            const d = new Date(formData.birth_date);
-            if (!isNaN(d.getTime())) birthDate = d.toISOString();
-        }
+        const validateDate = (dateStr: any) => {
+            if (!dateStr || dateStr === "") return null;
+            const d = new Date(dateStr);
+            return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];
+        };
 
-        const newUser = {
+        const newUserPayload: any = {
             role: role,
             status: 'Active',
             account_type: formData.account_type,
@@ -149,32 +151,31 @@ export async function registerNewAccount(data: any): Promise<{ success: boolean;
             last_name: formData.last_name,
             middle_name: formData.middle_name || null,
             gender: formData.gender,
-            birth_date: birthDate,
+            birth_date: validateDate(formData.birth_date),
             marital_status: formData.marital_status,
             nationality: formData.nationality || '',
             email: formData.email,
             phone: formData.phone,
             country: formData.country, 
+            city: formData.city,
+            address: formData.address,
             profession: formData.profession,
-            activity_description: formData.activity_description,
-            income_per_month: formData.income_per_month || 0,
             profile_photo: profilePhotoPath,
             signature_image: signatureImagePath,
             pin_hash: pinHash,
-            representative: JSON.stringify(formData.representative)
+            representative: JSON.stringify(formData.representative),
+            availabilitystatus: 'offline',
+            is_crypto_active: false,
+            api_key: apiKey,
+            api_secret: apiSecret,
+            test_api_key: testApiKey,
+            test_api_secret: testApiSecret,
         };
 
-        if (isBusiness) {
-            (newUser as any).api_key = apiKey;
-            (newUser as any).api_secret = apiSecret;
-            (newUser as any).test_api_key = testApiKey;
-            (newUser as any).test_api_secret = testApiSecret;
-        }
-
-        const keys = Object.keys(newUser);
+        const keys = Object.keys(newUserPayload);
         const columns = keys.map(key => `"${key.toLowerCase()}"`).join(', ');
         const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-        const values = keys.map(k => (newUser as any)[k]);
+        const values = Object.values(newUserPayload);
 
         const { rows: userResult } = await connection.query(
             `INSERT INTO users (${columns}) VALUES (${placeholders}) RETURNING id`, 
@@ -187,47 +188,25 @@ export async function registerNewAccount(data: any): Promise<{ success: boolean;
           initialBalances[countryInfo.currency_code] = 0;
         }
         await connection.query('INSERT INTO wallets (user_id, id_wallet, balances) VALUES ($1, $2, $3::jsonb)', [userId, id_wallet, initialBalances]);
-        if (formData.referralCode) {
-            const { rows: referrerRows } = await connection.query(
-                'SELECT id FROM users WHERE id_wallet = $1 LIMIT 1',
-                [formData.referralCode]
-            );
-
-            if (referrerRows.length > 0) {
-                await connection.query(
-                    `INSERT INTO referrals
-                     (referrer_user_id, referred_user_id, status)
-                     VALUES ($1, $2, $3)`,
-                    [referrerRows[0].id, userId, 'Pending Deposit']
-                );
-            }
-        }
         
         await connection.query(
-            `INSERT INTO user_documents
-             (user_id, id_type, id_number, id_front_image, id_back_image)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [
-                userId,
-                formData.id_type,
-                formData.id_number,
-                idFrontImagePath,
-                idBackImagePath
-            ]
+            `INSERT INTO user_documents (user_id, id_type, id_number, id_front_image, id_issued_date, id_expiry_date) 
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [userId, formData.id_type, formData.id_number, idFrontImagePath, validateDate(formData.id_issued_date), validateDate(formData.id_expiry_date)]
         );
+
         await connection.query('COMMIT');
         
-        const finalUser = formatUser({ ...newUser, id: userId });
+        const finalUser = formatUser({ ...newUserPayload, id: userId, created_at: new Date() });
         const token = generateToken(finalUser);
 
-        // Notify across all channels
-        const welcomeMessage = `Bienvenue chez CashPay All! Votre ID portefeuille est : ${id_wallet}. Votre PIN provisoire est : ${rawPin}. Veuillez le changer rapidement.`;
+        const welcomeMessage = `Bienvenue chez CashPay All! Votre ID portefeuille: ${id_wallet}. PIN provisoire: ${rawPin}. Changez-le rapidement.`;
         sendSms(formData.phone, welcomeMessage).catch(console.error);
         sendWhatsAppTextMessage(formData.phone, welcomeMessage).catch(console.error);
 
         if (formData.email) {
             sendEmail(formData.email, 'Bienvenue chez CashPay All', 'welcome', {
-                userName: newUser.first_name || fullName,
+                userName: newUserPayload.first_name || fullName,
                 walletId: id_wallet,
                 pin: rawPin,
                 dashboardUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`
@@ -250,6 +229,8 @@ export async function registerNewAccount(data: any): Promise<{ success: boolean;
     } catch (error: any) {
         if (connection) await connection.query('ROLLBACK');
         console.error("[Register Error]", error);
+        const dbError = handleDbError(error);
+        if (dbError) return dbError;
         return { success: false, error: error.message || "Échec de l'enregistrement." };
     } finally {
         if (connection) connection.release();
