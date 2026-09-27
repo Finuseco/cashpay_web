@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
             const findResult = await findUserByZoomId(zoomId);
             if (findResult.success && findResult.user && findResult.token) {
                 // User found, log them in
-                cookies().set('cashpay-token', findResult.token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/' });
+                cookies().set('cashpay-token', findResult.token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/', maxAge: 60 * 60 * 24 * 30 });
                 return NextResponse.redirect(new URL('/dashboard', appUrl));
             } else {
                 // No user found with this Zoom ID. Redirect to registration with pre-filled email.

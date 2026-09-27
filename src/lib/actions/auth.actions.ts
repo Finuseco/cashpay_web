@@ -12,6 +12,7 @@ import { handleDbError, saveBase64Image } from './helpers';
 import { formatUser, countryToCode } from '../utils';
 import { countries } from '../countries';
 import * as bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { UAParser } from 'ua-parser-js';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -33,7 +34,7 @@ export async function login(prevState: any, formData: FormData) {
     if (!isMatch) return { message: 'Identifiants incorrects' };
 
     const token = generateToken(user);
-    cookies().set('cashpay-token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/' });
+    cookies().set('cashpay-token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/', maxAge: 60 * 60 * 24 * 30 });
 
     return { message: 'success', role: user.role.toLowerCase() };
   } catch (e) {
@@ -105,13 +106,31 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
         const idBackImagePath = await saveBase64Image(formData.id_back_image, 'documents', `${id_wallet}_back`);
 
 
+        const isBusiness = formData.account_type === 'business';
+        const role = isBusiness ? 'PartnerB2B' : 'Client';
+        const fullName = isBusiness
+            ? (formData.company_name || 'ENTREPRISE SANS NOM').toUpperCase()
+            : `${formData.first_name || ''} ${formData.last_name || ''} ${formData.middle_name || ''}`.trim().toUpperCase();
+
+        let apiKey = null;
+        let apiSecret = null;
+        let testApiKey = null;
+        let testApiSecret = null;
+
+        if (isBusiness) {
+            apiKey = `cp_live_${crypto.randomBytes(12).toString('hex')}`;
+            apiSecret = `csk_live_${crypto.randomBytes(24).toString('hex')}`;
+            testApiKey = `cp_test_${crypto.randomBytes(12).toString('hex')}`;
+            testApiSecret = `csk_test_${crypto.randomBytes(24).toString('hex')}`;
+        }
+
         const newUserPayload = {
-            role: 'Client',
+            role,
             status: 'Active',
             account_type: formData.account_type,
             id_wallet,
             language: formData.language || 'fr',
-            full_name: `${formData.first_name} ${formData.last_name}`,
+            full_name: fullName,
             first_name: formData.first_name,
             last_name: formData.last_name,
             middle_name: formData.middle_name || null,
@@ -147,10 +166,11 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
             temp_photo_expires_at: formData.isAiGeneratedPhoto ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : null,
             is_crypto_active: false,
             mlm_rank_id: null,
-            api_key: null,
-            api_secret: null,
+            api_key: apiKey,
+            api_secret: apiSecret,
+            test_api_key: testApiKey,
+            test_api_secret: testApiSecret,
             left_child_id: null,
-            right_child_id: null,
         };
         
         const columns = Object.keys(newUserPayload).map(key => `"${key.toLowerCase()}"`).join(', ');
@@ -189,8 +209,8 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
             user_id: userId,
             id_type: formData.id_type,
             id_number: formData.id_number,
-            id_issued_date: formData.id_issued_date,
-            id_expiry_date: formData.id_expiry_date,
+            id_issued_date: null,
+            id_expiry_date: null,
             id_front_image: idFrontImagePath,
             id_back_image: idBackImagePath,
         };
@@ -203,7 +223,7 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
         
         const { rows: createdUserRows } = await connection.query('SELECT * FROM users WHERE id = $1::integer', [userId]);
 
-        const token = generateToken({ id: userId, id_wallet, role: 'Client' });
+        const token = generateToken({ id: userId, id_wallet, role });
         const finalUserObject: User = formatUser(createdUserRows[0]);
         
         await connection.query('COMMIT');
@@ -223,6 +243,22 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
                     pin: pin,
                 }
             ).catch(console.error);
+
+            if (isBusiness) {
+                sendEmail(
+                    newUserPayload.email,
+                    'Vos Identifiants Développeur CashPay',
+                    'b2b_welcome',
+                    {
+                        companyName: fullName,
+                        apiKey,
+                        apiSecret,
+                        testApiKey,
+                        testApiSecret,
+                        buttonUrl: `${process.env.NEXT_PUBLIC_APP_URL}/settings`,
+                    }
+                ).catch(console.error);
+            }
         }
 
         return { success: true, id_wallet, token, user: finalUserObject };
@@ -558,7 +594,7 @@ export async function verifyPinAndCreateSession(userId: number, pin: string): Pr
         const user = userRows[0];
         const token = generateToken(user as User);
         const cookieStore = cookies();
-        cookieStore.set('cashpay-token', token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/' });
+        cookieStore.set('cashpay-token', token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/', maxAge: 60 * 60 * 24 * 30 });
         
         await logUserSessionAndNotify(user);
 

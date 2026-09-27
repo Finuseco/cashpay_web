@@ -39,7 +39,7 @@ export function generateToken(user: Pick<User, 'id' | 'id_wallet' | 'role'> | Fx
     }
 
     return jwt.sign(payload, tokenSecret, {
-        expiresIn: '7d',
+        expiresIn: '30d',
     });
 }
 

@@ -11,8 +11,8 @@ import { LoanSummary } from "@/components/dashboard/loan-summary";
 import { LinkBankAccount } from "@/components/dashboard/link-bank-account";
 
 export function DashboardClient({ user, transactions, currencies, cards, loan }: { user: User | null, transactions: Transaction[], currencies: Currency[], cards: CardType[], loan: Loan | null }) {
-  const { t } = useTranslation();
-  
+  const { t, i18n } = useTranslation();
+
   if (!user) {
     return null;
   }
@@ -20,6 +20,14 @@ export function DashboardClient({ user, transactions, currencies, cards, loan }:
   return (
     <main className="flex-1 bg-muted/30 pt-4 pb-20">
         <div className="container mx-auto space-y-6">
+            <header className="flex items-center justify-between gap-4 px-1">
+                <div className="min-w-0">
+                    <p className="text-sm text-muted-foreground">
+                        {t("dashboardWelcome") || (i18n.language?.toLowerCase().startsWith("en") ? "Welcome" : "Bienvenue")}
+                    </p>
+                  </div>
+              </header>
+
             <LoanSummary loan={loan} />
             <LinkBankAccount user={user} />
             <section>

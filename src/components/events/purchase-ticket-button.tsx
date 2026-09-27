@@ -103,7 +103,10 @@ export function PurchaseTicketButton({ event, ticketType, user }: PurchaseTicket
         }
     };
     
-    const isDisabled = !user || (ticketType.quantity - ticketType.sold) < quantity || quantity <= 0 || !hasRequiredCurrency || isEventPast;
+    const isDisabled =
+        isEventPast ||
+        (ticketType.quantity - ticketType.sold) < quantity ||
+        Boolean(user && (quantity <= 0 || !hasRequiredCurrency));
     const totalAmount = ticketType.price * quantity;
     
     const buttonTooltip = !hasRequiredCurrency ? t('eventDetailsCurrencyError', {currency: event.currency}) : isEventPast ? "Cet événement est déjà terminé." : '';

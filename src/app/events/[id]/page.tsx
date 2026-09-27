@@ -5,7 +5,6 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { getEventById } from '@/lib/actions/event.actions';
 import { EventDetailsClient } from './event-details-client';
-import { DashboardLayout } from '@/components/dashboard/dashboard-layout';
 import { Skeleton } from '@/components/ui/skeleton';
 
 
@@ -16,24 +15,33 @@ type Props = {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const event = await getEventById(params.id);
-  
+
   if (!event) {
     return {
       title: 'Événement non trouvé',
       description: "L'événement demandé n'a pas pu être trouvé.",
-    }
+    };
   }
 
   const title = `${event.name} - CashPay Events`;
-  const description = event.description.substring(0, 160);
-  const imageUrl = event.imageUrl || 'https://placehold.co/1200x630.png';
+  const description = (event.description || '').substring(0, 160);
+  const eventUrl = `https://app.cashpay-all.com/events/${event.id}`;
+  const imageUrl = event.imageUrl
+    ? (event.imageUrl.startsWith('http://') || event.imageUrl.startsWith('https://')
+        ? event.imageUrl
+        : `https://app.cashpay-all.com${event.imageUrl.startsWith('/') ? '' : '/'}${event.imageUrl}`)
+    : 'https://placehold.co/1200x630.png';
 
   return {
-    title: title,
-    description: description,
+    title,
+    description,
+    alternates: {
+      canonical: eventUrl,
+    },
     openGraph: {
-      title: title,
-      description: description,
+      title,
+      description,
+      url: eventUrl,
       images: [
         {
           url: imageUrl,
@@ -47,11 +55,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     },
     twitter: {
       card: 'summary_large_image',
-      title: title,
-      description: description,
+      title,
+      description,
       images: [imageUrl],
     },
-  }
+  };
 }
 
 function LoadingSkeleton() {
@@ -72,20 +80,64 @@ function LoadingSkeleton() {
 }
 
 // --- Server Component Page ---
-export default async function EventDetailPage({ params }: { params: { id: string } }) {
+export default async function EventDetailPage({ params }:
+{ params: { id: string } }) {
     const event = await getEventById(params.id);
-    
+
     if (!event) {
         notFound();
     }
 
+    const eventUrl = `https://app.cashpay-all.com/events/${event.id}`;
+    const imageUrl = event.imageUrl
+        ? (event.imageUrl.startsWith('http://') || event.imageUrl.startsWith('https://')
+            ? event.imageUrl
+            : `https://app.cashpay-all.com${event.imageUrl.startsWith('/') ? '' : '/'}${event.imageUrl}`)
+        : 'https://placehold.co/1200x630.png';
+    const startDate = `${event.date.substring(0, 10)}T${event.time}`;
+
+    const jsonLd = {
+        '@context': 'https://schema.org',
+        '@type': 'Event',
+        name: event.name,
+        description: event.description || '',
+        url: eventUrl,
+        image: [imageUrl],
+        startDate,
+        eventStatus: 'https://schema.org/EventScheduled',
+        location: {
+            '@type': 'Place',
+            name: event.location || 'CashPay Events',
+        },
+        organizer: {
+            '@type': 'Person',
+            name: event.organizerName || 'CashPay Events',
+        },
+        offers: event.ticketTypes.map((ticket) => ({
+            '@type': 'Offer',
+            url: eventUrl,
+            price: ticket.price,
+            priceCurrency: event.currency,
+            availability:
+                ticket.quantity > ticket.sold
+                    ? 'https://schema.org/InStock'
+                    : 'https://schema.org/SoldOut',
+        })),
+    };
+
     return (
-        <DashboardLayout>
-            <main className="flex-1 p-4 md:p-8">
-                <Suspense fallback={<LoadingSkeleton />}>
-                    <EventDetailsClient event={event} />
-                </Suspense>
-            </main>
-        </DashboardLayout>
+        <main className="min-h-screen flex-1 p-4 md:p-8">
+            <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{
+                    __html: JSON.stringify(jsonLd),
+                }}
+            />
+
+            <Suspense fallback={<LoadingSkeleton />}>
+                <EventDetailsClient event={event} />
+            </Suspense>
+        </main>
     );
 }
+

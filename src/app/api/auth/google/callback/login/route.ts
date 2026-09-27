@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     
     if (result.success && result.user && result.token) {
         const { user, token } = result;
-        cookies().set('cashpay-token', token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/' });
+        cookies().set('cashpay-token', token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/', maxAge: 60 * 60 * 24 * 30 });
         
         // Log session and send notification email
         await logUserSessionAndNotify(user);

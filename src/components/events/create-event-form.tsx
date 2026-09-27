@@ -123,7 +123,7 @@ export function CreateEventForm() {
     if (!mounted) return null;
 
     return (
-        <Card className="border-none shadow-2xl bg-white rounded-3xl overflow-hidden">
+        <Card className="border-none shadow-2xl bg-white rounded-xl overflow-hidden">
             <CardHeader className="bg-primary/5 border-b border-primary/10 text-center py-8">
                 <CardTitle className="text-2xl font-black text-primary uppercase">Publier un Événement</CardTitle>
                 <CardDescription>Remplissez les détails pour vendre vos billets sur CashPay.</CardDescription>
@@ -136,7 +136,7 @@ export function CreateEventForm() {
                             <Label className="text-xs font-black uppercase tracking-widest text-zinc-500 pl-1">Image de l'affiche</Label>
                             <div className="relative group">
                                 {imagePreview ? (
-                                    <div className="relative aspect-video w-full rounded-2xl overflow-hidden border-4 border-white shadow-xl ring-1 ring-zinc-200">
+                                    <div className="relative aspect-video w-full rounded-lg overflow-hidden border border-border shadow-md">
                                         <Image src={imagePreview} alt="Aperçu" fill className="object-cover" />
                                         <Button 
                                             type="button" 
@@ -149,11 +149,11 @@ export function CreateEventForm() {
                                         </Button>
                                     </div>
                                 ) : (
-                                    <label className="flex flex-col items-center justify-center aspect-video w-full rounded-2xl border-2 border-dashed border-zinc-200 bg-zinc-50 hover:bg-zinc-100 hover:border-primary cursor-pointer transition-all">
+                                    <label className="flex flex-col items-center justify-center aspect-video w-full rounded-lg border border-dashed border-border bg-muted/30 hover:bg-muted/50 hover:border-primary cursor-pointer transition-all">
                                         <div className="flex flex-col items-center gap-2">
-                                            <UploadCloud className="h-12 w-12 text-zinc-300" />
-                                            <p className="text-sm font-bold text-zinc-500">Ajouter une affiche</p>
-                                            <p className="text-[10px] uppercase text-zinc-400 font-bold tracking-widest">PNG ou JPG (max 2MB)</p>
+                                            <UploadCloud className="h-9 w-9 text-muted-foreground" />
+                                            <p className="text-sm font-medium text-muted-foreground">Ajouter une affiche</p>
+                                            <p className="text-[11px] uppercase text-muted-foreground font-medium tracking-wide">PNG ou JPG (max 2MB)</p>
                                         </div>
                                         <input type="file" className="hidden" accept="image/*" onChange={handleImageChange} />
                                     </label>
@@ -169,16 +169,16 @@ export function CreateEventForm() {
                                         <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-2 gap-4">
                                             <div className="relative">
                                                 <RadioGroupItem value="live" id="live" className="sr-only peer" />
-                                                <Label htmlFor="live" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-zinc-100 bg-white p-4 hover:bg-zinc-50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 cursor-pointer transition-all h-28 shadow-sm")}>
-                                                    <QrCode className="mb-2 h-7 w-7 text-zinc-400 peer-data-[state=checked]:text-primary"/>
-                                                    <span className="font-black text-xs uppercase tracking-tighter">Sur Site (Phy)</span>
+                                                <Label htmlFor="live" className={cn("flex flex-col items-center justify-center rounded-lg border border-border bg-card px-4 py-3 hover:bg-muted/40 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 cursor-pointer transition-all min-h-[76px] shadow-sm")}>
+                                                    <QrCode className="mb-1.5 h-5 w-5 text-muted-foreground peer-data-[state=checked]:text-primary"/>
+                                                    <span className="font-semibold text-sm">Sur Site (Phy)</span>
                                                 </Label>
                                             </div>
                                             <div className="relative">
                                                 <RadioGroupItem value="zoom" id="zoom" className="sr-only peer" />
-                                                <Label htmlFor="zoom" className={cn("flex flex-col items-center justify-center rounded-2xl border-2 border-zinc-100 bg-white p-4 hover:bg-zinc-50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 cursor-pointer transition-all h-28 shadow-sm")}>
-                                                    <Video className="mb-2 h-7 w-7 text-zinc-400 peer-data-[state=checked]:text-primary"/>
-                                                    <span className="font-black text-xs uppercase tracking-tighter">Webinaire Zoom</span>
+                                                <Label htmlFor="zoom" className={cn("flex flex-col items-center justify-center rounded-lg border border-border bg-card px-4 py-3 hover:bg-muted/40 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 cursor-pointer transition-all min-h-[76px] shadow-sm")}>
+                                                    <Video className="mb-1.5 h-5 w-5 text-muted-foreground peer-data-[state=checked]:text-primary"/>
+                                                    <span className="font-semibold text-sm">Webinaire Zoom</span>
                                                 </Label>
                                             </div>
                                         </RadioGroup>
@@ -187,12 +187,12 @@ export function CreateEventForm() {
                             )}/>
                         </div>
 
-                        <div className="space-y-6">
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-primary border-l-4 border-primary pl-3">Détails de l'événement</h3>
+                        <div className="space-y-5">
+                            <h3 className="text-xs font-semibold uppercase tracking-wide text-primary border-l-2 border-primary pl-2">Détails de l'événement</h3>
                             <FormField control={form.control} name="name" render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel className="text-zinc-600">Titre de l'événement *</FormLabel>
-                                    <FormControl><Input placeholder="Ex: Grand Concert de Gala" {...field} className="h-12 bg-zinc-50 border-zinc-200" /></FormControl>
+                                    <FormLabel className="text-foreground">Titre de l'événement *</FormLabel>
+                                    <FormControl><Input placeholder="Ex: Grand Concert de Gala" {...field} className="h-11 bg-background border-border" /></FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )} />
@@ -200,8 +200,8 @@ export function CreateEventForm() {
                             {eventType === 'live' && (
                                 <FormField control={form.control} name="location" render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="text-zinc-600">Lieu / Adresse *</FormLabel>
-                                        <FormControl><Input placeholder="Ex: Palais du Peuple, Kinshasa" {...field} className="h-12 bg-zinc-50 border-zinc-200" /></FormControl>
+                                        <FormLabel className="text-foreground">Lieu / Adresse *</FormLabel>
+                                        <FormControl><Input placeholder="Ex: Palais du Peuple, Kinshasa" {...field} className="h-11 bg-background border-border" /></FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )} />
@@ -209,16 +209,16 @@ export function CreateEventForm() {
 
                             <FormField control={form.control} name="description" render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel className="text-zinc-600">Description détaillée *</FormLabel>
-                                    <FormControl><Textarea placeholder="Contenu de votre événement..." {...field} rows={4} className="bg-zinc-50 border-zinc-200" /></FormControl>
+                                    <FormLabel className="text-foreground">Description détaillée *</FormLabel>
+                                    <FormControl><Textarea placeholder="Contenu de votre événement..." {...field} rows={4} className="bg-background border-border" /></FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )} />
                             
-                            <div className="grid md:grid-cols-2 gap-6">
+                            <div className="grid md:grid-cols-2 gap-4">
                                 <FormField control={form.control} name="date" render={({ field }) => (
                                     <FormItem className="flex flex-col">
-                                        <FormLabel className="text-zinc-600">Date prévue *</FormLabel>
+                                        <FormLabel className="text-foreground">Date prévue *</FormLabel>
                                         <Popover>
                                             <PopoverTrigger asChild>
                                                 <FormControl>
@@ -237,16 +237,16 @@ export function CreateEventForm() {
                                 )} />
                                 <FormField control={form.control} name="time" render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="text-zinc-600">Heure (HH:MM) *</FormLabel>
-                                        <FormControl><Input {...field} placeholder="19:30" className="h-12 bg-zinc-50 border-zinc-200" /></FormControl>
+                                        <FormLabel className="text-foreground">Heure (HH:MM) *</FormLabel>
+                                        <FormControl><Input {...field} placeholder="19:30" className="h-11 bg-background border-border" /></FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )} />
                             </div>
                         </div>
 
-                        <div className="space-y-6">
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-primary border-l-4 border-primary pl-3">Billetterie & Prix</h3>
+                        <div className="space-y-5">
+                            <h3 className="text-xs font-semibold uppercase tracking-wide text-primary border-l-2 border-primary pl-2">Billetterie & Prix</h3>
                             
                             <div className="space-y-4">
                                 <Label className="text-xs font-bold text-zinc-500">Devise des Billets</Label>
@@ -255,7 +255,7 @@ export function CreateEventForm() {
                                         {availableCurrencies.map(c => (
                                             <div key={c}>
                                                 <RadioGroupItem value={c} id={`c-${c}`} className="sr-only" />
-                                                <Label htmlFor={`c-${c}`} className={cn("flex items-center justify-center p-3 border-2 rounded-xl cursor-pointer h-12 font-black transition-all", field.value === c ? "border-primary bg-primary/5 text-primary" : "border-zinc-100 text-zinc-400 hover:bg-zinc-50")}>
+                                                <Label htmlFor={`c-${c}`} className={cn("flex items-center justify-center px-3 border rounded-lg cursor-pointer h-10 text-sm font-semibold transition-all", field.value === c ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:bg-muted/40")}>
                                                     {c}
                                                 </Label>
                                             </div>
@@ -267,46 +267,46 @@ export function CreateEventForm() {
                             <div className="space-y-4">
                                 <div className="space-y-4">
                                     {fields.map((field, index) => (
-                                        <div key={field.id} className="grid grid-cols-12 gap-3 items-end border p-6 rounded-3xl bg-zinc-900 text-white relative shadow-lg">
+                                        <div key={field.id} className="grid grid-cols-12 gap-3 items-end border border-border p-4 rounded-lg bg-muted/20 text-foreground relative shadow-sm">
                                             {index > 0 && <Button type="button" variant="ghost" size="icon" className="absolute top-2 right-2 h-7 w-7 text-red-500 hover:bg-red-500/10" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button>}
                                             <FormField control={form.control} name={`ticketTypes.${index}.type`} render={({ field }) => (
                                                 <FormItem className="col-span-12 sm:col-span-5">
-                                                    <FormLabel className="text-[10px] uppercase font-black tracking-widest text-zinc-400">Catégorie de billet</FormLabel>
-                                                    <FormControl><Input placeholder="Ex: VIP, Standard" {...field} className="bg-zinc-800 border-zinc-700 h-11 text-white font-bold"/></FormControl>
+                                                    <FormLabel className="text-[10px] uppercase font-semibold tracking-wide text-muted-foreground">Catégorie de billet</FormLabel>
+                                                    <FormControl><Input placeholder="Ex: VIP, Standard" {...field} className="bg-background border-border h-10 text-foreground font-medium"/></FormControl>
                                                 </FormItem>
                                             )} />
                                             <FormField control={form.control} name={`ticketTypes.${index}.price`} render={({ field }) => (
                                                 <FormItem className="col-span-6 sm:col-span-4">
-                                                    <FormLabel className="text-[10px] uppercase font-black tracking-widest text-zinc-400">Prix unitaire</FormLabel>
+                                                    <FormLabel className="text-[10px] uppercase font-semibold tracking-wide text-muted-foreground">Prix unitaire</FormLabel>
                                                     <FormControl>
                                                         <div className="relative">
                                                             <Banknote className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500"/>
-                                                            <Input type="number" step="any" {...field} className="bg-zinc-800 border-zinc-700 h-11 pl-10 text-primary font-black text-lg"/>
+                                                            <Input type="number" step="any" {...field} className="bg-background border-border h-10 pl-9 text-primary font-semibold"/>
                                                         </div>
                                                     </FormControl>
                                                 </FormItem>
                                             )} />
                                             <FormField control={form.control} name={`ticketTypes.${index}.quantity`} render={({ field }) => (
                                                 <FormItem className="col-span-6 sm:col-span-3">
-                                                    <FormLabel className="text-[10px] uppercase font-black tracking-widest text-zinc-400">Places</FormLabel>
-                                                    <FormControl><Input type="number" {...field} className="bg-zinc-800 border-zinc-700 h-11 text-white font-bold text-center"/></FormControl>
+                                                    <FormLabel className="text-[10px] uppercase font-semibold tracking-wide text-muted-foreground">Places</FormLabel>
+                                                    <FormControl><Input type="number" {...field} className="bg-background border-border h-10 text-foreground font-medium text-center"/></FormControl>
                                                 </FormItem>
                                             )} />
                                         </div>
                                     ))}
-                                    <Button type="button" variant="outline" className="w-full border-dashed border-zinc-300 h-14 rounded-2xl hover:border-primary hover:bg-primary/5 text-zinc-500 font-bold" onClick={() => append({ type: '', price: 0, quantity: 100 })}>
-                                        <PlusCircle className="mr-2 h-5 w-5" /> Ajouter une catégorie de prix
+                                    <Button type="button" variant="outline" className="w-full border-dashed border-border h-11 rounded-lg hover:border-primary hover:bg-primary/5 text-muted-foreground font-medium" onClick={() => append({ type: '', price: 0, quantity: 100 })}>
+                                        <PlusCircle className="mr-2 h-4 w-4" /> Ajouter une catégorie de prix
                                     </Button>
                                 </div>
                             </div>
                         </div>
                         
-                        <div className="pt-4">
-                            <Button type="submit" variant="gradient" className="w-full h-20 text-2xl font-black shadow-2xl rounded-3xl uppercase tracking-tighter" disabled={isSubmitting}>
-                                {isSubmitting ? <Loader2 className="animate-spin mr-3 h-6 w-6"/> : <ShieldCheck className="mr-3 h-6 w-6"/>}
+                        <div className="pt-2">
+                            <Button type="submit" variant="gradient" className="w-full h-12 text-base font-semibold shadow-lg rounded-lg uppercase tracking-wide" disabled={isSubmitting}>
+                                {isSubmitting ? <Loader2 className="animate-spin mr-2 h-5 w-5"/> : <ShieldCheck className="mr-2 h-5 w-5"/>}
                                 Publier maintenant
                             </Button>
-                            <p className="text-[10px] text-center text-zinc-400 mt-4 uppercase font-bold tracking-widest">Votre événement sera visible instantanément dans le catalogue national.</p>
+                            <p className="text-xs text-center text-muted-foreground mt-3">Votre événement sera visible instantanément dans le catalogue national.</p>
                         </div>
                     </form>
                 </Form>

@@ -19,7 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '../ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { z } from "zod";
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -38,29 +38,170 @@ const transferSchema = z.object({
   pin: z.string().length(4, "Le PIN à 4 chiffres est requis."),
 });
 
-const InChatTransferForm = ({ onSubmit, currencies, currentUser }: { onSubmit: (values: z.infer<typeof transferSchema>) => void; currencies: Currency[], currentUser: User }) => {
-    const { t } = useTranslation();
-    const form = useForm<z.infer<typeof transferSchema>>({
-        resolver: zodResolver(transferSchema),
-        defaultValues: { currency: "USD", amount: undefined, pin: '' },
-    });
+const InChatTransferForm = ({
+  onSubmit,
+  currencies,
+  currentUser,
+}: {
+  onSubmit: (values: z.infer<typeof transferSchema>) => void;
+  currencies: Currency[];
+  currentUser: User;
+}) => {
+  const { t } = useTranslation();
 
-    const selectedCurrencyCode = form.watch('currency');
-    const selectedCurrency = currencies.find(c => c.code === selectedCurrencyCode);
+  const form = useForm<z.infer<typeof transferSchema>>({
+    resolver: zodResolver(transferSchema),
+    defaultValues: {
+      currency: currencies[0]?.code || 'USD',
+      amount: undefined,
+      pin: '',
+    },
+  });
 
-    return (
-        <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                    <FormField control={form.control} name="amount" render={({ field }) => (<FormItem><FormLabel>{t('amountLabel')}</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem>)}/>
-                    <FormField control={form.control} name="currency" render={({field}) => (<FormItem><FormLabel>{t('currencyLabel')}</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue/></SelectTrigger></FormControl><SelectContent>{currencies.map(c => <SelectItem key={c.code} value={c.code}>{c.code} (Solde: {c.balance})</SelectItem>)}</SelectContent></Select></FormItem>)}/>
+  const selectedCurrencyCode = form.watch('currency');
+
+  const selectedCurrency = currencies.find(
+    (currency) => currency.code === selectedCurrencyCode
+  );
+
+  return (
+    <Form {...form}>
+      <form
+        onSubmit={form.handleSubmit(onSubmit)}
+        className="space-y-5"
+      >
+        <FormField
+          control={form.control}
+          name="amount"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Montant</FormLabel>
+
+              <FormControl>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  placeholder="0.00"
+                  {...field}
+                  className="bg-zinc-900 border-zinc-700 text-white"
+                />
+              </FormControl>
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="currency"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Devise</FormLabel>
+
+              <FormControl>
+                <div className="grid grid-cols-2 gap-2">
+                  {currencies.map((currency) => {
+                    const selected =
+                      field.value === currency.code;
+
+                    return (
+                      <button
+                        key={currency.code}
+                        type="button"
+                        onClick={() =>
+                          field.onChange(currency.code)
+                        }
+                        className={cn(
+                          "rounded-lg border p-3 text-left transition-colors",
+                          selected
+                            ? "border-primary bg-primary/15 text-white"
+                            : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={cn(
+                              "h-4 w-4 rounded-full border flex items-center justify-center",
+                              selected
+                                ? "border-primary"
+                                : "border-zinc-500"
+                            )}
+                          >
+                            {selected && (
+                              <span className="h-2 w-2 rounded-full bg-primary" />
+                            )}
+                          </span>
+
+                          <span className="font-semibold">
+                            {currency.code}
+                          </span>
+                        </div>
+
+                        <p className="mt-1 text-xs text-zinc-400">
+                          Solde : {currency.balance}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
-                {selectedCurrency && <p className="text-xs text-muted-foreground">Solde disponible : {selectedCurrency.balance} {selectedCurrency.code}</p>}
-                <FormField control={form.control} name="pin" render={({ field }) => (<FormItem><FormLabel>{t('yourPinLabel')}</FormLabel><FormControl><div className="flex justify-center"><InputOTP maxLength={4} {...field}><InputOTPGroup><InputOTPSlot index={0} /><InputOTPSlot index={1} /><InputOTPSlot index={2} /><InputOTPSlot index={3} /></InputOTPGroup></InputOTP></div></FormControl><FormMessage/></FormItem>)}/>
-                <Button type="submit" variant="gradient" className="w-full">{t('proposeTransferButton')}</Button>
-            </form>
-        </Form>
-    );
+              </FormControl>
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {selectedCurrency && (
+          <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-3">
+            <p className="text-xs text-zinc-400">
+              Solde disponible
+            </p>
+
+            <p className="font-semibold text-white">
+              {selectedCurrency.balance} {selectedCurrency.code}
+            </p>
+          </div>
+        )}
+
+        <FormField
+          control={form.control}
+          name="pin"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Code PIN</FormLabel>
+
+              <FormControl>
+                <InputOTP
+                  maxLength={4}
+                  value={field.value}
+                  onChange={field.onChange}
+                >
+                  <InputOTPGroup className="mx-auto">
+                    <InputOTPSlot index={0} />
+                    <InputOTPSlot index={1} />
+                    <InputOTPSlot index={2} />
+                    <InputOTPSlot index={3} />
+                  </InputOTPGroup>
+                </InputOTP>
+              </FormControl>
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button
+          type="submit"
+          variant="gradient"
+          className="w-full"
+        >
+          {t('proposeTransferButton')}
+        </Button>
+      </form>
+    </Form>
+  );
 };
 
 const VoiceMessagePlayer = ({ message, senderAvatar }: { message: Message; senderAvatar?: string }) => {
@@ -150,7 +291,8 @@ const MessageBubble = ({
 }) => {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const isSentByCurrentUser = message.senderId === currentUser.id;
+  const isSentByCurrentUser =
+  Number(message.senderId) === Number(currentUser.id);
   
   let transferData = null;
   let fileData: { fileUrl: string, fileName?: string, imageId?: string } | null = null;
@@ -656,7 +798,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
   if (!currentUser) return null;
 
   return (
-    <div className="flex flex-col h-full bg-[#0b141a]">
+    <div className="flex flex-col h-full min-h-0 bg-[#0b141a]">
       <ChatHeader onBack={onBack} contact={conversation.contact} onViewProfile={() => onViewProfile(conversation.contact)} onStartCall={handleCall}/>
       
       {pendingImage && (
@@ -709,12 +851,23 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
           </DialogContent>
       </Dialog>
       
-      <ScrollArea className="flex-1" viewportRef={scrollAreaRef}>
+      <ScrollArea
+      className="flex-1 min-h-0"
+      viewportRef={scrollAreaRef}
+    >
           <div className="p-4 space-y-2">
           {conversation.messages.map((message, index) => {
                   const prevMessage = conversation.messages[index - 1];
                   const showDateSeparator = !prevMessage || format(new Date(prevMessage.timestamp), 'yyyy-MM-dd') !== format(new Date(message.timestamp), 'yyyy-MM-dd');
-                  const sender = message.senderId === currentUser.id ? currentUser : conversation.contact;
+                  const normalizedSenderId = Number(message.senderId);
+const normalizedCurrentUserId = Number(currentUser.id);
+
+const isCurrentUserMessage =
+  normalizedSenderId === normalizedCurrentUserId;
+
+const sender = isCurrentUserMessage
+  ? currentUser
+  : conversation.contact;
                   return (
                       <React.Fragment key={`${message.id}-${index}`}>
                           {showDateSeparator && <DateSeparator date={message.timestamp} />}
@@ -732,7 +885,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
           </div>
       </ScrollArea>
       
-      <footer className="p-2 border-t border-zinc-700/50 bg-[#1f2c33] shrink-0">
+      <footer className="shrink-0 border-t border-zinc-700/50 bg-[#1f2c33] p-2">
         <div className="flex items-center gap-2">
             <Popover>
                 <PopoverTrigger asChild>

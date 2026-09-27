@@ -404,18 +404,75 @@ export async function createMonPaysCompany(args: { user: User; pin: string; comp
     }
 
     const connection = await db.getConnection();
+
     try {
         await connection.query('BEGIN');
 
-        const fee = await calculateTransactionFee(0, companyData.paymentCurrency, 'MONPAYS_PAGE', user.country, connection);
-        
+        /*
+         * MONPAYS_PAGE est configuré avec un frais de référence en USD.
+         * La devise de paiement est ensuite obtenue avec le taux FX
+         * correspondant au pays de l'utilisateur.
+         */
+        const referenceFeeUSD = await calculateTransactionFee(
+            0,
+            'USD',
+            'MONPAYS_PAGE',
+            user.country,
+            connection
+        );
+
+        if (referenceFeeUSD <= 0) {
+            throw new Error("Le frais de création MonPays n'est pas configuré.");
+        }
+
+        const paymentCurrency = companyData.paymentCurrency || 'USD';
+        let creationFee = referenceFeeUSD;
+
+        if (paymentCurrency !== 'USD') {
+            const countryCode = countryToCode(user.country);
+
+            if (!countryCode) {
+                throw new Error("Le pays de l'utilisateur n'est pas correctement configuré.");
+            }
+
+            const { rows: rateRows } = await connection.query(
+                `SELECT rate
+                 FROM exchange_rates
+                 WHERE country_code = $1
+                   AND from_currency = 'USD'
+                   AND to_currency = $2
+                 LIMIT 1`,
+                [countryCode, paymentCurrency]
+            );
+
+            if (rateRows.length === 0) {
+                throw new Error(
+                    `Le taux USD → ${paymentCurrency} n'est pas disponible pour le pays ${countryCode}.`
+                );
+            }
+
+            const rate = Number(rateRows[0].rate);
+
+            if (!Number.isFinite(rate) || rate <= 0) {
+                throw new Error(
+                    `Le taux USD → ${paymentCurrency} configuré pour ${countryCode} est invalide.`
+                );
+            }
+
+            creationFee = referenceFeeUSD * rate;
+        }
+
         const transactionResult = await createTransaction({
             user,
             typeCode: 'MONPAYS_PAGE',
-            amount: fee,
-            currency: companyData.paymentCurrency,
+            amount: creationFee,
+            currency: paymentCurrency,
             description: `Frais de création de page MonPays pour ${companyData.name}`,
-            metadata: { companyName: companyData.name },
+            metadata: {
+                companyName: companyData.name,
+                referenceFeeUSD,
+                paymentCurrency,
+            },
             connection,
         });
 
@@ -423,8 +480,17 @@ export async function createMonPaysCompany(args: { user: User; pin: string; comp
             throw new Error(transactionResult.error || "Le paiement des frais a échoué.");
         }
 
-        const logoUrl = await saveBase64Image(companyData.logoUrl, 'monpays/logos', companyData.name);
-        const bannerUrl = await saveBase64Image(companyData.bannerUrl, 'monpays/banners', companyData.name);
+        const logoUrl = await saveBase64Image(
+            companyData.logoUrl,
+            'monpays/logos',
+            companyData.name
+        );
+
+        const bannerUrl = await saveBase64Image(
+            companyData.bannerUrl,
+            'monpays/banners',
+            companyData.name
+        );
 
         const payload = {
             owner_user_id: user.id,
@@ -444,18 +510,45 @@ export async function createMonPaysCompany(args: { user: User; pin: string; comp
         };
 
         const { rows } = await connection.query(
-            `INSERT INTO monpays_companies (owner_user_id, company_name, category, country, website_url, address, rccm, nif, phone, email, logo_url, cover_photo_url, status, owner_wallet_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+            `INSERT INTO monpays_companies (
+                owner_user_id,
+                company_name,
+                category,
+                country,
+                website_url,
+                address,
+                rccm,
+                nif,
+                phone,
+                email,
+                logo_url,
+                cover_photo_url,
+                status,
+                owner_wallet_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            RETURNING *`,
             Object.values(payload)
         );
 
         await connection.query('COMMIT');
-        
-        return { success: true, company: rows[0] };
+
+        return {
+            success: true,
+            company: rows[0],
+        };
     } catch (error: any) {
         await connection.query('ROLLBACK');
-        const dbError = await handleDbError(error, 'creating MonPays company');
-        return { success: false, error: dbError.error || error.message };
+
+        const dbError = await handleDbError(
+            error,
+            'creating MonPays company'
+        );
+
+        return {
+            success: false,
+            error: dbError.error || error.message,
+        };
     } finally {
         connection.release();
     }

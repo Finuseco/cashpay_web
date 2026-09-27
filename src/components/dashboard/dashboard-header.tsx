@@ -30,6 +30,8 @@ import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useFooterStore } from "@/hooks/use-footer-store";
 import { getCryptoBalances, getUserCryptoAddresses, activateBitcoinAccount } from "@/lib/actions/crypto.actions";
+import { getUserAstroProfile } from "@/lib/actions/astro.actions";
+import { HoroscopeCard } from "@/components/dashboard/horoscope-card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DepositFlow } from "@/components/crypto/deposit-flow";
 import { WithdrawalFlow } from "@/components/crypto/withdrawal-flow";
@@ -61,6 +63,7 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
   const [cryptoBalances, setCryptoBalances] = useState<any[]>([]);
   const [bitcoinAction, setBitcoinAction] = useState<"receive" | "send" | "buy" | "sell" | null>(null);
   const [isBitcoinActivated, setIsBitcoinActivated] = useState(false);
+  const [astroProfile, setAstroProfile] = useState<Awaited<ReturnType<typeof getUserAstroProfile>> | null>(null);
   const { isVisible: isFooterVisible, toggleVisibility: toggleFooterVisibility } = useFooterStore();
 
   useEffect(() => {
@@ -119,10 +122,39 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
     }
   }
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAstroProfile = async () => {
+      if (!user?.id) {
+        setAstroProfile(null);
+        return;
+      }
+
+      try {
+        const profile = await getUserAstroProfile(user.id);
+        if (!cancelled) {
+          setAstroProfile(profile);
+        }
+      } catch (error) {
+        console.error("[DashboardHeader] Failed to load zodiac:", error);
+        if (!cancelled) {
+          setAstroProfile(null);
+        }
+      }
+    };
+
+    loadAstroProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
   return (
     <header className="relative bg-gradient-to-br from-[#000E38] to-[#FF6600] text-primary-foreground pb-4 shadow-lg rounded-b-[2rem]">
       <div className="container mx-auto pt-4 px-4">
-        <div className="flex items-center justify-between">
+        <div className="relative flex items-center justify-between">
             <div className="flex items-center gap-3 text-sm font-medium">
               <Avatar className="h-10 w-10 border-2 border-white/50">
                 <AvatarImage src={user?.profile_photo || undefined} alt={user?.full_name || "User"} />
@@ -130,10 +162,23 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
               </Avatar>
               <div className="flex flex-col">
                 <span className="text-xs opacity-80">{isClient ? t('pinLockWelcomeBack', { name: '' }).replace(', ','') : "Welcome back"}</span>
-                <span className="font-bold -mt-1">{user?.first_name || 'User'}</span>
+                  <div className="flex items-center gap-1.5 -mt-1">
+                    <span className="font-bold">{user?.first_name || 'User'}</span>
+                    {astroProfile?.zodiac && user?.id && (
+                      <HoroscopeCard
+                        userId={user.id}
+                        zodiac={astroProfile.zodiac}
+                      >
+                        <span className="inline-flex items-center gap-1 text-xs font-medium leading-none">
+                          <span>{astroProfile.zodiac.symbol}</span>
+                          <span>{astroProfile.zodiac.nameFr}</span>
+                        </span>
+                      </HoroscopeCard>
+                    )}
+                  </div>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-1 md:gap-2">
                 <LanguageSwitcher />
                 <DropdownMenu onOpenChange={(open) => { if(open) handleOpenNotifications()}}>

@@ -38,6 +38,12 @@ const nextConfig = {
         port: '',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'app.cashpay-all.com',
+        port: '',
+        pathname: '/**',
+      },
     ],
   },
   typescript: {

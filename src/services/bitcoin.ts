@@ -7,6 +7,7 @@ const RPC_PORT = process.env.BITCOIN_RPC_PORT || '8332';
 const RPC_WALLET = process.env.BITCOIN_RPC_WALLET || 'cashpay-btc';
 
 const RPC_BASE_URL = `http://${RPC_HOST}:${RPC_PORT}`;
+
 const RPC_WALLET_URL =
     `${RPC_BASE_URL}/wallet/${encodeURIComponent(RPC_WALLET)}`;
 
@@ -81,8 +82,58 @@ export async function getNewBitcoinAddress(
     return response.result;
 }
 
+export async function listBitcoinTransactions(
+    count = 1000,
+    skip = 0,
+    includeWatchOnly = true
+): Promise<any[]> {
+    const response = await bitcoinRpcRequest(
+        'listtransactions',
+        [
+            '*',
+            count,
+            skip,
+            includeWatchOnly,
+        ]
+    );
 
-export async function listBitcoinTransactions(count = 1000, skip = 0, includeWatchOnly = true): Promise<any[]> {
-    const response = await bitcoinRpcRequest("listtransactions", ["*", count, skip, includeWatchOnly]);
-    return Array.isArray(response.result) ? response.result : [];
+    return Array.isArray(response.result)
+        ? response.result
+        : [];
+}
+
+export async function sendBitcoinToAddress(
+    recipientAddress: string,
+    amount: number
+): Promise<string> {
+    if (!recipientAddress) {
+        throw new Error(
+            'Bitcoin recipient address is required.'
+        );
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+        throw new Error(
+            'Bitcoin amount must be greater than zero.'
+        );
+    }
+
+    const response = await bitcoinRpcRequest(
+        'sendtoaddress',
+        [
+            recipientAddress,
+            amount,
+        ]
+    );
+
+    if (
+        typeof response.result !== 'string' ||
+        !response.result
+    ) {
+        throw new Error(
+            'Bitcoin Core did not return a transaction hash.'
+        );
+    }
+
+    return response.result;
 }

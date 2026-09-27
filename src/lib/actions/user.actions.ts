@@ -530,7 +530,7 @@ export async function verifyPinAndCreateSession(userId: number, pin: string): Pr
         const user = userRows[0];
         const token = generateToken(user as User);
         const cookieStore = cookies();
-        cookieStore.set('cashpay-token', token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/' });
+        cookieStore.set('cashpay-token', token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/', maxAge: 60 * 60 * 24 * 30 });
         
         await logUserSessionAndNotify(user);
 
@@ -807,7 +807,7 @@ export async function verifyDeveloperOtp(userId: number, otp: string) {
     const result = await verifyOtp(userId, otp);
     // Overwrite the cookie name for the developer portal
     if (result.success && result.token) {
-        cookies().set('dev-portal-token', result.token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/' });
+        cookies().set('dev-portal-token', result.token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/', maxAge: 60 * 60 * 24 * 30 });
     }
     return result;
 }
@@ -874,35 +874,80 @@ export async function getAllUsers(): Promise<User[]> {
 }
 
 
-export async function checkContacts(phoneNumbers: string[]): Promise<{ phone: string, onChat: boolean, user?: Partial<User> }[]> {
+export async function checkContacts(phoneNumbers: string[]): Promise<{
+    phone: string;
+    onChat: boolean;
+    user?: Partial<User>;
+    hasActiveStatus: boolean;
+}[]> {
     if (phoneNumbers.length === 0) return [];
-    try {
-        // Sanitize phone numbers - remove leading '+' and non-numeric characters
-        const sanitizedNumbers = phoneNumbers.map(p => p.replace(/\D/g, '').slice(-9)); // Keep last 9 digits
 
-        // Create a query with a condition for each phone number
-        const conditions = sanitizedNumbers.map((_, i) => `phone LIKE $${i + 1}`).join(' OR ');
+    try {
+        const sanitizedNumbers = phoneNumbers.map(p =>
+            p.replace(/\D/g, '').slice(-9)
+        );
+
+        const conditions = sanitizedNumbers
+            .map((_, i) => `u.phone LIKE $${i + 1}`)
+            .join(' OR ');
+
         const params = sanitizedNumbers.map(n => `%${n}`);
 
-        const { rows } = await db.query(`SELECT id, full_name, profile_photo, phone FROM users WHERE ${conditions}`, params);
+        const { rows } = await db.query(`
+            SELECT
+                u.id,
+                u.full_name,
+                u.profile_photo,
+                u.phone,
+                EXISTS (
+                    SELECT 1
+                    FROM statuses s
+                    WHERE s.user_id = u.id
+                      AND s.expires_at > NOW()
+                ) AS has_active_status
+            FROM users u
+            WHERE ${conditions}
+        `, params);
 
         const onChatUsers = new Map(rows.map(user => {
             const userPhoneSuffix = user.phone.slice(-9);
-            return [userPhoneSuffix, { id: user.id, full_name: user.full_name, profile_photo: user.profile_photo }];
+
+            return [
+                userPhoneSuffix,
+                {
+                    id: user.id,
+                    full_name: user.full_name,
+                    profile_photo: user.profile_photo,
+                }
+            ];
         }));
+
+        const activeStatusUsers = new Map(rows.map(user => [
+            user.phone.slice(-9),
+            Boolean(user.has_active_status)
+        ]));
 
         return phoneNumbers.map(originalPhone => {
             const sanitized = originalPhone.replace(/\D/g, '').slice(-9);
             const user = onChatUsers.get(sanitized);
+
             return {
                 phone: originalPhone,
                 onChat: !!user,
-                user: user
+                user,
+                hasActiveStatus: user
+                    ? activeStatusUsers.get(sanitized) === true
+                    : false,
             };
         });
-    } catch(error) {
+    } catch (error) {
         await handleDbError(error, 'checking contacts');
-        return phoneNumbers.map(phone => ({ phone, onChat: false }));
+
+        return phoneNumbers.map(phone => ({
+            phone,
+            onChat: false,
+            hasActiveStatus: false,
+        }));
     }
 }
 

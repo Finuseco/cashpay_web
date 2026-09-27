@@ -130,7 +130,7 @@ export async function purchaseCard(args: {
         `, [
             user.id,
             fyatuCard.id,
-            'virtuelle',
+            card_type,
             providerBrand,
             String(fyatuCard.currency || normalizedCurrency).toLowerCase(),
             null,
@@ -168,44 +168,65 @@ export async function purchaseCard(args: {
     }
 }
 
-export async function updateSpendingSource(cardId: string, type: 'wallet' | 'cpk'): Promise<{ success: boolean; error?: string }> {
+export async function updateSpendingSource(cardId: string, userId: number, type: 'wallet' | 'cpk'): Promise<{ success: boolean; error?: string }> {
     // spending_source_type n'est pas présent dans le schéma cards fourni. La source CPK est déduite de hardware_keys.
     try {
+        const { rows } = await db.query(
+            'SELECT id FROM cards WHERE id = $1 AND user_id = $2',
+            [cardId, userId]
+        );
+        if (rows.length === 0) return { success: false, error: 'Carte introuvable.' };
+
         if (type === 'wallet') {
-            await db.query('UPDATE hardware_keys SET linked_card_id = NULL WHERE linked_card_id = $1', [cardId]);
+            await db.query(
+                'UPDATE hardware_keys SET linked_card_id = NULL WHERE linked_card_id = $1',
+                [cardId]
+            );
         }
+
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
     }
 }
 
-export async function linkCpkToCard(cardId: string, cpkSignature: string, cpkPin: string): Promise<{ success: boolean; error?: string }> {
-    const user = await getAuthenticatedUser();
-    if (!user) return { success: false, error: 'Identification requise.' };
-
+export async function linkCpkToCard(cardId: string, userId: number, cpkSignature: string, cpkPin: string): Promise<{ success: boolean; error?: string }> {
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
+
+        const { rows: cardRows } = await connection.query(
+            'SELECT currency FROM cards WHERE id = $1 AND user_id = $2 FOR UPDATE',
+            [cardId, userId]
+        );
+        if (cardRows.length === 0) throw new Error('Carte introuvable.');
+
         const { rows: keyRows } = await connection.query(
             `SELECT hk.*, u.full_name as owner_name, u.id_wallet as owner_wallet
              FROM hardware_keys hk
              JOIN users u ON hk.owner_user_id = u.id
-             WHERE hk.hsm_signature = $1 AND hk.status NOT IN ('claimed', 'cancelled', 'expired') FOR UPDATE`,
+             WHERE hk.hsm_signature = $1
+               AND hk.status NOT IN ('claimed', 'cancelled', 'expired')
+             FOR UPDATE`,
             [cpkSignature]
         );
         if (keyRows.length === 0) throw new Error('Certificat CPK introuvable ou déjà utilisé.');
+
         const key = keyRows[0];
 
-        const { rows: cardRows } = await connection.query('SELECT currency FROM cards WHERE id = $1', [cardId]);
-        if (cardRows.length === 0) throw new Error('Carte introuvable.');
-        if (String(cardRows[0].currency).toUpperCase() !== String(key.currency).toUpperCase()) throw new Error('Incohérence de devise.');
-        if (key.pin_hash && !(await bcrypt.compare(cpkPin, key.pin_hash))) throw new Error('Code PIN du certificat CPK incorrect.');
+        if (String(cardRows[0].currency).toUpperCase() !== String(key.currency).toUpperCase()) {
+            throw new Error('Incohérence de devise.');
+        }
+
+        if (key.pin_hash && !(await bcrypt.compare(cpkPin, key.pin_hash))) {
+            throw new Error('Code PIN du certificat CPK incorrect.');
+        }
 
         await connection.query(
             'UPDATE hardware_keys SET linked_card_id = $1, owner_user_id = $2 WHERE hsm_signature = $3',
-            [cardId, user.id, cpkSignature]
+            [cardId, userId, cpkSignature]
         );
+
         await connection.query('COMMIT');
         return { success: true };
     } catch (error: any) {
@@ -216,9 +237,19 @@ export async function linkCpkToCard(cardId: string, cpkSignature: string, cpkPin
     }
 }
 
-export async function unlinkCpkFromCard(cardId: string): Promise<{ success: boolean; error?: string }> {
+export async function unlinkCpkFromCard(cardId: string, userId: number): Promise<{ success: boolean; error?: string }> {
     try {
-        await db.query('UPDATE hardware_keys SET linked_card_id = NULL WHERE linked_card_id = $1', [cardId]);
+        const { rows } = await db.query(
+            'SELECT id FROM cards WHERE id = $1 AND user_id = $2',
+            [cardId, userId]
+        );
+        if (rows.length === 0) return { success: false, error: 'Carte introuvable.' };
+
+        await db.query(
+            'UPDATE hardware_keys SET linked_card_id = NULL WHERE linked_card_id = $1',
+            [cardId]
+        );
+
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
@@ -279,24 +310,45 @@ export async function getCardsForUser(userId: number, holderName: string): Promi
     }
 }
 
-export async function toggleCardStatus(cardId: string, status: 'active' | 'inactive'): Promise<{ success: boolean; error?: string; card?: Card }> {
+export async function toggleCardStatus(cardId: string, userId: number, status: 'active' | 'inactive'): Promise<{ success: boolean; error?: string; card?: Card }> {
     try {
-        const { rows } = await db.query('SELECT * FROM cards WHERE id = $1', [cardId]);
+        const { rows } = await db.query(
+            'SELECT * FROM cards WHERE id = $1 AND user_id = $2',
+            [cardId, userId]
+        );
         if (rows.length === 0) return { success: false, error: 'Carte introuvable.' };
+
         const cardData = rows[0];
         const provider = await getFYATUCard(providerCardId(cardData));
         const providerStatus = String(provider?.status || '').toUpperCase();
 
         if (status === 'active') {
-            if (providerStatus !== 'FROZEN') return { success: false, error: `La carte ne peut pas être réactivée depuis l'état FYATU ${providerStatus || 'INCONNU'}.` };
+            if (providerStatus !== 'FROZEN') {
+                return {
+                    success: false,
+                    error: `La carte ne peut pas être réactivée depuis l'état FYATU ${providerStatus || 'INCONNU'}.`
+                };
+            }
             await transitionCardState(providerCardId(cardData), 'ACTIVE');
         } else {
-            if (providerStatus !== 'ACTIVE') return { success: false, error: `La carte ne peut pas être gelée depuis l'état FYATU ${providerStatus || 'INCONNU'}.` };
+            if (providerStatus !== 'ACTIVE') {
+                return {
+                    success: false,
+                    error: `La carte ne peut pas être gelée depuis l'état FYATU ${providerStatus || 'INCONNU'}.`
+                };
+            }
             await transitionCardState(providerCardId(cardData), 'SUSPENDED');
         }
 
-        await db.query('UPDATE cards SET status = $1 WHERE id = $2', [status, cardId]);
-        return { success: true, card: await getCardById(cardId, cardData.user_id) as Card };
+        await db.query(
+            'UPDATE cards SET status = $1 WHERE id = $2 AND user_id = $3',
+            [status, cardId, userId]
+        );
+
+        return {
+            success: true,
+            card: await getCardById(cardId, userId) as Card
+        };
     } catch (error: any) {
         return { success: false, error: error.message };
     }

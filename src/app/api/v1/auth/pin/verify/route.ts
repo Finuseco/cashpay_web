@@ -1,15 +1,12 @@
 
 import { NextResponse } from 'next/server';
 import { verifyPinAndCreateSession } from '@/lib/actions/auth.actions';
-import { validateApiSignature } from '@/lib/api-security';
 
 /**
  * API : Vérification du PIN (Mobile).
  * Retourne le token JWT souverain si le PIN est correct.
  */
 export async function POST(request: Request) {
-    const security = await validateApiSignature(request);
-    if (!security.isValid) return NextResponse.json({ success: false, error: security.error }, { status: 401 });
 
     try {
         const { userId, pin } = await request.json();

@@ -114,6 +114,7 @@ export async function purchaseTicket(userId: number, eventId: string, ticketType
     const transactionResult = await createTransaction({
       user: buyer, typeCode: 'TICKET_BUY', amount: totalAmount, currency: paymentCurrency,
       description: `Achat de ${quantity} billet(s) pour ${event.name}`,
+      receiver_id: event.organizer_id,
       metadata: { eventId, ticketTypeId, quantity },
       connection: connection
     });
@@ -171,6 +172,7 @@ export async function getEvents(): Promise<Event[]> {
             FROM events e
             JOIN users u ON e.owner_user_id = u.id
             WHERE e.status = 'active'
+              AND (e.event_date + COALESCE(e.event_time, TIME '23:59:59')) >= CURRENT_TIMESTAMP
             ORDER BY e.event_date DESC
         `);
         return await Promise.all(rows.map(async (row) => {

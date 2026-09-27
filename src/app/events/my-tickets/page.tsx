@@ -6,7 +6,6 @@ import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { getTicketsForUser } from '@/lib/actions/event.actions';
 import { redirect } from 'next/navigation';
 import { MyTicketsClient } from '@/components/events/my-tickets-client';
-import { DashboardLayout } from '@/components/dashboard/dashboard-layout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useTranslation } from 'react-i18next';
 import type { EventTicket } from '@/lib/actions/event.actions';
@@ -47,10 +46,8 @@ export default function MyTicketsPage() {
     }, []);
 
     return (
-        <DashboardLayout>
-            <Suspense fallback={<LoadingSkeleton />}>
-                {isLoading ? <LoadingSkeleton /> : <MyTicketsClient ticketsByEvent={ticketsByEvent} />}
-            </Suspense>
-        </DashboardLayout>
+        <Suspense fallback={<LoadingSkeleton />}>
+            {isLoading ? <LoadingSkeleton /> : <MyTicketsClient ticketsByEvent={ticketsByEvent} />}
+        </Suspense>
     );
 }

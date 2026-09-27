@@ -57,73 +57,158 @@ export async function getConversationsForUser(userId: number): Promise<Conversat
 
 export async function getConversation(userId: number, contactId: number): Promise<Conversation | null> {
     const connection = await db.getConnection();
+
     try {
         await connection.query('BEGIN');
 
-        const { rows: contactRows } = await connection.query('SELECT * FROM users WHERE id = $1', [contactId]);
+        const { rows: contactRows } = await connection.query(
+            'SELECT * FROM users WHERE id = $1',
+            [contactId]
+        );
+
         if (contactRows.length === 0) {
             throw new Error('Contact user not found');
         }
+
         const contactUser = formatUser(contactRows[0]);
 
-        const { rows: convRows } = await connection.query(`
-            SELECT c.id FROM conversations c
-            JOIN conversation_participants cp1 ON c.id = cp1.conversation_id AND cp1.user_id = $1
-            JOIN conversation_participants cp2 ON c.id = cp2.conversation_id AND cp2.user_id = $2
-        `, [userId, contactId]);
+        const { rows: convRows } = await connection.query(
+            `
+            SELECT c.id
+            FROM conversations c
 
-        let conversationId;
+            INNER JOIN conversation_participants cp1
+                ON cp1.conversation_id = c.id
+               AND cp1.user_id = $1
+
+            INNER JOIN conversation_participants cp2
+                ON cp2.conversation_id = c.id
+               AND cp2.user_id = $2
+
+            WHERE c.is_group = false
+
+              AND (
+                SELECT COUNT(*)
+                FROM conversation_participants cp
+                WHERE cp.conversation_id = c.id
+              ) = 2
+
+            ORDER BY c.created_at ASC
+            LIMIT 1
+            `,
+            [userId, contactId]
+        );
+
+        let conversationId: string;
         let messages: any[] = [];
-        let lastMessageTimestamp: string | Date = new Date();
 
         if (convRows.length > 0) {
-            conversationId = convRows[0].id;
-            const { rows: messageRows } = await connection.query('SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC', [conversationId]);
-            messages = messageRows;
-            if (messages.length > 0) {
-              lastMessageTimestamp = messages[messages.length - 1].created_at;
-            }
+            conversationId = String(convRows[0].id);
         } else {
-            const newConversationId = `conv_${Math.min(userId, contactId)}_${Math.max(userId, contactId)}`;
-            await connection.query('INSERT INTO conversations (id) VALUES ($1)', [newConversationId]);
-            conversationId = newConversationId;
-            
-            await connection.query(`
-                INSERT INTO conversation_participants (conversation_id, user_id) 
-                VALUES ($1, $2), ($1, $3)
-            `, [conversationId, userId, contactId]);
+            conversationId = `conv_${Math.min(userId, contactId)}_${Math.max(userId, contactId)}`;
+
+            await connection.query(
+                `
+                INSERT INTO conversations (id, is_group)
+                VALUES ($1, false)
+                ON CONFLICT (id) DO NOTHING
+                `,
+                [conversationId]
+            );
+
+            await connection.query(
+                `
+                INSERT INTO conversation_participants (
+                    conversation_id,
+                    user_id
+                )
+                VALUES
+                    ($1, $2),
+                    ($1, $3)
+                ON CONFLICT (conversation_id, user_id) DO NOTHING
+                `,
+                [conversationId, userId, contactId]
+            );
         }
-        
+
+        const { rows: messageRows } = await connection.query(
+            `
+            SELECT
+                id,
+                sender_id,
+                content,
+                type,
+                status,
+                metadata,
+                image_id,
+                is_read,
+                created_at
+            FROM messages
+            WHERE conversation_id = $1
+            ORDER BY created_at ASC, id ASC
+            `,
+            [conversationId]
+        );
+
+        messages = messageRows;
+
+        const unreadCount = messages.filter(
+            (message) =>
+                Number(message.sender_id) !== Number(userId) &&
+                message.is_read === false
+        ).length;
+
+        const lastMessage =
+            messages.length > 0
+                ? messages[messages.length - 1]
+                : null;
+
+        const lastMessageTimestamp = lastMessage?.created_at
+            ? new Date(lastMessage.created_at).toISOString()
+            : new Date().toISOString();
+
         await connection.query('COMMIT');
 
         return {
-            id: conversationId.toString(),
+            id: conversationId,
             userId: userId,
             contact: contactUser,
-            messages: messages.map(m => ({
-                id: m.id.toString(),
-                senderId: m.sender_id,
-                content: m.content,
-                timestamp: new Date(m.created_at).toISOString(),
-                type: m.type,
-                status: m.status,
-                metadata: typeof m.metadata === 'string' ? m.metadata : JSON.stringify(m.metadata),
-                image_id: m.image_id
-            })),
-            lastMessage: messages.length > 0 ? messages[messages.length - 1].content : 'Démarrez la conversation',
-            lastMessageTimestamp: new Date(lastMessageTimestamp).toISOString(),
-            unreadCount: 0,
-        };
 
+            messages: messages.map((message) => ({
+                id: String(message.id),
+                senderId: message.sender_id,
+                content: message.content,
+                timestamp: new Date(message.created_at).toISOString(),
+                type: message.type,
+                status: message.status,
+                metadata:
+                    typeof message.metadata === 'string'
+                        ? message.metadata
+                        : JSON.stringify(message.metadata),
+                image_id: message.image_id,
+            })),
+
+            lastMessage: lastMessage
+                ? lastMessage.content
+                : 'Démarrez la conversation',
+
+            lastMessageTimestamp,
+
+            unreadCount,
+        };
     } catch (error) {
         await connection.query('ROLLBACK');
-        handleDbError(error, 'getting or creating conversation');
+
+        handleDbError(
+            error,
+            'getting or creating conversation'
+        );
+
         return null;
     } finally {
         connection.release();
     }
 }
-
 
 export async function createConversationByWalletId(currentUserId: number, targetWalletId: string): Promise<{ success: boolean; error?: string; conversation?: Conversation | null }> {
     try {
@@ -152,7 +237,7 @@ export async function createConversationByWalletId(currentUserId: number, target
 
 
 export async function postMessage(
-    conversationId: string, 
+    conversationId: string,
     content: string,
     type: Message['type'],
     senderId: number,
@@ -160,82 +245,176 @@ export async function postMessage(
     fileDataUri?: string,
     fileName?: string
 ): Promise<Message> {
+    const connection = await db.getConnection();
 
-    let imageId = null;
-    let finalFileUrl = null;
-    let metadata = null;
+    try {
+        await connection.query('BEGIN');
 
-    if (type === 'image' && fileDataUri) {
-        imageId = `IMG_${crypto.randomBytes(16).toString('hex')}`;
-        finalFileUrl = await saveBase64Image(fileDataUri, `chat-files/sender_${senderId}`, imageId);
-        metadata = JSON.stringify({ fileUrl: finalFileUrl, fileName: fileName || `${imageId}.jpg`, imageId });
-    } else if (fileDataUri) {
-        const fileId = `${type}_${Date.now()}`;
-        finalFileUrl = await saveBase64Image(fileDataUri, `chat-files/sender_${senderId}`, fileId);
-        metadata = JSON.stringify({ fileUrl: finalFileUrl, fileName: fileName || fileId });
-    }
-
-    const newMessageData = {
-        conversation_id: conversationId,
-        sender_id: senderId,
-        content: content,
-        type: type,
-        status: 'sent',
-        metadata: metadata,
-        image_id: imageId
-    };
-    
-    const { rows } = await db.query(
-        'INSERT INTO messages (conversation_id, sender_id, content, type, status, metadata, image_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *', 
-        Object.values(newMessageData)
-    );
-
-    const insertedMessage = rows[0];
-
-    const sender = await getUserFromDb({userId: senderId});
-    const receiver = await getUserFromDb({userId: receiverId});
-
-    if (receiver && sender) {
-         let notificationText = content;
-         if (type === 'image') notificationText = '📷 Photo';
-         if (type === 'audio') notificationText = '🎤 Message vocal';
-         if (type === 'doc') notificationText = '📄 Document';
-         if (type === 'product') notificationText = '🛍️ Produit partagé';
-
-         await createNotification(
-            receiverId, 
-            `Nouveau message de ${sender?.full_name || 'Quelqu\'un'}`,
-            notificationText.substring(0, 100),
-            'new_message',
-            { contactId: senderId }
+        const { rows: participantRows } = await connection.query(
+            `
+            SELECT user_id
+            FROM conversation_participants
+            WHERE conversation_id = $1
+              AND user_id IN ($2, $3)
+            ORDER BY user_id
+            `,
+            [conversationId, senderId, receiverId]
         );
-        
-        if (receiver.email) {
-            const senderProfilePicture = sender.profile_photo 
-                ? `${process.env.NEXT_PUBLIC_APP_URL}${sender.profile_photo}` 
-                : 'https://www.cashpay-all.com/logos/profile-placeholder.png';
 
-            await sendEmail(receiver.email, `Nouveau message de ${sender.full_name}`, 'new_message', {
-                senderName: sender.full_name,
-                senderProfilePicture: senderProfilePicture,
-                messageContent: notificationText,
-                timestamp: format(new Date(), "d MMMM yyyy 'à' HH:mm", { locale: fr }),
-                replyLink: `${process.env.NEXT_PUBLIC_APP_URL}/feedback?contactId=${senderId}`,
-            });
+        const participantIds = participantRows.map((row) => Number(row.user_id));
+
+        if (!participantIds.includes(senderId)) {
+            throw new Error('Expéditeur non autorisé pour cette conversation.');
         }
+
+        if (!participantIds.includes(receiverId)) {
+            throw new Error('Destinataire non autorisé pour cette conversation.');
+        }
+
+        const { rows: conversationRows } = await connection.query(
+            `
+            SELECT COUNT(*)::int AS count
+            FROM conversation_participants
+            WHERE conversation_id = $1
+            `,
+            [conversationId]
+        );
+
+        if (Number(conversationRows[0]?.count || 0) !== 2) {
+            throw new Error('Conversation invalide.');
+        }
+
+        let imageId: string | null = null;
+        let metadata: Record<string, unknown> | null = null;
+
+        if (type === 'image' && fileDataUri) {
+            imageId = `IMG_${crypto.randomBytes(16).toString('hex')}`;
+
+            const finalFileUrl = await saveBase64Image(
+                fileDataUri,
+                `chat-files/sender_${senderId}`,
+                imageId
+            );
+
+            metadata = {
+                fileUrl: finalFileUrl,
+                fileName: fileName || `${imageId}.jpg`,
+                imageId,
+            };
+        } else if (fileDataUri) {
+            const fileId = `${type}_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+
+            const finalFileUrl = await saveBase64Image(
+                fileDataUri,
+                `chat-files/sender_${senderId}`,
+                fileId
+            );
+
+            metadata = {
+                fileUrl: finalFileUrl,
+                fileName: fileName || fileId,
+            };
+        }
+
+        const messageId = `msg_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+
+        const { rows } = await connection.query(
+            `
+            INSERT INTO messages (
+                id,
+                conversation_id,
+                sender_id,
+                content,
+                type,
+                status,
+                metadata,
+                image_id,
+                is_read
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+            RETURNING *
+            `,
+            [
+                messageId,
+                conversationId,
+                senderId,
+                content,
+                type,
+                'sent',
+                metadata ? JSON.stringify(metadata) : null,
+                imageId,
+                false,
+            ]
+        );
+
+        const insertedMessage = rows[0];
+
+        await connection.query('COMMIT');
+
+        const sender = await getUserFromDb({ userId: senderId });
+        const receiver = await getUserFromDb({ userId: receiverId });
+
+        if (receiver && sender) {
+            let notificationText = content;
+
+            if (type === 'image') notificationText = '📷 Photo';
+            if (type === 'audio') notificationText = '🎤 Message vocal';
+            if (type === 'doc') notificationText = '📄 Document';
+            if (type === 'product') notificationText = '🛍️ Produit partagé';
+
+            await createNotification(
+                receiverId,
+                `Nouveau message de ${sender.full_name || 'Quelqu’un'}`,
+                notificationText.substring(0, 100),
+                'new_message',
+                { contactId: senderId }
+            );
+
+            if (receiver.email) {
+                const senderProfilePicture = sender.profile_photo
+                    ? `${process.env.NEXT_PUBLIC_APP_URL}${sender.profile_photo}`
+                    : 'https://www.cashpay-all.com/logos/profile-placeholder.png';
+
+                await sendEmail(
+                    receiver.email,
+                    `Nouveau message de ${sender.full_name}`,
+                    'new_message',
+                    {
+                        senderName: sender.full_name,
+                        senderProfilePicture,
+                        messageContent: notificationText,
+                        timestamp: format(
+                            new Date(),
+                            "d MMMM yyyy 'à' HH:mm",
+                            { locale: fr }
+                        ),
+                        replyLink:
+                            `${process.env.NEXT_PUBLIC_APP_URL}/feedback?contactId=${senderId}`,
+                    }
+                );
+            }
+        }
+
+        return {
+            id: insertedMessage.id.toString(),
+            senderId: insertedMessage.sender_id,
+            content: insertedMessage.content,
+            type: insertedMessage.type,
+            timestamp: new Date(insertedMessage.created_at).toISOString(),
+            status: insertedMessage.status,
+            metadata:
+                typeof insertedMessage.metadata === 'string'
+                    ? insertedMessage.metadata
+                    : JSON.stringify(insertedMessage.metadata),
+            image_id: insertedMessage.image_id ?? null,
+        };
+    } catch (error) {
+        await connection.query('ROLLBACK');
+        handleDbError(error, 'posting message');
+        throw error;
+    } finally {
+        connection.release();
     }
-
-
-    return {
-        id: insertedMessage.id.toString(),
-        senderId: insertedMessage.sender_id,
-        content: insertedMessage.content,
-        type: insertedMessage.type,
-        timestamp: new Date(insertedMessage.created_at).toISOString(),
-        status: insertedMessage.status,
-        metadata: typeof insertedMessage.metadata === 'string' ? insertedMessage.metadata : JSON.stringify(insertedMessage.metadata),
-        image_id: insertedMessage.image_id
-    };
 }
 
 export async function forwardMessage(
@@ -342,53 +521,249 @@ interface InChatTransferArgs {
     pin: string,
 }
 
-export async function createInChatTransfer(args: InChatTransferArgs): Promise<{ success: boolean; conversation?: Conversation; error?: string }> {
+export async function createInChatTransfer(args: InChatTransferArgs): Promise<{
+    success: boolean;
+    conversation?: Conversation;
+    message?: Message;
+    transaction?: {
+        id?: number;
+        reference?: string;
+        amount: number;
+        currency: string;
+        fee?: number;
+        senderNewBalance?: number;
+        receiverNewBalance?: number;
+    };
+    error?: string;
+    code?: string;
+    balance?: number;
+    required?: number;
+    currency?: string;
+}> {
     const { conversationId, senderId, receiverId, amount, currency, pin } = args;
-    
+
     try {
-        const pinVerification = await verifyCurrentUserPin(pin);
-        if (!pinVerification.success) {
-            throw new Error(pinVerification.error || "Le code PIN est incorrect.");
+        if (!Number.isFinite(amount) || amount <= 0) {
+            return {
+                success: false,
+                error: "Le montant du transfert doit être supérieur à zéro."
+            };
         }
 
-        const {rows: senderUserRows} = await db.query('SELECT * FROM users WHERE id = $1', [senderId]);
-        if (senderUserRows.length === 0) throw new Error("Utilisateur expéditeur non trouvé.");
+        if (!currency || typeof currency !== 'string') {
+            return {
+                success: false,
+                error: "La devise du transfert est requise."
+            };
+        }
+
+        /*
+         * Vérification de la conversation.
+         * Le destinataire doit obligatoirement être l'autre participant
+         * de cette conversation.
+         */
+        const { rows: participantRows } = await db.query(`
+            SELECT user_id
+            FROM conversation_participants
+            WHERE conversation_id = $1
+              AND user_id IN ($2, $3)
+            ORDER BY user_id
+        `, [conversationId, senderId, receiverId]);
+
+        const participantIds = participantRows.map(row => Number(row.user_id));
+
+        if (
+            participantIds.length !== 2 ||
+            !participantIds.includes(senderId) ||
+            !participantIds.includes(receiverId)
+        ) {
+            return {
+                success: false,
+                error: "Cette conversation n'autorise pas ce transfert."
+            };
+        }
+
+        /*
+         * Vérification du PIN CashPay.
+         */
+        const pinVerification = await verifyCurrentUserPin(pin);
+
+        if (!pinVerification.success) {
+            return {
+                success: false,
+                error: pinVerification.error || "Le code PIN est incorrect."
+            };
+        }
+
+        /*
+         * Récupération des utilisateurs.
+         */
+        const { rows: senderUserRows } = await db.query(
+            'SELECT * FROM users WHERE id = $1',
+            [senderId]
+        );
+
+        if (senderUserRows.length === 0) {
+            return {
+                success: false,
+                error: "Utilisateur expéditeur non trouvé."
+            };
+        }
+
+        const { rows: receiverUserRows } = await db.query(
+            'SELECT * FROM users WHERE id = $1',
+            [receiverId]
+        );
+
+        if (receiverUserRows.length === 0) {
+            return {
+                success: false,
+                error: "Utilisateur destinataire non trouvé."
+            };
+        }
+
         const senderUser = formatUser(senderUserRows[0]);
-        
-        const {rows: receiverUserRows} = await db.query('SELECT * FROM users WHERE id = $1', [receiverId]);
-        if (receiverUserRows.length === 0) throw new Error("Utilisateur destinataire non trouvé.");
         const receiverUser = formatUser(receiverUserRows[0]);
 
+        /*
+         * Le moteur financier CashPay reste la seule source
+         * de vérité pour le débit, le crédit, les frais et
+         * la création de la transaction.
+         */
         const transactionResult = await createTransaction({
             user: senderUser,
             typeCode: 'TR',
-            amount: amount,
-            currency: currency,
+            amount,
+            currency: currency.toUpperCase(),
             description: `Transfert OnChat à ${receiverUser.full_name}`,
             receiver_id: receiverId,
-            metadata: { onchat: true },
+            metadata: {
+                onchat: true,
+                conversation_id: conversationId,
+                sender_id: senderId,
+                receiver_id: receiverId
+            }
         });
 
         if (!transactionResult.success) {
-            return { success: false, error: transactionResult.error, conversation: await getConversation(senderId, receiverId) || undefined };
+            const errorMessage =
+                transactionResult.error ||
+                "Le transfert n'a pas pu être effectué.";
+
+            if (errorMessage.toLowerCase().includes("solde insuffisant")) {
+                const match = errorMessage.match(
+                    /Requis:\s*([0-9]+(?:\.[0-9]+)?)\s*\(incluant\s*([0-9]+(?:\.[0-9]+)?)\s*de frais\),\s*disponible:\s*([0-9]+(?:\.[0-9]+)?)/i
+                );
+
+                if (match) {
+                    return {
+                        success: false,
+                        error: "Solde insuffisant.",
+                        code: "INSUFFICIENT_BALANCE",
+                        balance: Number(match[3]),
+                        required: Number(match[1]),
+                        currency: currency.toUpperCase()
+                    };
+                }
+            }
+
+            return {
+                success: false,
+                error: errorMessage
+            };
         }
-        
+
+        /*
+         * La transaction financière étant confirmée, on crée
+         * maintenant le message financier dans LA MÊME conversation.
+         */
+        const transferMetadata = {
+            onchat: true,
+            conversationId,
+            transactionId: transactionResult.transactionId ?? null,
+            reference: transactionResult.reference ?? null,
+            amount,
+            currency: currency.toUpperCase(),
+            fee: transactionResult.fee ?? 0,
+            senderId,
+            receiverId
+        };
+
+        const messageContent =
+            `💸 Transfert de ${amount.toFixed(2)} ${currency.toUpperCase()}`;
+        const messageId = `msg_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+
+
+
+        const { rows: messageRows } = await db.query(
+            `
+            INSERT INTO messages (
+                id,
+                conversation_id,
+                sender_id,
+                content,
+                type,
+                status,
+                metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+            RETURNING *
+            `,
+            [
+                messageId,
+                conversationId,
+                senderId,
+                messageContent,
+                'in_chat_transfer',
+                'sent',
+                JSON.stringify(transferMetadata)
+            ]
+        );
+
+        const insertedMessage = messageRows[0];
+
+        const transferMessage: Message = {
+            id: insertedMessage.id.toString(),
+            senderId: insertedMessage.sender_id,
+            content: insertedMessage.content,
+            timestamp: new Date(insertedMessage.created_at).toISOString(),
+            type: 'in_chat_transfer',
+            status: insertedMessage.status,
+            metadata:
+                typeof insertedMessage.metadata === 'string'
+                    ? insertedMessage.metadata
+                    : JSON.stringify(insertedMessage.metadata),
+            image_id: insertedMessage.image_id ?? null
+        };
+
+        /*
+         * Recharge la conversation avec le nouveau message.
+         */
         const updatedConversation = await getConversation(senderId, receiverId);
-        if (!updatedConversation) throw new Error("Could not refetch conversation after transfer.");
 
-        return { success: true, conversation: updatedConversation };
-
+        return {
+            success: true,
+            conversation: updatedConversation || undefined,
+            message: transferMessage,
+            transaction: {
+                id: transactionResult.transactionId,
+                reference: transactionResult.reference,
+                amount,
+                currency: currency.toUpperCase(),
+                fee: transactionResult.fee,
+                senderNewBalance: transactionResult.senderNewBalance,
+                receiverNewBalance: transactionResult.receiverNewBalance
+            }
+        };
     } catch (error: any) {
-        console.error("Error in createInChatTransfer:", error);
-        const conv = await getConversation(senderId, receiverId);
-        return { 
-            success: false, 
-            error: error.message || "Une erreur est survenue lors du transfert.",
-            conversation: conv || undefined
+        console.error("[createInChatTransfer] Error:", error);
+
+        return {
+            success: false,
+            error: error?.message || "Une erreur est survenue lors du transfert."
         };
     }
 }
-
 
 export async function getMessageById(messageId: string): Promise<Message | null> {
   try {
