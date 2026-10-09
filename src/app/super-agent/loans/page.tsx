@@ -8,10 +8,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, Handshake, CheckCircle, XCircle, Search, Banknote, Calendar, History, AlertTriangle } from 'lucide-react';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
-import { 
-    getCountryLoans, 
-    processLoanDecision, 
-    triggerManualLoanCollection 
+import {
+    getCountryLoans,
+    processLoanDecision,
+    triggerManualLoanCollection,
+    triggerCountryLoanCollection
 } from '@/lib/actions/super-agent/finance.actions';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -30,6 +31,8 @@ export default function SuperAgentLoans() {
     const [actionType, setActionType] = useState<'approve' | 'reject' | 'collect' | 'view_schedule' | null>(null);
     const [pin, setPin] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isCountryCollecting, setIsCountryCollecting] = useState(false);
+    const [isCountryPinDialogOpen, setIsCountryPinDialogOpen] = useState(false);
     const [superAgent, setSuperAgent] = useState<any>(null);
     const [filter, setFilter] = useState('');
     
@@ -53,6 +56,66 @@ export default function SuperAgentLoans() {
     useEffect(() => {
         fetchData();
     }, []);
+
+    const handleCountryLoanCollection = async () => {
+        if (!superAgent || String(superAgent.role || '').trim() !== 'SuperAgent') {
+            return;
+        }
+
+        if (!/^\d{4}$/.test(pin)) {
+            openAlert({
+                title: 'PIN requis',
+                description: 'Veuillez saisir votre PIN Super Agent à 4 chiffres.',
+                variant: 'error'
+            });
+            return;
+        }
+
+        setIsCountryCollecting(true);
+
+        try {
+            const result = await triggerCountryLoanCollection(
+                Number(superAgent.id),
+                pin
+            );
+
+            if (!result?.success) {
+                openAlert({
+                    title: 'Recouvrement non effectué',
+                    description: result?.error || 'Le recouvrement n’a pas pu être exécuté.',
+                    variant: 'error'
+                });
+                return;
+            }
+
+            const processed = Number(result.processed || 0);
+            const failed = Number(result.failed || 0);
+
+            openAlert({
+                title: failed > 0
+                    ? 'Recouvrement partiellement effectué'
+                    : 'Recouvrement effectué',
+                description:
+                    `Échéances traitées : ${processed}. ` +
+                    `Clients concernés : ${Number(result.users || 0)}. ` +
+                    `Échecs : ${failed}.`,
+                variant: failed > 0 ? 'error' : 'success'
+            });
+
+            setPin('');
+            setIsCountryPinDialogOpen(false);
+            await fetchData();
+
+        } catch (error: any) {
+            openAlert({
+                title: 'Erreur',
+                description: error?.message || 'Impossible de lancer le recouvrement.',
+                variant: 'error'
+            });
+        } finally {
+            setIsCountryCollecting(false);
+        }
+    };
 
     const handleOpenAction = (loan: any, type: 'approve' | 'reject' | 'collect' | 'view_schedule') => {
         setSelectedLoan(loan);
@@ -219,6 +282,91 @@ export default function SuperAgentLoans() {
                 </DialogContent>
             </Dialog>
 
+            {/* Dialog PIN — Recouvrement national */}
+            <Dialog
+                open={isCountryPinDialogOpen}
+                onOpenChange={(open) => {
+                    if (!isCountryCollecting) {
+                        setIsCountryPinDialogOpen(open);
+                        if (!open) setPin('');
+                    }
+                }}
+            >
+                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                    <DialogHeader>
+                        <DialogTitle>Recouvrement national</DialogTitle>
+                        <DialogDescription className="text-zinc-400">
+                            Les échéances arrivées à échéance ou dépassées seront traitées.
+                            Les échéances futures ne seront pas prélevées.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="p-4 bg-muted/50 rounded-lg space-y-2 text-sm">
+                        <div className="flex justify-between">
+                            <span>Super Agent :</span>
+                            <span className="font-bold">
+                                {superAgent?.full_name || superAgent?.name || '—'}
+                            </span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Territoire :</span>
+                            <span className="font-bold">
+                                {superAgent?.country || '—'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label className="text-center block">
+                            PIN Super Agent requis
+                        </Label>
+
+                        <div className="flex justify-center py-3">
+                            <InputOTP
+                                maxLength={4}
+                                value={pin}
+                                onChange={(value) => setPin(value.replace(/\D/g, ''))}
+                                inputMode="numeric"
+                                disabled={isCountryCollecting}
+                            >
+                                <InputOTPGroup>
+                                    <InputOTPSlot index={0} />
+                                    <InputOTPSlot index={1} />
+                                    <InputOTPSlot index={2} />
+                                    <InputOTPSlot index={3} />
+                                </InputOTPGroup>
+                            </InputOTP>
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            variant="ghost"
+                            onClick={() => {
+                                setPin('');
+                                setIsCountryPinDialogOpen(false);
+                            }}
+                            disabled={isCountryCollecting}
+                        >
+                            Annuler
+                        </Button>
+
+                        <Button
+                            onClick={handleCountryLoanCollection}
+                            disabled={isCountryCollecting || pin.length !== 4}
+                            className="bg-green-600 hover:bg-green-700 text-white font-bold"
+                        >
+                            {isCountryCollecting && (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            )}
+                            {isCountryCollecting
+                                ? 'Recouvrement en cours...'
+                                : 'Confirmer le recouvrement'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             {/* Dialog Échéancier */}
             <Dialog open={!!selectedLoan && actionType === 'view_schedule'} onOpenChange={(open) => !open && setSelectedLoan(null)}>
                 <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-lg">
@@ -238,6 +386,7 @@ export default function SuperAgentLoans() {
                             </TableHeader>
                             <TableBody>
                                 {selectedLoan && getSchedule(selectedLoan).map((item, idx) => {
+                                    const isDueToday = !item.isPaid && isToday(item.dueDate);
                                     const isMissed = !item.isPaid && isPast(item.dueDate) && !isToday(item.dueDate);
                                     return (
                                         <TableRow key={idx} className="border-zinc-800">
@@ -246,6 +395,8 @@ export default function SuperAgentLoans() {
                                             <TableCell className="text-right">
                                                 {item.isPaid ? (
                                                     <Badge className="bg-green-500/20 text-green-500 border-green-500/30">PAYÉ</Badge>
+                                                ) : isDueToday ? (
+                                                    <Badge className="bg-green-600/20 text-green-400 border-green-500/30">ACTIVE — REMBOURSEMENT AUTOMATIQUE</Badge>
                                                 ) : isMissed ? (
                                                     <Badge className="bg-red-500/20 text-red-500 border-red-500/30 animate-pulse">IMPAYÉ</Badge>
                                                 ) : (
@@ -263,6 +414,31 @@ export default function SuperAgentLoans() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {superAgent?.role === 'SuperAgent' && (
+                <div className="mb-4 flex justify-end">
+                    <Button
+                        onClick={() => {
+                            setPin('');
+                            setIsCountryPinDialogOpen(true);
+                        }}
+                        disabled={isCountryCollecting || isLoading}
+                        className="bg-green-600 hover:bg-green-700 font-bold"
+                    >
+                        {isCountryCollecting ? (
+                            <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Recouvrement en cours...
+                            </>
+                        ) : (
+                            <>
+                                <Banknote className="h-4 w-4 mr-2" />
+                                Lancer le recouvrement des échéances actives
+                            </>
+                        )}
+                    </Button>
+                </div>
+            )}
 
             <Card className="bg-zinc-800 border-zinc-700 text-white">
                 <CardContent className="p-0">

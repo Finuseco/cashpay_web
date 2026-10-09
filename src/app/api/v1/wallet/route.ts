@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getCryptoBalances } from '@/lib/actions/crypto.actions';
 import { getCardsForUser } from '@/lib/actions/card.actions';
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { countries } from '@/lib/countries';
 import { countryToCode } from '@/lib/utils';
 
@@ -37,7 +38,9 @@ function normalizeBalance(value: any): number {
     return Number(number.toFixed(8));
 }
 
-function getNationalCurrency(country: string | null | undefined) {
+function getNationalCurrency(
+    country: string | null | undefined
+) {
     if (!country) {
         return null;
     }
@@ -113,33 +116,63 @@ async function getBitcoinAddress(userId: number) {
     return rows[0].address || null;
 }
 
-export async function GET(request: NextRequest) {
+/**
+ * GET /api/v1/wallet
+ *
+ * Le portefeuille appartient exclusivement
+ * à l'utilisateur authentifié par le token.
+ *
+ * IMPORTANT :
+ * - aucun userId dans la query string
+ * - aucun walletId dans la query string
+ * - aucune identification par téléphone
+ */
+export async function GET(
+    _request: NextRequest
+) {
     try {
-        const userIdParam =
-            request.nextUrl.searchParams.get('userId');
+        /**
+         * Identité déterminée exclusivement
+         * par le token de session.
+         */
+        const authenticatedUser =
+            await getAuthenticatedUser();
 
-        if (!userIdParam) {
+        if (!authenticatedUser) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: 'userId est requis.',
+                    error: 'Authentification requise.',
                 },
-                { status: 400 }
+                {
+                    status: 401,
+                }
             );
         }
 
-        const userId = Number(userIdParam);
+        const userId =
+            Number(authenticatedUser.id);
 
-        if (!Number.isInteger(userId) || userId <= 0) {
+        if (
+            !Number.isInteger(userId) ||
+            userId <= 0
+        ) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: 'userId invalide.',
+                    error:
+                        'Identité authentifiée invalide.',
                 },
-                { status: 400 }
+                {
+                    status: 401,
+                }
             );
         }
 
+        /**
+         * Récupération du compte correspondant
+         * à l'identité contenue dans le token.
+         */
         const userResult = await db.query(
             `
             SELECT
@@ -157,40 +190,55 @@ export async function GET(request: NextRequest) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: 'Utilisateur CashPay introuvable.',
+                    error:
+                        'Utilisateur CashPay introuvable.',
                 },
-                { status: 404 }
+                {
+                    status: 404,
+                }
             );
         }
 
-        const user = userResult.rows[0];
+        const user =
+            userResult.rows[0];
 
-        const wallet = await getWalletData(user.id);
+        const wallet =
+            await getWalletData(user.id);
 
         if (!wallet) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: 'Portefeuille utilisateur introuvable.',
+                    error:
+                        'Portefeuille utilisateur introuvable.',
                 },
-                { status: 404 }
+                {
+                    status: 404,
+                }
             );
         }
 
         /*
          * Devises et soldes fiat.
          */
-        const balances = parseBalances(wallet.balances);
+        const balances =
+            parseBalances(wallet.balances);
 
         const nationalCurrency =
-            getNationalCurrency(user.country);
+            getNationalCurrency(
+                user.country
+            );
 
-        const fiatBalances: Record<string, number> = {};
+        const fiatBalances: Record<
+            string,
+            number
+        > = {};
 
         Object.entries(balances).forEach(
             ([currency, amount]) => {
-                fiatBalances[currency.toUpperCase()] =
-                    normalizeBalance(amount);
+                fiatBalances[
+                    currency.toUpperCase()
+                ] = normalizeBalance(amount);
             }
         );
 
@@ -198,13 +246,25 @@ export async function GET(request: NextRequest) {
             const nationalCode =
                 nationalCurrency.code.toUpperCase();
 
-            if (!(nationalCode in fiatBalances)) {
-                fiatBalances[nationalCode] = 0;
+            if (
+                !(nationalCode in fiatBalances)
+            ) {
+                fiatBalances[
+                    nationalCode
+                ] = 0;
             }
         }
 
-        for (const currency of ['CDF', 'USD', 'EUR']) {
-            if (!(currency in fiatBalances)) {
+        for (
+            const currency of [
+                'CDF',
+                'USD',
+                'EUR',
+            ]
+        ) {
+            if (
+                !(currency in fiatBalances)
+            ) {
                 fiatBalances[currency] = 0;
             }
         }
@@ -216,7 +276,9 @@ export async function GET(request: NextRequest) {
 
         try {
             cryptoBalances =
-                await getCryptoBalances(user.id);
+                await getCryptoBalances(
+                    user.id
+                );
         } catch (error) {
             console.error(
                 '[API V1 WALLET] crypto balance error:',
@@ -225,29 +287,39 @@ export async function GET(request: NextRequest) {
         }
 
         const normalizedCryptoBalances =
-            Array.isArray(cryptoBalances)
-                ? cryptoBalances.map((item: any) => ({
-                      currency:
-                          item.currency ||
-                          item.currency_code ||
-                          item.currencyCode ||
-                          null,
-                      balance: normalizeBalance(
-                          item.balance ??
-                              item.amount ??
-                              0
-                      ),
-                  }))
+            Array.isArray(
+                cryptoBalances
+            )
+                ? cryptoBalances.map(
+                      (item: any) => ({
+                          currency:
+                              item.currency ||
+                              item.currency_code ||
+                              item.currencyCode ||
+                              null,
+
+                          balance:
+                              normalizeBalance(
+                                  item.balance ??
+                                      item.amount ??
+                                      0
+                              ),
+                      })
+                  )
                 : [];
 
         /*
          * Adresse Bitcoin.
          */
-        let bitcoinAddress: string | null = null;
+        let bitcoinAddress:
+            | string
+            | null = null;
 
         try {
             bitcoinAddress =
-                await getBitcoinAddress(user.id);
+                await getBitcoinAddress(
+                    user.id
+                );
         } catch (error) {
             console.error(
                 '[API V1 WALLET] bitcoin address error:',
@@ -258,7 +330,9 @@ export async function GET(request: NextRequest) {
         const bitcoinBalance =
             normalizedCryptoBalances.find(
                 (item: any) =>
-                    String(item.currency).toUpperCase() ===
+                    String(
+                        item.currency
+                    ).toUpperCase() ===
                     'BTC'
             )?.balance ?? 0;
 
@@ -268,10 +342,11 @@ export async function GET(request: NextRequest) {
         let cards: any[] = [];
 
         try {
-            cards = await getCardsForUser(
-                user.id,
-                ''
-            );
+            cards =
+                await getCardsForUser(
+                    user.id,
+                    ''
+                );
         } catch (error) {
             console.error(
                 '[API V1 WALLET] cards error:',
@@ -279,43 +354,71 @@ export async function GET(request: NextRequest) {
             );
         }
 
-        const normalizedCards = cards.map(
-            (card: any) => ({
-                id: String(card.id),
-                brand:
-                    String(card.brand || '')
-                        .toUpperCase() || null,
-                cardType:
-                    card.card_type ||
-                    card.cardType ||
-                    null,
-                currency:
-                    String(card.currency || '')
-                        .toUpperCase() || null,
-                last4: card.last4 || null,
-                status:
-                    String(
-                        card.status || 'inactive'
-                    ).toLowerCase(),
-                isPrimary:
-                    Boolean(card.is_primary),
-                cardProviderId:
-                    card.card_provider_id || null,
-            })
-        );
+        const normalizedCards =
+            cards.map(
+                (card: any) => ({
+                    id: String(
+                        card.id
+                    ),
+
+                    brand:
+                        String(
+                            card.brand || ''
+                        ).toUpperCase() ||
+                        null,
+
+                    cardType:
+                        card.card_type ||
+                        card.cardType ||
+                        null,
+
+                    currency:
+                        String(
+                            card.currency || ''
+                        ).toUpperCase() ||
+                        null,
+
+                    last4:
+                        card.last4 ||
+                        null,
+
+                    status:
+                        String(
+                            card.status ||
+                                'inactive'
+                        ).toLowerCase(),
+
+                    isPrimary:
+                        Boolean(
+                            card.is_primary
+                        ),
+
+                    cardProviderId:
+                        card.card_provider_id ||
+                        null,
+                })
+            );
 
         /*
-         * Réponse minimale du Wallet / Balance.
+         * Réponse Wallet / Balance.
          */
         return NextResponse.json({
             success: true,
 
             wallet: {
                 id: wallet.id,
-                userId: wallet.user_id,
-                walletId: wallet.id_wallet,
+
+                userId:
+                    wallet.user_id,
+
+                walletId:
+                    wallet.id_wallet,
+
                 isGroupWallet:
-                    Boolean(wallet.is_group_wallet),
+                    Boolean(
+                        wallet.is_group_wallet
+                    ),
+
                 lastUpdated:
                     wallet.last_updated
                         ? new Date(
@@ -327,20 +430,30 @@ export async function GET(request: NextRequest) {
             nationalCurrency,
 
             balances: {
-                fiat: fiatBalances,
-                crypto: normalizedCryptoBalances,
+                fiat:
+                    fiatBalances,
+
+                crypto:
+                    normalizedCryptoBalances,
             },
 
             bitcoin: {
-                address: bitcoinAddress,
-                balance: normalizeBalance(
-                    bitcoinBalance
-                ),
+                address:
+                    bitcoinAddress,
+
+                balance:
+                    normalizeBalance(
+                        bitcoinBalance
+                    ),
+
                 available:
-                    Boolean(bitcoinAddress),
+                    Boolean(
+                        bitcoinAddress
+                    ),
             },
 
-            cards: normalizedCards,
+            cards:
+                normalizedCards,
         });
     } catch (error) {
         console.error(
@@ -354,7 +467,9 @@ export async function GET(request: NextRequest) {
                 error:
                     'Impossible de récupérer le portefeuille.',
             },
-            { status: 500 }
+            {
+                status: 500,
+            }
         );
     }
 }

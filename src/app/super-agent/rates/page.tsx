@@ -63,12 +63,20 @@ export default function SuperAgentRates() {
         
         if (!user) return;
 
+        const pin = window.prompt('Entrez votre PIN pour confirmer la modification du taux :');
+
+        if (!pin) {
+            setIsSaving(null);
+            return;
+        }
+
         const result = await updateCountryExchangeRate({
-            userId: user.id,
-            fromCurrency: rateObj.from_currency,
-            toCurrency: rateObj.to_currency,
-            countryCode: countryCode,
-            newRate: parseFloat(rateObj.rate)
+            adminId: user.id,
+            from_currency: rateObj.from_currency,
+            to_currency: rateObj.to_currency,
+            country_code: countryCode,
+            rate: parseFloat(rateObj.rate),
+            pin
         });
 
         if (result.success) {

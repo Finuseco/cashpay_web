@@ -558,6 +558,257 @@ export interface ActionResult {
     error?: string;
 }
 
+export async function transferAgentCommission(args: {
+    agent: User;
+    amount: number;
+    currency: string;
+}) {
+    const { agent, amount, currency } = args;
+
+    const ccy = String(currency || '').trim().toUpperCase();
+    const requested = Number(amount);
+
+    if (!ccy) {
+        return {
+            success: false,
+            error: 'La devise de la commission est obligatoire.'
+        };
+    }
+
+    if (!Number.isFinite(requested) || requested <= 0) {
+        return {
+            success: false,
+            error: 'Montant de commission invalide.'
+        };
+    }
+
+    const transferAmount = Number(requested.toFixed(2));
+
+    if (!Number.isFinite(transferAmount) || transferAmount <= 0) {
+        return {
+            success: false,
+            error: 'Montant de commission invalide.'
+        };
+    }
+
+    const connection = await db.getConnection();
+
+    try {
+        await connection.query('BEGIN');
+
+        const { rows: userRows } = await connection.query(
+            `SELECT phone, email, first_name, full_name
+             FROM users
+             WHERE id = $1::integer
+             LIMIT 1`,
+            [agent.id]
+        );
+
+        if (!userRows.length) {
+            throw new Error('Utilisateur introuvable.');
+        }
+
+        const agentPhone = userRows[0].phone || '';
+        const agentEmail = userRows[0].email || '';
+        const agentFirstName =
+            userRows[0].first_name ||
+            userRows[0].full_name ||
+            'Agent';
+
+        const { rows } = await connection.query(
+            `SELECT commission_balance, balances
+             FROM wallets
+             WHERE user_id = $1::integer
+             FOR UPDATE`,
+            [agent.id]
+        );
+
+        if (!rows.length) {
+            throw new Error('Portefeuille introuvable.');
+        }
+
+        const commissionBalances =
+            typeof rows[0].commission_balance === 'string'
+                ? JSON.parse(rows[0].commission_balance)
+                : (rows[0].commission_balance || {});
+
+        const mainBalances =
+            typeof rows[0].balances === 'string'
+                ? JSON.parse(rows[0].balances)
+                : (rows[0].balances || {});
+
+        const available = Number(
+            commissionBalances[ccy] || 0
+        );
+
+        if (!Number.isFinite(available) || available <= 0) {
+            throw new Error(
+                `Aucune commission disponible dans la devise ${ccy}.`
+            );
+        }
+
+        if (transferAmount > available) {
+            throw new Error(
+                `Montant supérieur aux commissions disponibles (${available} ${ccy}).`
+            );
+        }
+
+        const remaining = Number(
+            (available - transferAmount).toFixed(2)
+        );
+
+        const newMainBalance = Number(
+            (
+                Number(mainBalances[ccy] || 0) +
+                transferAmount
+            ).toFixed(2)
+        );
+
+        commissionBalances[ccy] = remaining;
+        mainBalances[ccy] = newMainBalance;
+
+        await connection.query(
+            `UPDATE wallets
+             SET commission_balance = $1::jsonb,
+                 balances = $2::jsonb
+             WHERE user_id = $3::integer`,
+            [
+                JSON.stringify(commissionBalances),
+                JSON.stringify(mainBalances),
+                agent.id
+            ]
+        );
+
+        const reference = generateReferenceCode(
+            'MLM_COMM_CLAIM' as any
+        );
+
+        const { rows: transactionRows } =
+            await connection.query(
+                `INSERT INTO transactions (
+                    reference_code,
+                    type_code,
+                    status,
+                    amount,
+                    currency,
+                    fee,
+                    description,
+                    sender_id,
+                    receiver_id,
+                    sender_wallet_id,
+                    receiver_wallet_id,
+                    metadata
+                )
+                VALUES (
+                    $1::text,
+                    'MLM_COMM_CLAIM',
+                    'Completed',
+                    $2::numeric,
+                    $3::text,
+                    0::numeric,
+                    $4::text,
+                    $5::integer,
+                    $5::integer,
+                    $6::text,
+                    $6::text,
+                    $7::jsonb
+                )
+                RETURNING id`,
+                [
+                    reference,
+                    transferAmount,
+                    ccy,
+                    `Bascule des commissions vers ${ccy}`,
+                    agent.id,
+                    agent.id_wallet,
+                    JSON.stringify({
+                        channel: 'API',
+                        operation: 'COMMISSION_TRANSFER',
+                        currency: ccy,
+                        amount: transferAmount,
+                        source: 'commission_balance',
+                        destination: 'wallet_balance',
+                        agent_id: agent.id,
+                        remainingCommission: remaining
+                    })
+                ]
+            );
+
+        await connection.query('COMMIT');
+
+        const notificationMessage =
+            `CashPay : Bascule de commission confirmée. ` +
+            `Montant : ${transferAmount.toFixed(2)} ${ccy}. ` +
+            `Commission restante : ${remaining.toFixed(2)} ${ccy}. ` +
+            `Solde principal : ${newMainBalance.toFixed(2)} ${ccy}. ` +
+            `Réf : ${reference}.`;
+
+        try {
+            if (agentPhone) {
+                await sendSms(
+                    agentPhone,
+                    notificationMessage
+                ).catch(() => null);
+            }
+
+            if (agentEmail) {
+                await sendEmail(
+                    agentEmail,
+                    'Bascule de commission confirmée - CashPay',
+                    'general',
+                    {
+                        title: 'Bascule de commission confirmée',
+                        greeting: `Bonjour ${agentFirstName},`,
+                        message:
+                            `Votre bascule de commission a été confirmée.<br/>` +
+                            `<strong>Montant basculé :</strong> ${transferAmount.toFixed(2)} ${ccy}<br/>` +
+                            `<strong>Commission restante :</strong> ${remaining.toFixed(2)} ${ccy}<br/>` +
+                            `<strong>Solde principal :</strong> ${newMainBalance.toFixed(2)} ${ccy}<br/>` +
+                            `<strong>Référence :</strong> ${reference}`,
+                        buttonText: 'Voir mes transactions',
+                        buttonUrl:
+                            `${process.env.NEXT_PUBLIC_APP_URL || 'https://app.cashpay-all.com'}/transactions`,
+                        signature: "L'équipe CashPay"
+                    }
+                ).catch(() => null);
+            }
+        } catch (notificationError) {
+            console.error(
+                '[Agent Commission Transfer] Erreur notification:',
+                notificationError
+            );
+        }
+
+        return {
+            success: true,
+            reference,
+            transactionId: transactionRows[0]?.id || null,
+            currency: ccy,
+            transferredAmount: transferAmount,
+            commissionBalance: remaining,
+            mainBalance: newMainBalance
+        };
+    } catch (error: any) {
+        try {
+            await connection.query('ROLLBACK');
+        } catch {}
+
+        console.error(
+            '[Agent Commission Transfer]',
+            error
+        );
+
+        return {
+            success: false,
+            error:
+                error?.message ||
+                'Impossible de basculer la commission.'
+        };
+    } finally {
+        connection.release();
+    }
+}
+
 export async function confirmSaleByCode(args: any): Promise<ActionResult> {
     return { success: true };
 }

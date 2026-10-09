@@ -1,0 +1,179 @@
+import { NextResponse } from 'next/server';
+
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
+import { db } from '@/lib/db';
+
+function parseJson(value: unknown): Record<string, number> {
+  try {
+    if (!value) return {};
+
+    const parsed =
+      typeof value === 'string'
+        ? JSON.parse(value)
+        : value;
+
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed)
+    ) {
+      return {};
+    }
+
+    const result: Record<string, number> = {};
+
+    for (const [currency, amount] of Object.entries(parsed)) {
+      const valueNumber = Number(amount);
+
+      if (
+        Number.isFinite(valueNumber)
+      ) {
+        result[String(currency).toUpperCase()] =
+          valueNumber;
+      }
+    }
+
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+export async function GET() {
+  try {
+    const user =
+      await getAuthenticatedUser();
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Authentification requise.',
+        },
+        { status: 401 }
+      );
+    }
+
+    const userId =
+      Number(user.id);
+
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Utilisateur authentifié invalide.',
+        },
+        { status: 401 }
+      );
+    }
+
+    const role =
+      String(user.role || '')
+        .trim()
+        .toLowerCase();
+
+    if (role !== 'agent') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Un compte Agent est requis.',
+        },
+        { status: 403 }
+      );
+    }
+
+    const { rows } =
+      await db.query(
+        `
+          SELECT
+            u.id,
+            u.full_name,
+            u.first_name,
+            u.profile_photo,
+            u.id_wallet,
+            u.phone,
+            u.country,
+            w.commission_balance,
+            b.name AS "boutiqueName"
+          FROM users u
+          LEFT JOIN wallets w
+            ON w.user_id = u.id
+          LEFT JOIN boutiques b
+            ON b.agent_id = u.id
+          WHERE u.id = $1::integer
+          LIMIT 1
+        `,
+        [userId]
+      );
+
+    if (!rows.length) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Agent introuvable.',
+        },
+        { status: 404 }
+      );
+    }
+
+    const agent = rows[0];
+
+    const commissionBalance =
+      parseJson(
+        agent.commission_balance
+      );
+
+    return NextResponse.json({
+      success: true,
+
+      agent: {
+        userId: Number(agent.id),
+
+        walletId:
+          agent.id_wallet ||
+          null,
+
+        fullName:
+          agent.full_name ||
+          agent.first_name ||
+          null,
+
+        avatar:
+          agent.profile_photo ||
+          null,
+
+        phone:
+          agent.phone ||
+          null,
+
+        country:
+          agent.country ||
+          null,
+
+        boutiqueName:
+          agent.boutiqueName ||
+          null,
+      },
+
+      commissionBalance,
+    });
+  } catch (error: any) {
+    console.error(
+      '[AGENT_COMMISSIONS_API]',
+      error
+    );
+
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error?.message ||
+          'Erreur interne du service de commissions.',
+      },
+      { status: 500 }
+    );
+  }
+}

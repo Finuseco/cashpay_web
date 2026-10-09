@@ -323,6 +323,9 @@ export async function getLoanForUser(userId: number): Promise<Loan | null> {
 export async function processLoanRepayments(userId?: number) {
     const connection = await db.getConnection();
     const events: Array<{user:any;subject:string;message:string;data:any}> = [];
+    let processed = 0;
+    let debited = 0;
+    let failed = 0;
     try {
         await connection.query('BEGIN');
         await ensureLoanPlanColumns(connection);
@@ -348,8 +351,23 @@ export async function processLoanRepayments(userId?: number) {
         const { rows: approvedLoans } = await connection.query(`
           SELECT l.*, u.id AS u_id, u.full_name, u.phone, u.email, u.first_name, u.country, u.id_wallet, u.notifications_channel
           FROM loans l JOIN users u ON u.id=l.user_id
-          WHERE l.status='approved' AND l.remaining_balance > 0
+          WHERE l.status='approved'
             AND ($1::integer IS NULL OR l.user_id=$1)
+            AND (
+              l.remaining_balance > 0
+              OR EXISTS (
+                SELECT 1
+                FROM loan_installments li
+                WHERE li.loan_id = l.id
+                  AND li.status <> 'paid'
+                  AND li.due_date <= NOW()
+                  AND (
+                    COALESCE(li.amount, 0)
+                    + COALESCE(li.penalty_amount, 0)
+                    - COALESCE(li.paid_amount, 0)
+                  ) > 0
+              )
+            )
           ORDER BY l.id FOR UPDATE OF l
         `, [userId ?? null]);
 
@@ -394,16 +412,65 @@ export async function processLoanRepayments(userId?: number) {
                         connection
                     });
                     if (tx.success) {
+                        processed++;
+                        debited = roundMoney(debited + payable);
+
                         const oldPaid = money(inst.paid_amount);
                         const newPaid = roundMoney(oldPaid + payable);
                         const remainingAfter = roundMoney(money(inst.amount) + money(inst.penalty_amount) - newPaid);
                         const status = remainingAfter <= 0.005 ? 'paid' : 'overdue';
-                        await connection.query(`UPDATE loan_installments SET paid_amount=$1,status=$2,updated_at=NOW() WHERE id=$3`, [newPaid, status, inst.id]);
-                        await connection.query(`UPDATE loans SET remaining_balance=GREATEST(0,remaining_balance-$1) WHERE id=$2`, [payable, loanData.id]);
-                        await connection.query(`INSERT INTO loan_repayments (loan_id,amount,type,transaction_id) VALUES ($1,$2,'repayment',$3)`, [loanData.id, payable, tx.transactionId || null]);
+
+                        await connection.query(
+                            `UPDATE loan_installments
+                             SET paid_amount=$1,status=$2,updated_at=NOW()
+                             WHERE id=$3`,
+                            [newPaid, status, inst.id]
+                        );
+
+                        await connection.query(
+                            `UPDATE loans
+                             SET remaining_balance=GREATEST(0,remaining_balance-$1)
+                             WHERE id=$2`,
+                            [payable, loanData.id]
+                        );
+
+                        await connection.query(
+                            `INSERT INTO loan_repayments
+                             (loan_id,amount,type,transaction_id)
+                             VALUES ($1,$2,'repayment',$3)`,
+                            [loanData.id, payable, tx.transactionId || null]
+                        );
+
                         available = roundMoney(available - payable - money(tx.fee));
-                        events.push({user, subject:'Remboursement LoanMe automatique', message:`CashPay: ${payable.toFixed(2)} ${currency} ont été prélevés automatiquement pour l’échéance ${inst.installment_number} du prêt #${loanData.id}.${remainingAfter > 0.005 ? ` Reste: ${remainingAfter.toFixed(2)} ${currency}.` : ' Échéance soldée.'} Réf: ${tx.reference || 'N/A'}.`, data:{loan_id:loanData.id,installment_id:Number(inst.id),transaction_id:tx.transactionId,reference:tx.reference,type:'loan_auto_repayment'}});
+
+                        events.push({
+                            user,
+                            subject:'Remboursement LoanMe automatique',
+                            message:`CashPay: ${payable.toFixed(2)} ${currency} ont été prélevés automatiquement pour l’échéance ${inst.installment_number} du prêt #${loanData.id}.${remainingAfter > 0.005 ? ` Reste: ${remainingAfter.toFixed(2)} ${currency}.` : ' Échéance soldée.'} Réf: ${tx.reference || 'N/A'}.`,
+                            data:{
+                                loan_id:loanData.id,
+                                installment_id:Number(inst.id),
+                                transaction_id:tx.transactionId,
+                                reference:tx.reference,
+                                type:'loan_auto_repayment'
+                            }
+                        });
+
                         if (remainingAfter <= 0.005) continue;
+                    } else {
+                        failed++;
+                        // Ne jamais ignorer silencieusement un prélèvement refusé.
+                        events.push({
+                            user,
+                            subject:'Échec du remboursement LoanMe',
+                            message:`CashPay: le remboursement de l’échéance ${inst.installment_number} du prêt #${loanData.id} n’a pas pu être effectué. ${tx.error || 'Erreur de transaction.'}`,
+                            data:{
+                                loan_id:loanData.id,
+                                installment_id:Number(inst.id),
+                                type:'loan_repayment_error',
+                                error:tx.error || 'Transaction refusée'
+                            }
+                        });
                     }
                 }
 
@@ -414,8 +481,17 @@ export async function processLoanRepayments(userId?: number) {
                 if (remainingBeforePenalty <= 0.005) continue;
                 let penaltyApplied = 0;
 
-                const lastPenalty = current.last_penalty_date ? new Date(current.last_penalty_date) : null;
-                const canApplyPenalty = !lastPenalty || lastPenalty.getTime() <= addDays(new Date(), -7).getTime();
+                // Une pénalité peut être appliquée au maximum une fois par jour
+                // pour une même échéance. Les déclenchements multiples du même jour
+                // ne doivent donc jamais doubler la pénalité.
+                const canPenaltyResult = await connection.query(
+                    `SELECT (last_penalty_date IS NULL OR last_penalty_date < CURRENT_DATE) AS can_apply
+                     FROM loan_installments
+                     WHERE id=$1
+                     FOR UPDATE`,
+                    [inst.id]
+                );
+                const canApplyPenalty = Boolean(canPenaltyResult.rows[0]?.can_apply);
                 if (canApplyPenalty) {
                     const penalty = money(await calculateTransactionFee(remainingBeforePenalty, currency, 'PENALTY', user.country, connection));
                     if (penalty > 0) {
@@ -436,7 +512,13 @@ export async function processLoanRepayments(userId?: number) {
         await connection.query(`UPDATE loans SET status='repaid' WHERE status='approved' AND remaining_balance <= 0`);
         await connection.query('COMMIT');
         for (const event of events) await notifyLoanUser(event.user,event.subject,event.message,event.data);
-        return { success: true, processed: events.length };
+        return {
+            success: processed > 0,
+            processed,
+            debited,
+            failed,
+            events: events.length
+        };
     } catch (error) {
         await connection.query('ROLLBACK');
         console.error('[Auto Loan Recoup] Critical failure:', error);

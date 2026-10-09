@@ -1,0 +1,522 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
+import fs from 'fs/promises';
+import path from 'path';
+import crypto from 'crypto';
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+const BASE_URL = 'https://app.cashpay-all.com';
+
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+
+const ALLOWED_TYPES = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+]);
+
+function extensionFromMime(mime: string) {
+    switch (mime) {
+        case 'image/jpeg':
+            return 'jpg';
+        case 'image/png':
+            return 'png';
+        case 'image/webp':
+            return 'webp';
+        case 'image/gif':
+            return 'gif';
+        default:
+            return 'bin';
+    }
+}
+
+function publicUrl(filePath: string) {
+    return `${BASE_URL}${filePath}`;
+}
+
+function storageDirectory(mediaType: string) {
+    if (mediaType === 'profile') {
+        return path.join(
+            process.cwd(),
+            'public',
+            'images',
+            'profiles',
+            'avatars'
+        );
+    }
+
+    if (mediaType === 'cover') {
+        return path.join(
+            process.cwd(),
+            'public',
+            'images',
+            'profiles',
+            'covers'
+        );
+    }
+
+    return path.join(
+        process.cwd(),
+        'public',
+        'images',
+        'profiles',
+        'albums'
+    );
+}
+
+function publicDirectory(mediaType: string) {
+    if (mediaType === 'profile') {
+        return '/images/profiles/avatars';
+    }
+
+    if (mediaType === 'cover') {
+        return '/images/profiles/covers';
+    }
+
+    return '/images/profiles/albums';
+}
+
+/**
+ * GET
+ *
+ * Récupère les médias du profil privé
+ * de l'utilisateur authentifié.
+ */
+export async function GET() {
+    try {
+        const user = await getAuthenticatedUser();
+
+        if (!user?.id) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: 'Authentification requise.',
+                },
+                { status: 401 }
+            );
+        }
+
+        const { rows } = await db.query(
+            `
+            SELECT
+                id,
+                owner_type,
+                owner_id,
+                media_type,
+                file_name,
+                file_path,
+                mime_type,
+                file_size,
+                visibility,
+                created_at,
+                updated_at,
+                expires_at
+            FROM media
+            WHERE owner_type = 'user'
+              AND owner_id = $1
+            ORDER BY created_at DESC
+            `,
+            [user.id]
+        );
+
+        const media = rows.map((item) => ({
+            id: item.id,
+            type: item.media_type,
+            fileName: item.file_name,
+            filePath: item.file_path,
+            url: publicUrl(item.file_path),
+            mimeType: item.mime_type,
+            fileSize: item.file_size,
+            visibility: item.visibility,
+            createdAt: item.created_at,
+            updatedAt: item.updated_at,
+            expiresAt: item.expires_at,
+        }));
+
+        return NextResponse.json({
+            success: true,
+            media,
+        });
+    } catch (error) {
+        console.error(
+            '[API V1 PROFILE MEDIA GET]',
+            error
+        );
+
+        return NextResponse.json(
+            {
+                success: false,
+                error: 'Impossible de récupérer les médias.',
+            },
+            { status: 500 }
+        );
+    }
+}
+
+/**
+ * POST
+ *
+ * Upload d'une image de profil.
+ *
+ * AUCUN PIN.
+ *
+ * Le token CashPay suffit.
+ *
+ * mediaType :
+ * - profile
+ * - cover
+ * - album_image
+ */
+export async function POST(request: NextRequest) {
+    try {
+        const user = await getAuthenticatedUser();
+
+        if (!user?.id) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: 'Authentification requise.',
+                },
+                { status: 401 }
+            );
+        }
+
+        const formData = await request.formData();
+
+        const file = formData.get('file');
+        const requestedType = String(
+            formData.get('mediaType') || 'album_image'
+        );
+
+        if (!(file instanceof File)) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: 'Fichier image requis.',
+                },
+                { status: 400 }
+            );
+        }
+
+        const mediaType =
+            requestedType === 'profile'
+                ? 'profile'
+                : requestedType === 'cover'
+                    ? 'cover'
+                    : 'album_image';
+
+        if (!ALLOWED_TYPES.has(file.type)) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: 'Format image non autorisé.',
+                },
+                { status: 400 }
+            );
+        }
+
+        if (file.size <= 0 || file.size > MAX_IMAGE_SIZE) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: 'Image trop volumineuse. Maximum : 10 MB.',
+                },
+                { status: 400 }
+            );
+        }
+
+        const extension = extensionFromMime(file.type);
+
+        const uniqueName =
+            `user_${user.id}_${Date.now()}_${crypto.randomBytes(8).toString('hex')}.${extension}`;
+
+        const directoryPath =
+            storageDirectory(mediaType);
+
+        await fs.mkdir(directoryPath, {
+            recursive: true,
+        });
+
+        const physicalPath = path.join(
+            directoryPath,
+            uniqueName
+        );
+
+        const buffer = Buffer.from(
+            await file.arrayBuffer()
+        );
+
+        await fs.writeFile(
+            physicalPath,
+            buffer
+        );
+
+        const relativePath =
+            `${publicDirectory(mediaType)}/${uniqueName}`;
+
+        /*
+         * Une photo de profil ne doit avoir
+         * qu'un média profile actif pour
+         * cet utilisateur.
+         *
+         * Même principe pour la couverture.
+         */
+        if (
+            mediaType === 'profile' ||
+            mediaType === 'cover'
+        ) {
+            const existing =
+                await db.query(
+                    `
+                    SELECT id, file_path
+                    FROM media
+                    WHERE owner_type = 'user'
+                      AND owner_id = $1
+                      AND media_type = $2
+                    LIMIT 1
+                    `,
+                    [
+                        user.id,
+                        mediaType,
+                    ]
+                );
+
+            const result =
+                await db.query(
+                    `
+                    INSERT INTO media
+                        (
+                            owner_type,
+                            owner_id,
+                            media_type,
+                            file_name,
+                            file_path,
+                            mime_type,
+                            file_size,
+                            visibility
+                        )
+                    VALUES
+                        (
+                            'user',
+                            $1,
+                            $2,
+                            $3,
+                            $4,
+                            $5,
+                            $6,
+                            'public'
+                        )
+                    ON CONFLICT
+                        (owner_type, owner_id, media_type)
+                    WHERE media_type IN ('profile', 'cover')
+                    DO UPDATE SET
+                        file_name = EXCLUDED.file_name,
+                        file_path = EXCLUDED.file_path,
+                        mime_type = EXCLUDED.mime_type,
+                        file_size = EXCLUDED.file_size,
+                        updated_at = NOW()
+                    RETURNING
+                        id,
+                        file_path,
+                        media_type,
+                        mime_type,
+                        file_size,
+                        created_at,
+                        updated_at,
+                        expires_at
+                    `,
+                    [
+                        user.id,
+                        mediaType,
+                        file.name,
+                        relativePath,
+                        file.type,
+                        file.size,
+                    ]
+                );
+
+            /*
+             * Mise à jour de users :
+             * le profil continue de fonctionner avec
+             * les champs existants profile_photo/cover_photo.
+             */
+            if (mediaType === 'profile') {
+                await db.query(
+                    `
+                    UPDATE users
+                    SET profile_photo = $1,
+                        updated_at = NOW()
+                    WHERE id = $2
+                    `,
+                    [
+                        relativePath,
+                        user.id,
+                    ]
+                );
+            } else {
+                await db.query(
+                    `
+                    UPDATE users
+                    SET cover_photo = $1,
+                        updated_at = NOW()
+                    WHERE id = $2
+                    `,
+                    [
+                        relativePath,
+                        user.id,
+                    ]
+                );
+            }
+
+            /*
+             * Si un ancien fichier existe,
+             * on tente de le supprimer après
+             * remplacement.
+             */
+            if (existing.rows.length > 0) {
+                const oldPath =
+                    existing.rows[0].file_path;
+
+                if (
+                    oldPath &&
+                    oldPath !== relativePath &&
+                    oldPath.startsWith(
+                        '/images/profiles/'
+                    )
+                ) {
+                    await fs.unlink(
+                        path.join(
+                            process.cwd(),
+                            'public',
+                            oldPath
+                        )
+                    ).catch(() => undefined);
+                }
+            }
+
+            const saved =
+                result.rows[0];
+
+            return NextResponse.json(
+                {
+                    success: true,
+                    media: {
+                        id: saved.id,
+                        type: saved.media_type,
+                        url: publicUrl(
+                            saved.file_path
+                        ),
+                        filePath:
+                            saved.file_path,
+                        mimeType:
+                            saved.mime_type,
+                        fileSize:
+                            saved.file_size,
+                        createdAt:
+                            saved.created_at,
+                        updatedAt:
+                            saved.updated_at,
+                        expiresAt:
+                            saved.expires_at,
+                    },
+                },
+                { status: 201 }
+            );
+        }
+
+        /*
+         * Album
+         */
+        const result =
+            await db.query(
+                `
+                INSERT INTO media
+                    (
+                        owner_type,
+                        owner_id,
+                        media_type,
+                        file_name,
+                        file_path,
+                        mime_type,
+                        file_size,
+                        visibility
+                    )
+                VALUES
+                    (
+                        'user',
+                        $1,
+                        'album_image',
+                        $2,
+                        $3,
+                        $4,
+                        $5,
+                        'public'
+                    )
+                RETURNING
+                    id,
+                    media_type,
+                    file_path,
+                    mime_type,
+                    file_size,
+                    visibility,
+                    created_at,
+                    updated_at,
+                    expires_at
+                `,
+                [
+                    user.id,
+                    file.name,
+                    relativePath,
+                    file.type,
+                    file.size,
+                ]
+            );
+
+        const saved =
+            result.rows[0];
+
+        return NextResponse.json(
+            {
+                success: true,
+                media: {
+                    id: saved.id,
+                    type: saved.media_type,
+                    url: publicUrl(
+                        saved.file_path
+                    ),
+                    filePath:
+                        saved.file_path,
+                    mimeType:
+                        saved.mime_type,
+                    fileSize:
+                        saved.file_size,
+                    visibility:
+                        saved.visibility,
+                    createdAt:
+                        saved.created_at,
+                    updatedAt:
+                        saved.updated_at,
+                    expiresAt:
+                        saved.expires_at,
+                },
+            },
+            { status: 201 }
+        );
+    } catch (error) {
+        console.error(
+            '[API V1 PROFILE MEDIA POST]',
+            error
+        );
+
+        return NextResponse.json(
+            {
+                success: false,
+                error: 'Impossible d’enregistrer le média.',
+            },
+            { status: 500 }
+        );
+    }

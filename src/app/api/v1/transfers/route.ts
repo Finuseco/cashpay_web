@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { verifyUserPin } from '@/lib/actions/auth.actions';
+import {
+    verifyUserPin,
+} from '@/lib/actions/auth.actions';
+import {
+    getAuthenticatedUser,
+} from '@/lib/actions/user.actions';
 import { createTransaction } from '@/lib/actions/transaction.actions';
 import { calculateTransactionFee } from '@/lib/actions/wallet.actions';
 import { prepareBitcoinTransfer } from '@/lib/actions/bitcoin-transfer.actions';
@@ -30,6 +35,7 @@ function getLocalCurrency(country: string | null | undefined) {
     if (!country) return null;
 
     const code = countryToCode(country);
+
     if (!code) return null;
 
     const countryInfo = countries.find(
@@ -303,6 +309,7 @@ async function prepareCashTransfer(
         connection.release();
     }
 }
+
 async function transferCashPay(
     prepared: any,
     userId: number,
@@ -429,11 +436,23 @@ export async function GET(
     request: NextRequest
 ) {
     try {
+        const authenticatedUser =
+            await getAuthenticatedUser();
+
+        if (!authenticatedUser) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error:
+                        'Authentification requise.',
+                },
+                { status: 401 }
+            );
+        }
+
         const userId =
             Number(
-                request.nextUrl.searchParams.get(
-                    'userId'
-                )
+                authenticatedUser.id
             );
 
         if (
@@ -444,9 +463,9 @@ export async function GET(
                 {
                     success: false,
                     error:
-                        'Utilisateur invalide.',
+                        'Utilisateur authentifié invalide.',
                 },
-                { status: 400 }
+                { status: 401 }
             );
         }
 
@@ -575,15 +594,46 @@ export async function GET(
         );
     }
 }
+
 export async function POST(
     request: NextRequest
 ) {
     try {
-        const body =
-            await request.json();
+        const authenticatedUser =
+            await getAuthenticatedUser();
+
+        if (!authenticatedUser) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error:
+                        'Authentification requise.',
+                },
+                { status: 401 }
+            );
+        }
 
         const userId =
-            Number(body?.userId);
+            Number(
+                authenticatedUser.id
+            );
+
+        if (
+            !Number.isInteger(userId) ||
+            userId <= 0
+        ) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error:
+                        'Utilisateur authentifié invalide.',
+                },
+                { status: 401 }
+            );
+        }
+
+        const body =
+            await request.json();
 
         const amount =
             Number(body?.amount);
@@ -616,20 +666,6 @@ export async function POST(
 
         const preview =
             body?.preview === true;
-
-        if (
-            !Number.isInteger(userId) ||
-            userId <= 0
-        ) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error:
-                        'Utilisateur invalide.',
-                },
-                { status: 400 }
-            );
-        }
 
         if (
             !Number.isFinite(amount) ||
@@ -755,7 +791,7 @@ export async function POST(
             );
         }
 
-        if (preview) {
+             if (preview) {
             return NextResponse.json({
                 success: true,
                 message:
@@ -768,6 +804,7 @@ export async function POST(
                     prepared.totalDebit,
             });
         }
+
         if (!pin) {
             return NextResponse.json(
                 {

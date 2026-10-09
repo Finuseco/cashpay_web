@@ -132,6 +132,121 @@ export async function getCountryLoans(country: string) {
     return rows;
 }
 
+export async function triggerCountryLoanCollection(adminId: number, pin: string) {
+    const connection = await db.getConnection();
+
+    try {
+        await connection.query('BEGIN');
+
+        const admin = await getSuperAgentContext(adminId, connection);
+
+        // Le recouvrement global est strictement réservé au Super Agent.
+        if (String(admin.role || '').trim() !== 'SuperAgent') {
+            throw new Error('Accès réservé au Super Agent.');
+        }
+
+        await verifyAdminPin(adminId, pin, connection);
+
+        if (!admin.country) {
+            throw new Error('Le pays du Super Agent est introuvable.');
+        }
+
+        const { rows: loans } = await connection.query(`
+            SELECT DISTINCT l.user_id
+            FROM loans l
+            JOIN users u ON u.id = l.user_id
+            WHERE LOWER(TRIM(u.country)) = LOWER(TRIM($1))
+              AND LOWER(TRIM(l.status)) = 'approved'
+              AND (
+                l.remaining_balance > 0
+                OR EXISTS (
+                  SELECT 1
+                  FROM loan_installments li
+                  WHERE li.loan_id = l.id
+                    AND li.status <> 'paid'
+                    AND li.due_date <= NOW()
+                    AND (
+                      COALESCE(li.amount, 0)
+                      + COALESCE(li.penalty_amount, 0)
+                      - COALESCE(li.paid_amount, 0)
+                    ) > 0
+                )
+              )
+            ORDER BY l.user_id
+        `, [admin.country]);
+
+        const userIds = loans.map((row: any) => Number(row.user_id));
+
+        await connection.query('COMMIT');
+
+        let successful = 0;
+        let failed = 0;
+        let processed = 0;
+        let debited = 0;
+        const errors: string[] = [];
+
+        // Le moteur LoanMe existant effectue les vrais prélèvements,
+        // applique les frais/pénalités configurés et ne traite que les
+        // échéances dont due_date <= NOW().
+        for (const userId of userIds) {
+            try {
+                const result = await processLoanRepayments(userId);
+
+                const userProcessed = Number(result?.processed || 0);
+                const userDebited = Number(result?.debited || 0);
+                const userFailed = Number(result?.failed || 0);
+
+                processed += userProcessed;
+                debited += userDebited;
+                failed += userFailed;
+
+                if (userProcessed > 0) {
+                    successful++;
+                } else {
+                    if (result?.error) {
+                        errors.push(`Utilisateur #${userId}: ${result.error}`);
+                    } else if (userFailed > 0) {
+                        errors.push(`Utilisateur #${userId}: aucun prélèvement n'a abouti.`);
+                    } else {
+                        errors.push(`Utilisateur #${userId}: aucun prélèvement effectué.`);
+                    }
+                }
+            } catch (error: any) {
+                failed++;
+                errors.push(
+                    `Utilisateur #${userId}: ${error?.message || 'Recouvrement impossible.'}`
+                );
+            }
+        }
+
+        // Ne jamais annoncer un succès si aucune transaction de remboursement
+        // n'a réellement été exécutée.
+        return {
+            success: processed > 0,
+            country: admin.country,
+            users: userIds.length,
+            successful,
+            failed,
+            processed,
+            debited,
+            errors
+        };
+    } catch (error: any) {
+        try {
+            await connection.query('ROLLBACK');
+        } catch {}
+
+        return {
+            success: false,
+            error: error?.message || 'Recouvrement global impossible.'
+        };
+    } finally {
+        try {
+            connection.release();
+        } catch {}
+    }
+}
+
 export async function triggerManualLoanCollection(loanId: number, adminId: number, pin: string) {
     const connection = await db.getConnection();
     try {

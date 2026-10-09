@@ -197,7 +197,12 @@ export async function createTransaction(args: CreateTransactionArgs): Promise<{ 
         const effectiveTypeCode = isPayment ? 'TR' : typeCode;
 
         let feeNum = 0;
-        if (!isCreditTransaction && typeCode !== 'EXCHANGE' && !typeCode.startsWith('BUY_CARDS')) {
+        if (
+            !isCreditTransaction &&
+            typeCode !== 'EXCHANGE' &&
+            typeCode !== 'AGENT_SUB' &&
+            !typeCode.startsWith('BUY_CARDS')
+        ) {
              feeNum = await calculateTransactionFee(amountToDebit, debitCurrency, effectiveTypeCode, user.country, conn);
         }
 

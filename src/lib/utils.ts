@@ -198,7 +198,9 @@ export function formatUser(rawUser: any): User {
         availabilityStatus: rawUser.availabilitystatus,
         schedule: typeof rawUser.schedule === 'string' ? JSON.parse(rawUser.schedule) : rawUser.schedule,
         representative: typeof rawUser.representative === 'string' ? JSON.parse(rawUser.representative) : rawUser.representative,
-        created_at: new Date(rawUser.created_at).toISOString(),
+        created_at: rawUser.created_at
+            ? new Date(rawUser.created_at).toISOString()
+            : undefined,
         updated_at: rawUser.updated_at ? new Date(rawUser.updated_at).toISOString() : undefined,
         verification_status: rawUser.verification_status,
         temp_photo_expires_at: rawUser.temp_photo_expires_at ? new Date(rawUser.temp_photo_expires_at).toISOString() : undefined,

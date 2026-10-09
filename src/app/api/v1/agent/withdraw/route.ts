@@ -1,0 +1,1315 @@
+import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
+
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
+
+import {
+  getUssdRecipientInfo,
+  getUssdBalance,
+  getUssdFee,
+  executeClientAgentWithdrawal,
+} from '@/lib/ussd/ussd.actions';
+
+import {
+  initiateClientWithdrawalOtp,
+  confirmWithdrawal,
+} from '@/lib/actions/agent.actions';
+
+import { db } from '@/lib/db';
+
+const CURRENCIES = ['USD', 'EUR', 'CDF'] as const;
+
+type Currency = (typeof CURRENCIES)[number];
+
+type OperationType =
+  | 'client_withdraw'
+  | 'agent_withdraw';
+
+type WithdrawStep =
+  | 'confirm_identity'
+  | 'amount'
+  | 'confirm_amount'
+  | 'pin'
+  | 'otp_channel'
+  | 'otp'
+  | 'completed';
+
+type WithdrawOperation = {
+  v: 1;
+  operationId: string;
+  operation: OperationType;
+  step: WithdrawStep;
+
+  actorUserId: number;
+
+  targetUserId: number;
+  targetWalletId: string;
+  targetRef: string;
+
+  currency?: Currency;
+  amount?: number;
+  fee?: number;
+  totalDebit?: number;
+
+  otpChannel?:
+    | 'sms'
+    | 'whatsapp'
+    | 'email';
+
+  createdAt: number;
+};
+
+function getSecret() {
+  const secret =
+    process.env.AGENT_OPERATION_SECRET;
+
+  if (!secret) {
+    throw new Error(
+      'AGENT_OPERATION_SECRET n’est pas configuré.'
+    );
+  }
+
+  return secret;
+}
+
+function money(value: unknown) {
+  const n = Number(value);
+
+  return Number.isFinite(n)
+    ? Math.round((n + Number.EPSILON) * 100) / 100
+    : 0;
+}
+
+function errorResponse(
+  message: string,
+  status = 400
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: message,
+    },
+    { status }
+  );
+}
+
+function createOperationId() {
+  return `op_${crypto.randomBytes(18).toString('hex')}`;
+}
+
+function signPayload(
+  payload: WithdrawOperation
+) {
+  const encoded = Buffer.from(
+    JSON.stringify(payload)
+  ).toString('base64url');
+
+  const signature = crypto
+    .createHmac('sha256', getSecret())
+    .update(encoded)
+    .digest('base64url');
+
+  return `${encoded}.${signature}`;
+}
+
+function readOperation(
+  token: string
+): WithdrawOperation | null {
+  try {
+    const parts =
+      String(token || '').split('.');
+
+    if (parts.length !== 2) {
+      return null;
+    }
+
+    const [encoded, signature] =
+      parts;
+
+    const expected = crypto
+      .createHmac('sha256', getSecret())
+      .update(encoded)
+      .digest('base64url');
+
+    const a = Buffer.from(signature);
+    const b = Buffer.from(expected);
+
+    if (
+      a.length !== b.length ||
+      !crypto.timingSafeEqual(a, b)
+    ) {
+      return null;
+    }
+
+    const payload =
+      JSON.parse(
+        Buffer.from(
+          encoded,
+          'base64url'
+        ).toString('utf8')
+      ) as WithdrawOperation;
+
+    if (
+      !payload ||
+      payload.v !== 1
+    ) {
+      return null;
+    }
+
+    if (
+      payload.operation !== 'client_withdraw' &&
+      payload.operation !== 'agent_withdraw'
+    ) {
+      return null;
+    }
+
+    if (
+      !payload.createdAt ||
+      Date.now() - payload.createdAt >
+        15 * 60 * 1000
+    ) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function nextToken(
+  operation: WithdrawOperation,
+  changes: Partial<WithdrawOperation>
+) {
+  return signPayload({
+    ...operation,
+    ...changes,
+  });
+}
+
+async function enrichIdentity(info: any) {
+  if (!info?.userId) {
+    return info;
+  }
+
+  const { rows } = await db.query(
+    `
+      SELECT
+        u.id,
+        u.full_name,
+        u.first_name,
+        u.profile_photo,
+        u.id_wallet,
+        u.phone,
+        b.name AS "boutiqueName"
+      FROM users u
+      LEFT JOIN boutiques b
+        ON b.agent_id = u.id
+      WHERE u.id = $1::integer
+      LIMIT 1
+    `,
+    [info.userId]
+  );
+
+  const row = rows[0];
+
+  return {
+    userId: info.userId,
+    walletId:
+      row?.id_wallet ||
+      info.walletId ||
+      null,
+    phone:
+      row?.phone ||
+      info.phone ||
+      null,
+    firstName:
+      row?.first_name ||
+      info.firstName ||
+      row?.full_name ||
+      'Client',
+    fullName:
+      row?.full_name ||
+      info.firstName ||
+      'Client',
+    avatar:
+      row?.profile_photo ||
+      null,
+    boutiqueName:
+      row?.boutiqueName ||
+      null,
+    role:
+      info.role ||
+      null,
+    status:
+      info.status ||
+      null,
+  };
+}
+
+async function resolveTarget(
+  identifier: string
+) {
+  const info =
+    await getUssdRecipientInfo(identifier);
+
+  if (!info.success) {
+    return {
+      success: false,
+      error:
+        info.error ||
+        'Utilisateur introuvable.',
+    };
+  }
+
+  return {
+    success: true,
+    info,
+    identity:
+      await enrichIdentity(info),
+  };
+}
+
+async function verifyAgent(
+  agentUserId: number
+) {
+  const { rows } = await db.query(
+    `
+      SELECT
+        u.id,
+        u.role,
+        u.status,
+        u.full_name,
+        u.first_name,
+        u.profile_photo,
+        u.id_wallet,
+        u.phone,
+        b.name AS "boutiqueName"
+      FROM users u
+      LEFT JOIN boutiques b
+        ON b.agent_id = u.id
+      WHERE u.id = $1::integer
+        AND LOWER(COALESCE(u.role, '')) = 'agent'
+      LIMIT 1
+    `,
+    [agentUserId]
+  );
+
+  if (!rows.length) {
+    return null;
+  }
+
+  return rows[0];
+}
+
+export async function POST(
+  req: NextRequest
+) {
+  try {
+    const user =
+      await getAuthenticatedUser();
+
+    if (!user) {
+      return errorResponse(
+        'Authentification requise.',
+        401
+      );
+    }
+
+    const body =
+      await req.json();
+
+    const operationType =
+      String(
+        body?.operation || ''
+      )
+        .trim()
+        .toLowerCase() as OperationType;
+
+    if (
+      operationType !== 'client_withdraw' &&
+      operationType !== 'agent_withdraw'
+    ) {
+      return errorResponse(
+        'operation doit être client_withdraw ou agent_withdraw.'
+      );
+    }
+
+    const action =
+      String(
+        body?.action || 'start'
+      )
+        .trim()
+        .toLowerCase();
+
+    /*
+     * ============================================================
+     * START
+     * ============================================================
+     */
+    if (action === 'start') {
+      const identifier =
+        String(
+          body?.agentWalletId ||
+          body?.clientWalletId ||
+          body?.phone ||
+          body?.identifier ||
+          ''
+        ).trim();
+
+      if (!identifier) {
+        return errorResponse(
+          operationType === 'client_withdraw'
+            ? 'Wallet ID ou numéro de téléphone de l’Agent requis.'
+            : 'Wallet ID ou numéro de téléphone du client requis.'
+        );
+      }
+
+      const resolved =
+        await resolveTarget(identifier);
+
+      if (!resolved.success) {
+        return errorResponse(
+          resolved.error
+        );
+      }
+
+      const targetRole =
+        String(
+          resolved.info.role || ''
+        )
+          .trim()
+          .toLowerCase();
+
+      /*
+       * CLIENT → AGENT
+       */
+      if (
+        operationType ===
+        'client_withdraw'
+      ) {
+        if (targetRole !== 'agent') {
+          return errorResponse(
+            'Ce portefeuille n’est pas un portefeuille agent CashPay.'
+          );
+        }
+
+        const agent =
+          await verifyAgent(
+            Number(
+              resolved.info.userId
+            )
+          );
+
+        if (!agent) {
+          return errorResponse(
+            'Agent introuvable.'
+          );
+        }
+
+        const boutique =
+          await db.query(
+            `
+              SELECT 1
+              FROM boutiques
+              WHERE agent_id = $1::integer
+              LIMIT 1
+            `,
+            [
+              resolved.info.userId,
+            ]
+          );
+
+        if (!boutique.rows.length) {
+          return errorResponse(
+            'Ce portefeuille n’est pas un portefeuille agent CashPay.'
+          );
+        }
+      }
+
+      /*
+       * AGENT → CLIENT
+       */
+      if (
+        operationType ===
+        'agent_withdraw'
+      ) {
+        const callerRole =
+          String(
+            user.role || ''
+          )
+            .trim()
+            .toLowerCase();
+
+        if (callerRole !== 'agent') {
+          return errorResponse(
+            'Un compte Agent est requis.',
+            403
+          );
+        }
+
+        if (targetRole === 'agent') {
+          return errorResponse(
+            'Le portefeuille indiqué appartient à un agent.'
+          );
+        }
+      }
+
+      const operation: WithdrawOperation = {
+        v: 1,
+
+        operationId:
+          createOperationId(),
+
+        operation:
+          operationType,
+
+        step:
+          'confirm_identity',
+
+        actorUserId:
+          Number(user.id),
+
+        targetUserId:
+          Number(
+            resolved.info.userId
+          ),
+
+        targetWalletId:
+          String(
+            resolved.info.walletId
+          ),
+
+        targetRef:
+          identifier,
+
+        createdAt:
+          Date.now(),
+      };
+
+      return NextResponse.json({
+        success: true,
+
+        operationId:
+          signPayload(operation),
+
+        operation:
+          operationType,
+
+        step:
+          'confirm_identity',
+
+        nextStep:
+          'confirm_identity',
+
+        target:
+          resolved.identity,
+      });
+    }
+
+    /*
+     * ============================================================
+     * RÉCUPÉRATION ET VALIDATION DE L'OPÉRATION
+     * ============================================================
+     */
+    const operationToken =
+      String(
+        body?.operationId || ''
+      ).trim();
+
+    if (!operationToken) {
+      return errorResponse(
+        'operationId requis.'
+      );
+    }
+
+    const operation =
+      readOperation(
+        operationToken
+      );
+
+    if (!operation) {
+      return errorResponse(
+        'Opération invalide, expirée ou altérée.',
+        409
+      );
+    }
+
+    if (
+      Number(
+        operation.actorUserId
+      ) !== Number(user.id)
+    ) {
+      return errorResponse(
+        'Cette opération appartient à un autre utilisateur.',
+        403
+      );
+    }
+
+    if (
+      operation.operation !==
+      operationType
+    ) {
+      return errorResponse(
+        'Le type d’opération ne correspond pas.'
+      );
+    }
+
+    /*
+     * ============================================================
+     * CONFIRM IDENTITY
+     * ============================================================
+     */
+    if (
+      action ===
+      'confirm_identity'
+    ) {
+      if (
+        operation.step !==
+        'confirm_identity'
+      ) {
+        return errorResponse(
+          'Cette étape n’est pas autorisée.'
+        );
+      }
+
+      const resolved =
+        await resolveTarget(
+          operation.targetWalletId
+        );
+
+      if (!resolved.success) {
+        return errorResponse(
+          resolved.error
+        );
+      }
+
+      const next =
+        nextToken(
+          operation,
+          {
+            step: 'amount',
+          }
+        );
+
+      return NextResponse.json({
+        success: true,
+
+        operationId: next,
+
+        operation:
+          operationType,
+
+        step:
+          'confirm_identity',
+
+        nextStep:
+          'amount',
+
+        target:
+          resolved.identity,
+      });
+    }
+
+    /*
+     * ============================================================
+     * AMOUNT
+     * ============================================================
+     */
+    if (
+      action === 'amount'
+    ) {
+      if (
+        operation.step !==
+        'amount'
+      ) {
+        return errorResponse(
+          'Cette étape n’est pas autorisée.'
+        );
+      }
+
+      const currency =
+        String(
+          body?.currency || ''
+        )
+          .trim()
+          .toUpperCase() as Currency;
+
+      const amount =
+        money(body?.amount);
+
+      if (
+        !CURRENCIES.includes(
+          currency
+        )
+      ) {
+        return errorResponse(
+          'Devise invalide.'
+        );
+      }
+
+      if (amount <= 0) {
+        return errorResponse(
+          'Montant invalide.'
+        );
+      }
+
+      let feeCountry =
+        String(
+          (user as any)?.country ||
+          ''
+        );
+
+      if (
+        operation.operation ===
+        'agent_withdraw'
+      ) {
+        const { rows } =
+          await db.query(
+            `
+              SELECT country
+              FROM users
+              WHERE id = $1::integer
+              LIMIT 1
+            `,
+            [
+              operation.targetUserId,
+            ]
+          );
+
+        feeCountry =
+          rows[0]?.country ||
+          feeCountry;
+      }
+
+      const fee =
+        money(
+          await getUssdFee(
+            amount,
+            currency,
+            'WD',
+            feeCountry
+          )
+        );
+
+      const totalDebit =
+        money(
+          amount + fee
+        );
+
+      const balance =
+        money(
+          await getUssdBalance(
+            operation.operation ===
+              'client_withdraw'
+              ? Number(user.id)
+              : operation.targetUserId,
+            currency
+          )
+        );
+
+      if (
+        balance <
+        totalDebit
+      ) {
+        const missingAmount = money(
+          totalDebit - balance
+        );
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Solde insuffisant.',
+            preview: {
+              amount,
+              fee,
+              totalDebit,
+              balance,
+              missingAmount,
+              message: `Il vous manque ${missingAmount} ${currency} pour effectuer ce retrait.`,
+            },
+          },
+          { status: 400 }
+        );
+      }
+
+      const next =
+        nextToken(
+          operation,
+          {
+            step:
+              'confirm_amount',
+            currency,
+            amount,
+            fee,
+            totalDebit,
+          }
+        );
+
+      return NextResponse.json({
+        success: true,
+
+        operationId: next,
+
+        operation:
+          operationType,
+
+        step:
+          'confirm_amount',
+
+        nextStep:
+          'confirm_amount',
+
+        amount,
+
+        fee,
+
+        totalDebit,
+
+        currency,
+
+        balance,
+      });
+    }
+
+    /*
+     * ============================================================
+     * CONFIRM AMOUNT
+     * ============================================================
+     */
+    if (
+      action ===
+      'confirm_amount'
+    ) {
+      if (
+        operation.step !==
+        'confirm_amount'
+      ) {
+        return errorResponse(
+          'Cette étape n’est pas autorisée.'
+        );
+      }
+
+      if (
+        !operation.currency ||
+        !operation.amount ||
+        operation.fee ===
+          undefined ||
+        operation.totalDebit ===
+          undefined
+      ) {
+        return errorResponse(
+          'Données financières incomplètes.'
+        );
+      }
+
+      const balance =
+        money(
+          await getUssdBalance(
+            operation.operation ===
+              'client_withdraw'
+              ? Number(user.id)
+              : operation.targetUserId,
+            operation.currency
+          )
+        );
+
+      if (
+        balance <
+        operation.totalDebit
+      ) {
+        return errorResponse(
+          'Le solde est devenu insuffisant.'
+        );
+      }
+
+      if (
+        operation.operation ===
+        'client_withdraw'
+      ) {
+        const next =
+          nextToken(
+            operation,
+            {
+              step: 'pin',
+            }
+          );
+
+        return NextResponse.json({
+          success: true,
+
+          operationId: next,
+
+          operation:
+            operationType,
+
+          step: 'pin',
+
+          nextStep: 'pin',
+
+          amount:
+            operation.amount,
+
+          fee:
+            operation.fee,
+
+          totalDebit:
+            operation.totalDebit,
+
+          currency:
+            operation.currency,
+        });
+      }
+
+      const next =
+        nextToken(
+          operation,
+          {
+            step:
+              'otp_channel',
+          }
+        );
+
+      return NextResponse.json({
+        success: true,
+
+        operationId: next,
+
+        operation:
+          operationType,
+
+        step:
+          'otp_channel',
+
+        nextStep:
+          'otp_channel',
+
+        amount:
+          operation.amount,
+
+        fee:
+          operation.fee,
+
+        totalDebit:
+          operation.totalDebit,
+
+        currency:
+          operation.currency,
+
+        otpChannels: [
+          'sms',
+          'whatsapp',
+          'email',
+        ],
+      });
+    }
+
+    /*
+     * ============================================================
+     * CLIENT → AGENT
+     * PIN DU CLIENT
+     * ============================================================
+     */
+    if (
+      action === 'pin'
+    ) {
+      if (
+        operation.step !== 'pin'
+      ) {
+        return errorResponse(
+          'Cette étape n’est pas autorisée.'
+        );
+      }
+
+      if (
+        operation.operation !==
+        'client_withdraw'
+      ) {
+        return errorResponse(
+          'Cette étape ne correspond pas à cette opération.'
+        );
+      }
+
+      if (
+        !operation.currency ||
+        !operation.amount
+      ) {
+        return errorResponse(
+          'Données financières incomplètes.'
+        );
+      }
+
+      const pin =
+        String(
+          body?.pin || ''
+        );
+
+      if (
+        !/^\d{4}$/.test(pin)
+      ) {
+        return errorResponse(
+          'Le PIN doit contenir exactement 4 chiffres.'
+        );
+      }
+
+      const result =
+        await executeClientAgentWithdrawal(
+          user as any,
+          operation.targetWalletId,
+          operation.amount,
+          operation.currency,
+          pin
+        );
+
+      if (!result.success) {
+        return errorResponse(
+          result.error ||
+            'Retrait impossible.'
+        );
+      }
+
+      const next =
+        nextToken(
+          operation,
+          {
+            step:
+              'completed',
+          }
+        );
+
+      return NextResponse.json({
+        success: true,
+
+        operationId: next,
+
+        operation:
+          'client_withdraw',
+
+        step:
+          'completed',
+
+        nextStep: null,
+
+        reference:
+          result.reference,
+
+        amount:
+          operation.amount,
+
+        fee:
+          money(
+            (result as any).fee ??
+            operation.fee
+          ),
+
+        totalDebit:
+          money(
+            (result as any).totalDebit ??
+            operation.totalDebit
+          ),
+
+        currency:
+          operation.currency,
+
+        agent:
+          (result as any).agent ||
+          null,
+      });
+    }
+
+    /*
+     * ============================================================
+     * AGENT → CLIENT
+     * CHOIX DU CANAL OTP
+     *
+     * IMPORTANT :
+     * Aucun mouvement financier ici.
+     * ============================================================
+     */
+    if (
+      action ===
+      'otp_channel'
+    ) {
+      if (
+        operation.step !==
+        'otp_channel'
+      ) {
+        return errorResponse(
+          'Cette étape n’est pas autorisée.'
+        );
+      }
+
+      if (
+        operation.operation !==
+        'agent_withdraw'
+      ) {
+        return errorResponse(
+          'Cette étape ne correspond pas à cette opération.'
+        );
+      }
+
+      if (
+        !operation.currency ||
+        !operation.amount
+      ) {
+        return errorResponse(
+          'Données financières incomplètes.'
+        );
+      }
+
+      const channel =
+        String(
+          body?.channel || ''
+        )
+          .trim()
+          .toLowerCase();
+
+      if (
+        channel !== 'sms' &&
+        channel !== 'whatsapp' &&
+        channel !== 'email'
+      ) {
+        return errorResponse(
+          'Canal OTP invalide. Utilisez sms, whatsapp ou email.'
+        );
+      }
+
+      const agent =
+        await verifyAgent(
+          Number(user.id)
+        );
+
+      if (!agent) {
+        return errorResponse(
+          'Agent introuvable.',
+          403
+        );
+      }
+
+      const otp =
+        await initiateClientWithdrawalOtp({
+          clientWalletId:
+            operation.targetWalletId,
+
+          amount:
+            operation.amount,
+
+          currency:
+            operation.currency,
+
+          channel:
+            channel as
+              | 'sms'
+              | 'whatsapp'
+              | 'email',
+
+          agentName:
+            agent.full_name ||
+            agent.first_name ||
+            'Agent',
+        });
+
+      if (!otp.success) {
+        return errorResponse(
+          otp.error ||
+            'Impossible d’envoyer le code OTP.'
+        );
+      }
+
+      const next =
+        nextToken(
+          operation,
+          {
+            step: 'otp',
+
+            otpChannel:
+              channel as
+                | 'sms'
+                | 'whatsapp'
+                | 'email',
+          }
+        );
+
+      return NextResponse.json({
+        success: true,
+
+        operationId: next,
+
+        operation:
+          'agent_withdraw',
+
+        step: 'otp',
+
+        nextStep: 'otp',
+
+        otpSent: true,
+
+        channel,
+
+        destination:
+          otp.destination ||
+          null,
+
+        amount:
+          operation.amount,
+
+        fee:
+          operation.fee,
+
+        totalDebit:
+          operation.totalDebit,
+
+        currency:
+          operation.currency,
+      });
+    }
+
+    /*
+     * ============================================================
+     * AGENT → CLIENT
+     * OTP FINAL
+     *
+     * C'est seulement ici que le moteur financier
+     * confirmWithdrawal() est appelé.
+     * ============================================================
+     */
+    if (
+      action === 'otp'
+    ) {
+      if (
+        operation.step !== 'otp'
+      ) {
+        return errorResponse(
+          'Cette étape n’est pas autorisée.'
+        );
+      }
+
+      if (
+        operation.operation !==
+        'agent_withdraw'
+      ) {
+        return errorResponse(
+          'Cette étape ne correspond pas à cette opération.'
+        );
+      }
+
+      if (
+        !operation.currency ||
+        !operation.amount
+      ) {
+        return errorResponse(
+          'Données financières incomplètes.'
+        );
+      }
+
+      const code =
+        String(
+          body?.otp ||
+          body?.code ||
+          ''
+        ).trim();
+
+      if (
+        !/^\d{6}$/.test(code)
+      ) {
+        return errorResponse(
+          'Le code OTP doit contenir exactement 6 chiffres.'
+        );
+      }
+
+      const result =
+        await confirmWithdrawal({
+          agent:
+            user as any,
+
+          clientWalletId:
+            operation.targetWalletId,
+
+          amount:
+            operation.amount,
+
+          currency:
+            operation.currency,
+
+          code,
+
+          method: 'otp',
+        });
+
+      if (!result.success) {
+        return errorResponse(
+          result.error ||
+            'Autorisation du retrait impossible.'
+        );
+      }
+
+      const next =
+        nextToken(
+          operation,
+          {
+            step:
+              'completed',
+          }
+        );
+
+      return NextResponse.json({
+        success: true,
+
+        operationId: next,
+
+        operation:
+          'agent_withdraw',
+
+        step:
+          'completed',
+
+        nextStep: null,
+
+        reference:
+          result.reference,
+
+        amount:
+          operation.amount,
+
+        fee:
+          money(
+            (result as any).fee ??
+            operation.fee
+          ),
+
+        totalDebit:
+          money(
+            (result as any).totalDebit ??
+            operation.totalDebit
+          ),
+
+        currency:
+          operation.currency,
+
+        commission:
+          money(
+            (result as any).commission
+          ),
+      });
+    }
+
+    return errorResponse(
+      'Action invalide.'
+    );
+  } catch (error: any) {
+    console.error(
+      '[AGENT_WITHDRAW_API]',
+      error
+    );
+
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error?.message ||
+          'Erreur interne du service de retrait.',
+      },
+      { status: 500 }
+    );
+  }
+}

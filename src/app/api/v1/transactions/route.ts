@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_DIRECTIONS = new Set(['incoming', 'outgoing']);
+const VALID_DIRECTIONS = new Set([
+    'incoming',
+    'outgoing',
+]);
 
 function parseDate(value: string | null) {
     if (!value) return null;
@@ -19,104 +23,158 @@ function parseDate(value: string | null) {
 
 export async function GET(request: NextRequest) {
     try {
-        const searchParams = request.nextUrl.searchParams;
+        const user =
+            await getAuthenticatedUser();
 
-        const userIdParam = searchParams.get('userId');
-        const limitParam = searchParams.get('limit');
-        const offsetParam = searchParams.get('offset');
-        const fromParam = searchParams.get('from');
-        const toParam = searchParams.get('to');
-        const directionParam = searchParams.get('direction');
-
-        if (!userIdParam) {
+        if (!user) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: 'Le paramètre userId est obligatoire.',
+                    error:
+                        'Authentification requise.',
                 },
-                { status: 400 }
+                { status: 401 }
             );
         }
 
-        const userId = Number(userIdParam);
-
-        if (!Number.isInteger(userId) || userId <= 0) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: 'userId invalide.',
-                },
-                { status: 400 }
-            );
-        }
-
-        const limitValue = Number(limitParam || 50);
-        const offsetValue = Number(offsetParam || 0);
-
-        if (!Number.isInteger(limitValue) || limitValue < 1) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: 'limit invalide.',
-                },
-                { status: 400 }
-            );
-        }
-
-        if (!Number.isInteger(offsetValue) || offsetValue < 0) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: 'offset invalide.',
-                },
-                { status: 400 }
-            );
-        }
-
-        const limit = Math.min(limitValue, 100);
-        const offset = offsetValue;
+        const userId =
+            Number(user.id);
 
         if (
-            directionParam &&
-            !VALID_DIRECTIONS.has(directionParam)
+            !Number.isInteger(userId) ||
+            userId <= 0
         ) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: 'direction invalide. Utilisez incoming ou outgoing.',
+                    error:
+                        'Utilisateur authentifié invalide.',
+                },
+                { status: 401 }
+            );
+        }
+
+        const searchParams =
+            request.nextUrl.searchParams;
+
+        const limitParam =
+            searchParams.get('limit');
+
+        const offsetParam =
+            searchParams.get('offset');
+
+        const fromParam =
+            searchParams.get('from');
+
+        const toParam =
+            searchParams.get('to');
+
+        const directionParam =
+            searchParams.get('direction');
+
+        const limitValue =
+            Number(limitParam || 50);
+
+        const offsetValue =
+            Number(offsetParam || 0);
+
+        if (
+            !Number.isInteger(limitValue) ||
+            limitValue < 1
+        ) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error:
+                        'limit invalide.',
                 },
                 { status: 400 }
             );
         }
 
-        const fromDate = parseDate(fromParam);
-        const toDate = parseDate(toParam);
-
-        if (fromParam && !fromDate) {
+        if (
+            !Number.isInteger(offsetValue) ||
+            offsetValue < 0
+        ) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: 'Date from invalide.',
+                    error:
+                        'offset invalide.',
                 },
                 { status: 400 }
             );
         }
 
-        if (toParam && !toDate) {
+        const limit =
+            Math.min(
+                limitValue,
+                100
+            );
+
+        const offset =
+            offsetValue;
+
+        if (
+            directionParam &&
+            !VALID_DIRECTIONS.has(
+                directionParam
+            )
+        ) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: 'Date to invalide.',
+                    error:
+                        'direction invalide. Utilisez incoming ou outgoing.',
                 },
                 { status: 400 }
             );
         }
 
-        if (fromDate && toDate && fromDate > toDate) {
+        const fromDate =
+            parseDate(fromParam);
+
+        const toDate =
+            parseDate(toParam);
+
+        if (
+            fromParam &&
+            !fromDate
+        ) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: 'La date from doit être antérieure ou égale à la date to.',
+                    error:
+                        'Date from invalide.',
+                },
+                { status: 400 }
+            );
+        }
+
+        if (
+            toParam &&
+            !toDate
+        ) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error:
+                        'Date to invalide.',
+                },
+                { status: 400 }
+            );
+        }
+
+        if (
+            fromDate &&
+            toDate &&
+            fromDate > toDate
+        ) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error:
+                        'La date from doit être antérieure ou égale à la date to.',
                 },
                 { status: 400 }
             );
@@ -126,30 +184,54 @@ export async function GET(request: NextRequest) {
             '(t.sender_id = $1 OR t.receiver_id = $1)',
         ];
 
-        const values: unknown[] = [userId];
+        const values: unknown[] = [
+            userId,
+        ];
 
-        if (directionParam === 'incoming') {
-            conditions.push('t.receiver_id = $1');
+        if (
+            directionParam ===
+            'incoming'
+        ) {
+            conditions.push(
+                't.receiver_id = $1'
+            );
         }
 
-        if (directionParam === 'outgoing') {
-            conditions.push('t.sender_id = $1');
+        if (
+            directionParam ===
+            'outgoing'
+        ) {
+            conditions.push(
+                't.sender_id = $1'
+            );
         }
 
         if (fromDate) {
             values.push(fromDate);
-            conditions.push(`t.created_at >= $${values.length}`);
+
+            conditions.push(
+                `t.created_at >= $${values.length}`
+            );
         }
 
         if (toDate) {
             values.push(toDate);
-            conditions.push(`t.created_at <= $${values.length}`);
+
+            conditions.push(
+                `t.created_at <= $${values.length}`
+            );
         }
 
-        const limitIndex = values.length + 1;
-        const offsetIndex = values.length + 2;
+        const limitIndex =
+            values.length + 1;
 
-        values.push(limit, offset);
+        const offsetIndex =
+            values.length + 2;
+
+        values.push(
+            limit,
+            offset
+        );
 
         const query = `
             SELECT
@@ -167,140 +249,161 @@ export async function GET(request: NextRequest) {
                 t.receiver_wallet_id,
                 t.metadata,
                 t.created_at,
-
                 sender.full_name AS sender_full_name,
                 sender.profile_photo AS sender_profile_photo,
-
                 receiver.full_name AS receiver_full_name,
                 receiver.profile_photo AS receiver_profile_photo
-
             FROM transactions t
-
             LEFT JOIN users sender
                 ON sender.id = t.sender_id
-
             LEFT JOIN users receiver
                 ON receiver.id = t.receiver_id
-
             WHERE ${conditions.join(' AND ')}
-
             ORDER BY
                 t.created_at DESC,
                 t.id DESC
-
             LIMIT $${limitIndex}
             OFFSET $${offsetIndex}
         `;
 
-        const { rows } = await db.query(query, values);
+        const { rows } =
+            await db.query(
+                query,
+                values
+            );
 
-        const transactions = rows.map((transaction) => {
-            const isSender =
-                Number(transaction.sender_id) === userId;
+        const transactions =
+            rows.map(
+                (transaction) => {
+                    const isSender =
+                        Number(
+                            transaction.sender_id
+                        ) === userId;
 
-            const hasOtherUser =
-                isSender
-                    ? Boolean(transaction.receiver_id)
-                    : Boolean(transaction.sender_id);
+                    const hasOtherUser =
+                        isSender
+                            ? Boolean(
+                                  transaction.receiver_id
+                              )
+                            : Boolean(
+                                  transaction.sender_id
+                              );
 
-            const otherUser = hasOtherUser
-                ? isSender
-                    ? {
-                          userId: transaction.receiver_id,
-                          walletId: transaction.receiver_wallet_id,
-                          fullName: transaction.receiver_full_name,
-                          profilePhoto: transaction.receiver_profile_photo,
-                      }
-                    : {
-                          userId: transaction.sender_id,
-                          walletId: transaction.sender_wallet_id,
-                          fullName: transaction.sender_full_name,
-                          profilePhoto: transaction.sender_profile_photo,
-                      }
-                : null;
+                    const otherUser =
+                        hasOtherUser
+                            ? isSender
+                                ? {
+                                      userId:
+                                          transaction.receiver_id,
+                                      walletId:
+                                          transaction.receiver_wallet_id,
+                                      fullName:
+                                          transaction.receiver_full_name,
+                                      profilePhoto:
+                                          transaction.receiver_profile_photo,
+                                  }
+                                : {
+                                      userId:
+                                          transaction.sender_id,
+                                      walletId:
+                                          transaction.sender_wallet_id,
+                                      fullName:
+                                          transaction.sender_full_name,
+                                      profilePhoto:
+                                          transaction.sender_profile_photo,
+                                  }
+                            : null;
 
-            const displayKind =
-                otherUser
-                    ? 'person'
-                    : 'service';
-
-            return {
-                id: transaction.id,
-
-                reference:
-                    transaction.reference_code,
-
-                type:
-                    transaction.type_code,
-
-                status:
-                    transaction.status,
-
-                direction:
-                    isSender
-                        ? 'outgoing'
-                        : 'incoming',
-
-                amount:
-                    transaction.amount,
-
-                currency:
-                    transaction.currency,
-
-                fee:
-                    transaction.fee,
-
-                description:
-                    transaction.description,
-
-                sender: {
-                    userId:
-                        transaction.sender_id,
-                    walletId:
-                        transaction.sender_wallet_id,
-                    fullName:
-                        transaction.sender_full_name,
-                    profilePhoto:
-                        transaction.sender_profile_photo,
-                },
-
-                receiver: {
-                    userId:
-                        transaction.receiver_id,
-                    walletId:
-                        transaction.receiver_wallet_id,
-                    fullName:
-                        transaction.receiver_full_name,
-                    profilePhoto:
-                        transaction.receiver_profile_photo,
-                },
-
-                otherUser,
-
-                display: {
-                    kind: displayKind,
-                    name:
-                        otherUser?.fullName ||
-                        transaction.description ||
-                        transaction.type_code,
-                    avatar:
-                        otherUser?.profilePhoto || null,
-                    icon:
+                    const displayKind =
                         otherUser
-                            ? null
-                            : transaction.type_code,
-                },
+                            ? 'person'
+                            : 'service';
 
-                metadata:
-                    transaction.metadata,
+                    return {
+                        id:
+                            transaction.id,
 
-                createdAt:
-                    transaction.created_at,
-            };
-        });
+                        reference:
+                            transaction.reference_code,
+
+                        type:
+                            transaction.type_code,
+
+                        status:
+                            transaction.status,
+
+                        direction:
+                            isSender
+                                ? 'outgoing'
+                                : 'incoming',
+
+                        amount:
+                            transaction.amount,
+
+                        currency:
+                            transaction.currency,
+
+                        fee:
+                            transaction.fee,
+
+                        description:
+                            transaction.description,
+
+                        sender: {
+                            userId:
+                                transaction.sender_id,
+                            walletId:
+                                transaction.sender_wallet_id,
+                            fullName:
+                                transaction.sender_full_name,
+                            profilePhoto:
+                                transaction.sender_profile_photo,
+                        },
+
+                        receiver: {
+                            userId:
+                                transaction.receiver_id,
+                            walletId:
+                                transaction.receiver_wallet_id,
+                            fullName:
+                                transaction.receiver_full_name,
+                            profilePhoto:
+                                transaction.receiver_profile_photo,
+                        },
+
+                        otherUser,
+
+                        display: {
+                            kind:
+                                displayKind,
+
+                            name:
+                                otherUser?.fullName ||
+                                transaction.description ||
+                                transaction.type_code,
+
+                            avatar:
+                                otherUser?.profilePhoto ||
+                                null,
+
+                            icon:
+                                otherUser
+                                    ? null
+                                    : transaction.type_code,
+                        },
+
+                        metadata:
+                            transaction.metadata,
+
+                        createdAt:
+                            transaction.created_at,
+                    };
+                }
+            );
 
         return NextResponse.json({
             success: true,
+
             userId,
 
             filters: {
@@ -322,6 +425,7 @@ export async function GET(request: NextRequest) {
                 transactions.length,
 
             limit,
+
             offset,
 
             transactions,

@@ -1,129 +1,259 @@
 'use server';
 
 import { db } from '@/lib/db';
-import { handleDbError, saveBase64Image } from './helpers';
-import type { User, Status, StatusGroup } from '@/lib/types';
+import { handleDbError } from './helpers';
+import type { StatusGroup } from '@/lib/types';
 import fs from 'fs/promises';
 import path from 'path';
+import crypto from 'crypto';
 
 type CreateStatusArgs = {
-  userId: number;
-  type: 'text' | 'image' | 'video';
-  content: string;
-  backgroundColor?: string;
+    userId: number;
+    type: 'text' | 'image' | 'video';
+    content: string;
+    backgroundColor?: string;
 };
 
-export async function createStatus(args: CreateStatusArgs): Promise<{ success: boolean; error?: string }> {
+export async function createStatus(
+    args: CreateStatusArgs
+): Promise<{
+    success: boolean;
+    error?: string;
+    statusId?: number;
+    content?: string;
+    expiresAt?: string;
+}> {
     const { userId, type, content, backgroundColor } = args;
 
     try {
         let finalContent = content;
 
-        if ((type === 'image' || type === 'video') && content.startsWith('data:')) {
-            const mediaUrl = await saveBase64Image(content, 'statuses', `status_${userId}`);
-            if (!mediaUrl) {
-                return { success: false, error: 'Failed to save media file.' };
+        /*
+         * Pour les médias reçus sous forme de data URL,
+         * création d'un nom unique afin qu'un nouveau statut
+         * ne puisse pas écraser le média d'un ancien statut.
+         */
+        if (
+            (type === 'image' || type === 'video') &&
+            content.startsWith('data:')
+        ) {
+            const match = content.match(
+                /^data:((?:image|video)\/[^;]+);base64,(.+)$/s
+            );
+
+            if (!match) {
+                return {
+                    success: false,
+                    error: 'Invalid media data.'
+                };
             }
-            finalContent = mediaUrl;
+
+            const mimeType = match[1];
+            const data = match[2];
+
+            let extension = mimeType.split('/')[1]?.toLowerCase() || 'bin';
+
+            if (extension === 'jpeg') extension = 'jpg';
+
+            const buffer = Buffer.from(data, 'base64');
+
+            const uniqueName =
+                `status_${userId}_${Date.now()}_${crypto.randomBytes(8).toString('hex')}.${extension}`;
+
+            const directoryPath = path.join(
+                process.cwd(),
+                'public',
+                'images',
+                'statuses'
+            );
+
+            await fs.mkdir(directoryPath, { recursive: true });
+
+            const filePath = path.join(directoryPath, uniqueName);
+
+            await fs.writeFile(filePath, buffer);
+
+            /*
+             * URL publique stockée dans statuses.content.
+             * Le client recevra ensuite cette URL HTTPS.
+             */
+            finalContent =
+                `/images/statuses/${uniqueName}`;
         }
 
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        const expiresAt = new Date(
+            Date.now() + 24 * 60 * 60 * 1000
+        );
 
-        const newStatus = {
-            user_id: userId,
-            type,
-            content: finalContent,
-            background_color: backgroundColor,
-            expires_at: expiresAt
+        const result = await db.query(
+            `
+            INSERT INTO statuses
+                (user_id, type, content, background_color, expires_at)
+            VALUES
+                ($1, $2, $3, $4, $5)
+            RETURNING id, content, expires_at
+            `,
+            [
+                userId,
+                type,
+                finalContent,
+                backgroundColor ?? null,
+                expiresAt
+            ]
+        );
+
+        const created = result.rows[0];
+
+        return {
+            success: true,
+            statusId: created.id,
+            content: created.content,
+            expiresAt: new Date(created.expires_at).toISOString()
         };
-
-        await db.query('INSERT INTO statuses (user_id, type, content, background_color, expires_at) VALUES ($1, $2, $3, $4, $5)', Object.values(newStatus));
-
-        return { success: true };
     } catch (error) {
-        const dbError = await handleDbError(error, 'creating status');
-        return { success: false, error: dbError.error };
+        const dbError = await handleDbError(
+            error,
+            'creating status'
+        );
+
+        return {
+            success: false,
+            error: dbError.error
+        };
     }
 }
 
-export async function getStatusesForUser(userId: number): Promise<StatusGroup[]> {
+export async function getStatusesForUser(
+    userId: number
+): Promise<StatusGroup[]> {
     try {
-        const { rows } = await db.query(`
-            SELECT 
-                s.id, s.user_id, s.type, s.content, s.background_color, s.created_at,
-                u.full_name, u.profile_photo
+        const { rows } = await db.query(
+            `
+            SELECT
+                s.id,
+                s.user_id,
+                s.type,
+                s.content,
+                s.background_color,
+                s.created_at,
+                s.expires_at,
+                u.full_name,
+                u.profile_photo
             FROM statuses s
-            JOIN users u ON s.user_id = u.id
+            JOIN users u
+                ON s.user_id = u.id
             WHERE s.expires_at > NOW()
-            ORDER BY s.user_id, s.created_at ASC
-        `);
+              AND s.user_id = $1
+            ORDER BY s.created_at ASC
+            `,
+            [userId]
+        );
 
         if (rows.length === 0) {
             return [];
         }
 
-        const groupedByContact = rows.reduce((acc, row) => {
-            const contactId = row.user_id;
-            if (!acc[contactId]) {
-                acc[contactId] = {
-                    contact: {
-                        id: row.user_id,
-                        full_name: row.full_name,
-                        profile_photo: row.profile_photo,
-                    },
-                    statuses: [],
-                    hasUnseen: true, // Mock value, you'd need a 'views' table for this
-                };
-            }
-            acc[contactId].statuses.push({
-                id: row.id,
-                userId: row.user_id,
-                type: row.type,
-                content: row.content,
-                backgroundColor: row.background_color,
-                createdAt: new Date(row.created_at).toISOString(),
-            });
-            return acc;
-        }, {} as Record<number, StatusGroup>);
+        const groupedByContact = rows.reduce(
+            (acc, row) => {
+                const contactId = row.user_id;
+
+                if (!acc[contactId]) {
+                    acc[contactId] = {
+                        contact: {
+                            id: row.user_id,
+                            full_name: row.full_name,
+                            profile_photo: row.profile_photo,
+                        },
+                        statuses: [],
+                        hasUnseen: true,
+                    };
+                }
+
+                acc[contactId].statuses.push({
+                    id: row.id,
+                    userId: row.user_id,
+                    type: row.type,
+                    content: row.content,
+                    backgroundColor: row.background_color,
+                    createdAt: new Date(
+                        row.created_at
+                    ).toISOString(),
+                });
+
+                return acc;
+            },
+            {} as Record<number, StatusGroup>
+        );
 
         return Object.values(groupedByContact);
     } catch (error) {
-        handleDbError(error, 'fetching statuses');
+        await handleDbError(
+            error,
+            'fetching statuses'
+        );
+
         return [];
     }
 }
 
 export async function deleteExpiredStatuses(): Promise<void> {
     try {
-        const { rows: expiredStatuses } = await db.query('SELECT id, type, content FROM statuses WHERE expires_at < NOW()');
+        const { rows: expiredStatuses } =
+            await db.query(
+                `
+                SELECT id, type, content
+                FROM statuses
+                WHERE expires_at <= NOW()
+                `
+            );
 
         if (expiredStatuses.length === 0) {
-            console.log('[Status Cleanup] No expired statuses to delete.');
             return;
         }
 
         const fileDeletionPromises: Promise<any>[] = [];
-        const statusIdsToDelete: number[] = [];
+        const statusIds: number[] = [];
 
         for (const status of expiredStatuses) {
-            statusIdsToDelete.push(status.id);
-            if ((status.type === 'image' || status.type === 'video') && status.content.startsWith('/images/statuses/')) {
-                const filePath = path.join(process.cwd(), 'public', status.content);
+            statusIds.push(status.id);
+
+            if (
+                (status.type === 'image' ||
+                    status.type === 'video') &&
+                typeof status.content === 'string' &&
+                status.content.startsWith(
+                    '/images/statuses/'
+                )
+            ) {
+                const filePath = path.join(
+                    process.cwd(),
+                    'public',
+                    status.content
+                );
+
                 fileDeletionPromises.push(
-                    fs.unlink(filePath).catch(err => {
-                        console.error(`Failed to delete status file ${filePath}:`, err.message);
-                    })
+                    fs.unlink(filePath).catch(() => undefined)
                 );
             }
         }
 
         await Promise.all(fileDeletionPromises);
-        
-        if (statusIdsToDelete.length > 0) {
-            const { rowCount } = await db.query('DELETE FROM statuses WHERE id = ANY($1::int[])', [statusIdsToDelete]);
-            console.log(`[Status Cleanup] Deleted ${rowCount} expired statuses from DB and their associated files.`);
-        }
+
+        await db.query(
+            `
+            DELETE FROM statuses
+            WHERE id = ANY($1::int[])
+            `,
+            [statusIds]
+        );
+
+        console.log(
+            `[Status Cleanup] Deleted ${statusIds.length} expired statuses and their media.`
+        );
     } catch (error) {
-        handleDbError(error, 'deleting expired statuses');
+        await handleDbError(
+            error,
+            'deleting expired statuses'
+        );
     }
 }

@@ -125,11 +125,8 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
             verification_status: null,
             temp_photo_expires_at: formData.isAiGeneratedPhoto ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : null,
             is_crypto_active: false,
-            mlm_rank_id: null,
             api_key: null,
             api_secret: null,
-            left_child_id: null,
-            right_child_id: null,
         };
         
         const columns = Object.keys(newUserPayload).map(key => `"${key.toLowerCase()}"`).join(', ');

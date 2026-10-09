@@ -1,0 +1,139 @@
+import { NextRequest, NextResponse } from 'next/server';
+
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
+import { executeCommissionClaim } from '@/lib/ussd/ussd.actions';
+
+export async function POST(
+  req: NextRequest
+) {
+  try {
+    const user =
+      await getAuthenticatedUser();
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Authentification requise.',
+        },
+        { status: 401 }
+      );
+    }
+
+    const role =
+      String(user.role || '')
+        .trim()
+        .toLowerCase();
+
+    if (role !== 'agent') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Un compte Agent est requis.',
+        },
+        { status: 403 }
+      );
+    }
+
+    const body =
+      await req.json();
+
+    const amount =
+      Number(body?.amount);
+
+    const currency =
+      String(body?.currency || '')
+        .trim()
+        .toUpperCase();
+
+    const pin =
+      String(body?.pin || '')
+        .trim();
+
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Montant invalide.',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!currency) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Devise requise.',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!/^\d{4}$/.test(pin)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Le PIN doit contenir exactement 4 chiffres.',
+        },
+        { status: 400 }
+      );
+    }
+
+    const result =
+      await executeCommissionClaim(
+        user as any,
+        amount,
+        currency,
+        pin
+      );
+
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            result.error ||
+            'Bascule des commissions impossible.',
+        },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+
+      operation: 'commission_claim',
+
+      reference:
+        (result as any).reference ||
+        null,
+
+      amount,
+
+      currency,
+
+      message:
+        `Bascule de ${amount} ${currency} effectuée avec succès.`,
+    });
+  } catch (error: any) {
+    console.error(
+      '[AGENT_COMMISSION_TRANSFER_API]',
+      error
+    );
+
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error?.message ||
+          'Erreur interne lors de la bascule des commissions.',
+      },
+      { status: 500 }
+    );
+  }
+}
