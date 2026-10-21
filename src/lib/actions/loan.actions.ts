@@ -390,20 +390,34 @@ export async function processLoanRepayments(userId?: number) {
 
                 const currentBalanceRows = await connection.query('SELECT balances FROM wallets WHERE user_id=$1::integer FOR UPDATE', [user.id]);
                 const balances = typeof currentBalanceRows.rows[0]?.balances === 'string' ? JSON.parse(currentBalanceRows.rows[0].balances) : (currentBalanceRows.rows[0]?.balances || {});
-                let available = money(balances[currency]);
-                let payable = Math.min(baseOutstanding, available);
+                let available = Number(balances[currency] ?? 0);
+                available = Number.isFinite(available) ? Math.max(0, available) : 0;
 
-                if (payable > 0) {
-                    // Respect transaction fees, if LR is configured with one, and use the maximum affordable principal.
-                    let low = 0, high = payable;
-                    for (let n = 0; n < 12; n++) {
-                        const mid = roundMoney((low + high) / 2);
-                        const fee = money(await calculateTransactionFee(mid, currency, 'LR' as any, user.country, connection));
-                        if (mid + fee <= available + 0.005) low = mid; else high = roundMoney(mid - 0.01);
+                // Chercher le remboursement maximal, centime par centime,
+                // sans dépasser le solde disponible, frais LR inclus.
+                let lowCents = 0;
+                let highCents = Math.floor(
+                    Math.min(baseOutstanding, available) * 100 + 0.000001
+                );
+                let bestCents = 0;
+
+                while (lowCents <= highCents) {
+                    const midCents = Math.floor((lowCents + highCents) / 2);
+                    const candidate = roundMoney(midCents / 100);
+                    const fee = money(await calculateTransactionFee(
+                        candidate, currency, 'LR' as any, user.country, connection
+                    ));
+                    const totalDebit = roundMoney(candidate + fee);
+
+                    if (totalDebit <= available + 0.005) {
+                        bestCents = midCents;
+                        lowCents = midCents + 1;
+                    } else {
+                        highCents = midCents - 1;
                     }
-                    payable = roundMoney(Math.max(0, low));
                 }
 
+                const payable = roundMoney(bestCents / 100);
                 if (payable > 0) {
                     const tx = await createTransaction({
                         user, typeCode: 'LR' as any, amount: payable, currency,
@@ -505,13 +519,20 @@ export async function processLoanRepayments(userId?: number) {
 
                 const remainingAfterPenalty = roundMoney(remainingBeforePenalty + penaltyApplied);
                 await connection.query(`UPDATE loan_installments SET status='overdue',updated_at=NOW() WHERE id=$1 AND status <> 'paid'`, [inst.id]);
-                events.push({user,subject:'Échéance LoanMe impayée',message:`CashPay Alerte: l’échéance ${inst.installment_number} du prêt #${loanData.id} reste impayée. Montant restant: ${remainingAfterPenalty.toFixed(2)} ${currency}.`,data:{loan_id:loanData.id,installment_id:Number(inst.id),type:'loan_overdue',amount:remainingAfterPenalty}});
+                if (current.status !== 'overdue') {
+                    events.push({user,subject:'Échéance LoanMe impayée',message:`CashPay Alerte: l’échéance ${inst.installment_number} du prêt #${loanData.id} reste impayée. Montant restant: ${remainingAfterPenalty.toFixed(2)} ${currency}.`,data:{loan_id:loanData.id,installment_id:Number(inst.id),type:'loan_overdue',amount:remainingAfterPenalty}});
+                }
             }
         }
 
         await connection.query(`UPDATE loans SET status='repaid' WHERE status='approved' AND remaining_balance <= 0`);
         await connection.query('COMMIT');
-        for (const event of events) await notifyLoanUser(event.user,event.subject,event.message,event.data);
+        for (const event of events) {
+            void notifyLoanUser(event.user, event.subject, event.message, event.data)
+                .catch((notificationError) => {
+                    console.error('[Loan Repayment] Notification failed:', notificationError);
+                });
+        }
         return {
             success: processed > 0,
             processed,

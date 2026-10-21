@@ -1,30 +1,59 @@
-
 import { NextResponse } from 'next/server';
-import { getHardwareKeyDetails } from '@/lib/actions/security.actions';
+import { db } from '@/lib/db';
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 
-/**
- * API : Vérifier le statut d'une clé H (Reader API)
- * Endpoint: GET /api/v1/security/cpk/status/{signature}
- */
+export const dynamic = 'force-dynamic';
+
 export async function GET(
-    request: Request,
-    { params }: { params: { signature: string } }
+request: Request,
+{ params }: { params: { signature: string } }
 ) {
-    const { signature } = params;
+try {
+const user = await getAuthenticatedUser();
+
+    if (!user) {
+        return NextResponse.json(
+            { success: false, error: 'Non authentifié.' },
+            { status: 401 }
+        );
+    }
+
+    const signature = params.signature;
 
     if (!signature) {
-        return NextResponse.json({ success: false, error: "Signature manquante" }, { status: 400 });
+        return NextResponse.json(
+            { success: false, error: 'Signature manquante.' },
+            { status: 400 }
+        );
     }
 
-    try {
-        const result = await getHardwareKeyDetails(signature);
+    const { rows } = await db.query(
+        `SELECT id, key_reference, amount, currency, security_level,
+                status, created_at, claimed_at
+         FROM hardware_keys
+         WHERE hsm_signature = $1
+           AND owner_user_id = $2
+         LIMIT 1`,
+        [signature, user.id]
+    );
 
-        if (!result.success) {
-            return NextResponse.json({ success: false, error: result.error }, { status: 404 });
-        }
-
-        return NextResponse.json(result);
-    } catch (e: any) {
-        return NextResponse.json({ success: false, error: e.message }, { status: 500 });
+    if (rows.length === 0) {
+        return NextResponse.json(
+            { success: false, error: 'Clé introuvable ou accès non autorisé.' },
+            { status: 404 }
+        );
     }
+
+    return NextResponse.json({
+        success: true,
+        key: rows[0]
+    });
+} catch (error) {
+    console.error('[CPK STATUS]', error);
+    return NextResponse.json(
+        { success: false, error: 'Erreur lors de la consultation du statut.' },
+        { status: 500 }
+    );
+}
+
 }

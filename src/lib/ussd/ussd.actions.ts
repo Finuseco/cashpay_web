@@ -288,65 +288,206 @@ export async function executeCommissionClaim(user:User,amount:number,currency:st
 export async function executeUssdExchange(user:User,amount:number,currency:string,toCurrency:string,rate:number,pin:string){const p=await verifyUserPin(user.id,pin);if(!p.success)return {success:false,error:'Code PIN incorrect.'};return createTransaction({user,typeCode:'EXCHANGE',amount,currency,description:`Échange ${currency} vers ${toCurrency}`,metadata:{channel:'USSD',fromCurrency:currency,toCurrency,toAmount:amount*rate,rate}});}
 export async function fetchUssdHistory(userId:number,currency:string,page=0){try{const limit=5;const {rows}=await db.query('SELECT type_code,amount,currency,created_at FROM transactions WHERE (sender_id=$1 OR receiver_id=$1) AND currency=$2 ORDER BY created_at DESC LIMIT $3 OFFSET $4',[userId,currency,limit,page*limit]);return {items:rows.map(r=>({type:r.type_code,amount:Number(r.amount),currency:r.currency,date:r.created_at})),hasNext:rows.length===limit};}catch{return {items:[],hasNext:false};}}
 export async function getCommissionStats(userId:number,currency:string){try{const available=await getCommissionBalance(userId,currency);const {rows}=await db.query("SELECT COALESCE(SUM(amount),0) total FROM transactions WHERE receiver_id=$1 AND type_code='MLM_COMM' AND currency=$2 AND created_at>=CURRENT_DATE",[userId,currency]);return {available,daily:Number(rows[0]?.total||0)};}catch{return {available:0,daily:0};}}
-export async function getTvPackages(providerCode:string){
-  try{
-    const aliases:any={
-      CANALPLUS:['CANALPLUS','CANAL_PLUS','CANAL+','CANALPLUS RDC','CANAL PLUS'],
-      STARTIMES:['STARTIMES','STAR_TIMES','STAR TIMES'],
-      DSTV:['DSTV','DStv','DSTV RDC']
+
+export async function getTvPackages(providerCode: string) {
+  try {
+    const aliases: Record<string, string[]> = {
+      CANALPLUS: ['CPLUS', 'CANALPLUS', 'CANAL_PLUS', 'CANAL+', 'CANALPLUS RDC', 'CANAL PLUS'],
+      CPLUS: ['CPLUS', 'CANALPLUS', 'CANAL_PLUS', 'CANAL+', 'CANAL PLUS'],
+      EASYTV: ['EASYTV', 'EASY TV'],
+      BLUESAT: ['BLUS', 'BLUESAT', 'BLEUSAT'],
+      BLEUSAT: ['BLUS', 'BLUESAT', 'BLEUSAT'],
+      STARTIMES: ['STARTIMES', 'STAR_TIMES', 'STAR TIMES'],
+      DSTV: ['DSTV', 'DSTV RDC']
     };
-    const key=String(providerCode||'').toUpperCase();
-    const list=aliases[key]||[providerCode];
-    const {rows}=await db.query(
-      `SELECT id,provider_code,provider_name,package_code,package_name,price_usd,duration_days,
-              decoder_required,card_number_required,is_active,metadata,base_price,base_currency
+    const key = String(providerCode || '').trim().toUpperCase();
+    const list = aliases[key] || [providerCode];
+
+    const { rows } = await db.query(
+      `SELECT id, provider_code, provider_name, package_code, package_name,
+              price_usd, duration_days, decoder_required, card_number_required,
+              is_active, metadata, base_price, base_currency
        FROM tv_subscription_fees
-       WHERE is_active=true
+       WHERE is_active = true
          AND regexp_replace(UPPER(TRIM(provider_code)), '[^A-Z0-9]', '', 'g')
              = ANY($1::text[])
-       ORDER BY COALESCE(base_price,price_usd) ASC, package_name ASC`,
-      [list.map((x:any)=>String(x).toUpperCase().replace(/[^A-Z0-9]/g,''))]
+       ORDER BY COALESCE(base_price, price_usd, 0) ASC, package_name ASC`,
+      [list.map((x: string) => String(x).toUpperCase().replace(/[^A-Z0-9]/g, ''))]
     );
-    return rows;
-  }catch{return [];}
+
+    return rows.map((pkg: any) => {
+      const metadata = typeof pkg.metadata === 'string'
+        ? JSON.parse(pkg.metadata || '{}')
+        : (pkg.metadata || {});
+      return {
+        ...pkg,
+        display_price: Number(pkg.base_price ?? metadata.price ?? pkg.price_usd ?? 0),
+        display_currency: String(pkg.base_currency || metadata.currency || 'USD').toUpperCase()
+      };
+    });
+  } catch (error) {
+    console.error('getTvPackages:', error);
+    return [];
+  }
 }
 
-export async function executeTvSubscription(user:User,operator:string,smartcard:string,packageData:any,currency:string,pin:string){
-  const p=await verifyUserPin(user.id,pin);
-  if(!p.success)return {success:false,error:'Code PIN incorrect.'};
+export async function executeTvSubscription(
+  user: User,
+  operator: string,
+  smartcard: string,
+  packageData: any,
+  currency: string,
+  pin: string
+) {
+  const verification = await verifyUserPin(user.id, pin);
+  if (!verification.success) {
+    return { success: false, error: 'Code PIN incorrect.' };
+  }
 
-  try{
-    const packageId=Number(packageData?.id);
-    if(!Number.isInteger(packageId)||packageId<=0)return {success:false,error:'Abonnement TV invalide.'};
+  try {
+    const packageId = Number(packageData?.id);
+    if (!Number.isInteger(packageId) || packageId <= 0) {
+      return { success: false, error: 'Abonnement TV invalide.' };
+    }
 
-    const {rows}=await db.query(
-      `SELECT id,provider_code,provider_name,package_code,package_name,
-              price_usd,duration_days,decoder_required,card_number_required,
-              is_active,base_price,base_currency
+    const { rows } = await db.query(
+      `SELECT id, provider_code, provider_name, package_code, package_name,
+              price_usd, duration_days, decoder_required, card_number_required,
+              is_active, metadata, base_price, base_currency
        FROM tv_subscription_fees
-       WHERE id=$1 AND is_active=true
+       WHERE id = $1 AND is_active = true
        LIMIT 1`,
       [packageId]
     );
-    if(!rows.length)return {success:false,error:'Abonnement TV introuvable.'};
 
-    const pkg=rows[0];
-    const amount=Number(pkg.base_price??pkg.price_usd);
-    if(!Number.isFinite(amount)||amount<=0)return {success:false,error:'Prix de l’abonnement TV invalide.'};
-
-    if(pkg.decoder_required||pkg.card_number_required){
-      if(!String(smartcard||'').trim())return {success:false,error:'Numéro Smartcard / décodeur requis.'};
+    if (!rows.length) {
+      return { success: false, error: 'Abonnement TV introuvable ou inactif.' };
     }
 
-    return createSubscription({
+    const pkg = rows[0];
+    const metadata = typeof pkg.metadata === 'string'
+      ? JSON.parse(pkg.metadata || '{}')
+      : (pkg.metadata || {});
+    const tariffAmount = Number(pkg.base_price ?? metadata.price ?? pkg.price_usd);
+    const tariffCurrency = String(pkg.base_currency || metadata.currency || 'USD').trim().toUpperCase();
+
+    if (!Number.isFinite(tariffAmount) || tariffAmount <= 0) {
+      return { success: false, error: 'Le tarif TV configuré est invalide.' };
+    }
+    if (!/^[A-Z]{3}$/.test(tariffCurrency)) {
+      return { success: false, error: 'La devise du tarif TV est invalide.' };
+    }
+    if ((pkg.decoder_required || pkg.card_number_required) && !String(smartcard || '').trim()) {
+      return { success: false, error: 'Numéro Smartcard / décodeur requis.' };
+    }
+
+    const { rows: walletRows } = await db.query(
+      'SELECT balances FROM wallets WHERE user_id = $1::integer LIMIT 1',
+      [user.id]
+    );
+    if (!walletRows.length) {
+      return { success: false, error: 'Portefeuille introuvable.' };
+    }
+
+    const balances = typeof walletRows[0].balances === 'string'
+      ? JSON.parse(walletRows[0].balances)
+      : (walletRows[0].balances || {});
+
+    const requestedCurrency = String(currency || '').trim().toUpperCase();
+    if (requestedCurrency && !/^[A-Z]{3}$/.test(requestedCurrency)) {
+      return { success: false, error: 'Devise de paiement invalide.' };
+    }
+
+    // Si le client précise une devise, respecter ce choix.
+    // Sinon, essayer la devise du tarif, puis USD et EUR.
+    const candidates = requestedCurrency
+      ? [requestedCurrency]
+      : [...new Set([tariffCurrency, 'USD', 'EUR'])];
+
+    const countryCode = countryToCode(user.country) || 'GBL';
+    let paymentCurrency = '';
+    let paymentAmount = 0;
+    let exchangeRate = 1;
+    let rateMissing = false;
+
+    for (const candidate of candidates) {
+      let rate = 1;
+
+      if (candidate !== tariffCurrency) {
+        const { rows: rateRows } = await db.query(
+          `SELECT rate
+           FROM exchange_rates
+           WHERE country_code = $1
+             AND from_currency = $2
+             AND to_currency = $3
+           LIMIT 1`,
+          [countryCode, tariffCurrency, candidate]
+        );
+
+        if (!rateRows.length) {
+          rateMissing = true;
+          continue;
+        }
+
+        rate = Number(rateRows[0].rate);
+        if (!Number.isFinite(rate) || rate <= 0) {
+          rateMissing = true;
+          continue;
+        }
+      }
+
+      // Même convention de conversion que le moteur existant :
+      // montant cible = montant source × taux (from_currency -> to_currency).
+      const convertedAmount = Math.round(tariffAmount * rate * 100) / 100;
+      const availableBalance = Number(balances[candidate] || 0);
+
+      if (Number.isFinite(availableBalance) && availableBalance >= convertedAmount) {
+        paymentCurrency = candidate;
+        paymentAmount = convertedAmount;
+        exchangeRate = rate;
+        break;
+      }
+    }
+
+    if (!paymentCurrency) {
+      if (requestedCurrency && rateMissing && requestedCurrency !== tariffCurrency) {
+        return {
+          success: false,
+          error: `Le taux ${tariffCurrency}/${requestedCurrency} n'est pas configuré pour le pays ${countryCode}.`
+        };
+      }
+      return {
+        success: false,
+        error: requestedCurrency
+          ? `Solde insuffisant en ${requestedCurrency} ou taux de change indisponible.`
+          : 'Aucun portefeuille en CDF, USD ou EUR ne dispose du solde requis avec un taux configuré.'
+      };
+    }
+
+    return await createSubscription({
       user,
-      serviceName:`Abonnement ${pkg.provider_name||operator} - ${pkg.package_name}`,
-      amount,
-      operatorName:pkg.provider_name||operator,
-      smartcardNumber:String(smartcard||'')
+      serviceName: `Abonnement ${pkg.provider_name || operator} - ${pkg.package_name}`,
+      amount: paymentAmount,
+      currency: paymentCurrency,
+      status: 'pending',
+      operatorName: pkg.provider_name || operator,
+      smartcardNumber: String(smartcard || ''),
+      metadata: {
+        tvPackageId: pkg.id,
+        packageCode: pkg.package_code,
+        tariffAmount,
+        tariffCurrency,
+        paymentCurrency,
+        exchangeRate,
+        countryCode
+      }
     });
-  }catch(e:any){
-    return {success:false,error:e?.message||'Service TV indisponible.'};
+  } catch (error: any) {
+    console.error('executeTvSubscription:', error);
+    return {
+      success: false,
+      error: error?.message || 'Service TV indisponible.'
+    };
   }
 }
 

@@ -14,18 +14,17 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-
     const loanId = Number(body.loanId);
     const installmentId = Number(body.installmentId);
 
-    if (!Number.isInteger(loanId) || loanId <= 0) {
+    if (!Number.isSafeInteger(loanId) || loanId <= 0) {
       return NextResponse.json(
         { success: false, error: 'Identifiant du prêt invalide.' },
         { status: 400 }
       );
     }
 
-    if (!Number.isInteger(installmentId) || installmentId <= 0) {
+    if (!Number.isSafeInteger(installmentId) || installmentId <= 0) {
       return NextResponse.json(
         { success: false, error: 'Identifiant de l’échéance invalide.' },
         { status: 400 }
@@ -38,19 +37,16 @@ export async function POST(request: NextRequest) {
       installmentId
     );
 
-    return NextResponse.json(
-      result,
-      { status: result.success ? 200 : 400 }
-    );
+    return NextResponse.json(result, {
+      status: result.success ? 200 : 400,
+    });
   } catch (error: any) {
     console.error('Loan installment repayment API error:', error);
 
     return NextResponse.json(
       {
         success: false,
-        error:
-          error?.message ||
-          'Impossible de rembourser cette échéance.',
+        error: error?.message || 'Impossible de rembourser cette échéance.',
       },
       { status: 500 }
     );

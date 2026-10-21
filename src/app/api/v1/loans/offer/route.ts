@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { getLoanOffer } from '@/lib/actions/loan.actions';
 
+const ALLOWED_LOAN_CURRENCIES = ['CDF', 'USD', 'EUR'] as const;
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthenticatedUser();
@@ -13,16 +15,27 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { searchParams } = new URL(request.url);
-    const currency = String(
-      searchParams.get('currency') || 'USD'
-    ).toUpperCase();
+    const requestedCurrency = String(
+      request.nextUrl.searchParams.get('currency') || 'USD'
+    ).trim().toUpperCase();
 
-    const result = await getLoanOffer(user.id, currency);
+    if (!ALLOWED_LOAN_CURRENCIES.includes(requestedCurrency as typeof ALLOWED_LOAN_CURRENCIES[number])) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Devise non autorisée pour LoanMe.',
+          allowedCurrencies: [...ALLOWED_LOAN_CURRENCIES],
+        },
+        { status: 400 }
+      );
+    }
+
+    const offer = await getLoanOffer(user.id, requestedCurrency);
 
     return NextResponse.json({
       success: true,
-      offer: result,
+      allowedCurrencies: [...ALLOWED_LOAN_CURRENCIES],
+      offer,
     });
   } catch (error: any) {
     console.error('Loans offer API error:', error);

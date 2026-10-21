@@ -1,40 +1,76 @@
-
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { signTransactionWithHardwareKey } from '@/lib/actions/security.actions';
 
-/**
- * API : Émettre une nouvelle clé matérielle .CPK
- * Débite l'utilisateur (incluant les frais HSM_LOCK)
- */
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
-    const user = await getAuthenticatedUser();
+try {
+const user = await getAuthenticatedUser();
+
     if (!user) {
-        return NextResponse.json({ success: false, error: "Non authentifié" }, { status: 401 });
+        return NextResponse.json(
+            { success: false, error: 'Non authentifié.' },
+            { status: 401 }
+        );
     }
 
-    try {
-        const body = await request.json();
-        const { amount, currency, securityLevel, keyPin, userPin } = body;
+    const body = await request.json();
+    const { amount, currency, securityLevel, keyPin, userPin } = body;
+    const amountNumber = Number(amount);
+    const normalizedCurrency =
+        typeof currency === 'string' ? currency.trim().toUpperCase() : '';
+    const level = securityLevel || 'none';
 
-        if (!amount || !currency || !userPin) {
-            return NextResponse.json({ success: false, error: "Champs obligatoires manquants" }, { status: 400 });
-        }
-
-        const result = await signTransactionWithHardwareKey({
-            amount: parseFloat(amount),
-            currency,
-            securityLevel: securityLevel || 'none',
-            keyPin,
-            userPin
-        });
-
-        if (!result.success) {
-            return NextResponse.json({ success: false, error: result.error }, { status: 400 });
-        }
-
-        return NextResponse.json(result);
-    } catch (e) {
-        return NextResponse.json({ success: false, error: "Erreur interne" }, { status: 500 });
+    if (
+        !Number.isFinite(amountNumber) ||
+        amountNumber <= 0 ||
+        !normalizedCurrency ||
+        typeof userPin !== 'string' ||
+        !userPin
+    ) {
+        return NextResponse.json(
+            { success: false, error: 'Montant, devise et PIN personnel requis.' },
+            { status: 400 }
+        );
     }
+
+    if (!['none', 'pin_protected'].includes(level)) {
+        return NextResponse.json(
+            { success: false, error: 'Niveau de sécurité invalide.' },
+            { status: 400 }
+        );
+    }
+
+    if (level === 'pin_protected' && (typeof keyPin !== 'string' || !keyPin)) {
+        return NextResponse.json(
+            { success: false, error: 'Le PIN de la clé est obligatoire.' },
+            { status: 400 }
+        );
+    }
+
+    const result = await signTransactionWithHardwareKey({
+        amount: amountNumber,
+        currency: normalizedCurrency,
+        securityLevel: level,
+        keyPin,
+        userPin
+    });
+
+    if (!result.success) {
+        return NextResponse.json(
+            { success: false, error: result.error || 'Émission impossible.' },
+            { status: 400 }
+        );
+    }
+
+    return NextResponse.json(result, { status: 201 });
+} catch (error) {
+    console.error('[CPK ISSUE]', error);
+    return NextResponse.json(
+        { success: false, error: 'Erreur interne lors de l’émission.' },
+        { status: 500 }
+    );
+}
+
 }

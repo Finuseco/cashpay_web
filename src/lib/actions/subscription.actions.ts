@@ -15,6 +15,9 @@ export async function createSubscription(args: {
     amount: number;
     operatorName: string;
     smartcardNumber: string;
+    currency?: string;
+    status?: 'active' | 'pending';
+    metadata?: Record<string, any>;
 }): Promise<{ success: boolean; error?: string }> {
     const connection = await db.getConnection();
     try {
@@ -25,9 +28,13 @@ export async function createSubscription(args: {
             user: args.user,
             typeCode: 'TV',
             amount: args.amount,
-            currency: 'USD',
+            currency: args.currency || 'USD',
             description: `Abonnement ${args.operatorName} - ${args.serviceName}`,
-            metadata: { smartcardNumber: args.smartcardNumber, operator: args.operatorName },
+            metadata: {
+                smartcardNumber: args.smartcardNumber,
+                operator: args.operatorName,
+                ...(args.metadata || {})
+            },
             connection
         });
 
@@ -36,8 +43,16 @@ export async function createSubscription(args: {
         // Enregistrer l'abonnement
         await connection.query(
             `INSERT INTO subscriptions (user_id, service_name, amount, operator_name, smartcard_number, status, transaction_id)
-             VALUES ($1, $2, $3, $4, $5, 'active', $6)`,
-            [args.user.id, args.serviceName, args.amount, args.operatorName, args.smartcardNumber, tx.transactionId]
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+                args.user.id,
+                args.serviceName,
+                args.amount,
+                args.operatorName,
+                args.smartcardNumber,
+                args.status || 'active',
+                tx.transactionId
+            ]
         );
 
         await connection.query('COMMIT');

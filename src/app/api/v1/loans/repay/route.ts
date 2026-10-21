@@ -14,11 +14,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-
     const loanId = Number(body.loanId);
     const amount = Number(body.amount);
 
-    if (!Number.isInteger(loanId) || loanId <= 0) {
+    if (!Number.isSafeInteger(loanId) || loanId <= 0) {
       return NextResponse.json(
         { success: false, error: 'Identifiant du prêt invalide.' },
         { status: 400 }
@@ -32,16 +31,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await repayLoan(
-      user.id,
-      loanId,
-      amount
-    );
+    const result = await repayLoan(user.id, loanId, amount);
 
-    return NextResponse.json(
-      result,
-      { status: result.success ? 200 : 400 }
-    );
+    return NextResponse.json(result, {
+      status: result.success ? 200 : 400,
+    });
   } catch (error: any) {
     console.error('Loan repayment API error:', error);
 

@@ -102,6 +102,21 @@ export async function listBitcoinTransactions(
         : [];
 }
 
+export async function validateBitcoinAddress(
+    address: string
+): Promise<boolean> {
+    if (typeof address !== 'string' || !address.trim()) {
+        return false;
+    }
+
+    const response = await bitcoinRpcRequest(
+        'validateaddress',
+        [address.trim()]
+    );
+
+    return response.result?.isvalid === true;
+}
+
 export async function sendBitcoinToAddress(
     recipientAddress: string,
     amount: number

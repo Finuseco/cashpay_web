@@ -1,13 +1,17 @@
+
 'use server';
 
 import { db } from '@/lib/db';
 import { verifyUserPin } from './auth.actions';
 import { calculateTransactionFee } from './wallet.actions';
-import { sendBitcoinToAddress } from '@/services/bitcoin';
+import { sendBitcoinToAddress, validateBitcoinAddress } from '@/services/bitcoin';
 import { sendTransactionNotifications } from './transaction.actions';
 import { createNotification } from './notification.actions';
 import { getUserFromDb } from './helpers';
-import { generateReferenceCode, type TransactionTypeCode } from '../utils';
+import {
+    generateReferenceCode,
+    type TransactionTypeCode,
+} from '../utils';
 
 interface BitcoinTransferArgs {
     userId: number;
@@ -16,27 +20,39 @@ interface BitcoinTransferArgs {
     pin: string;
 }
 
+const BTC_TYPE = 'WD_CRYPTO_MONEY' as TransactionTypeCode;
+
 export async function prepareBitcoinTransfer(
     args: BitcoinTransferArgs
 ) {
-    const {
-        userId,
-        recipientAddress,
-        amount,
-        pin,
-    } = args;
+    const { userId, recipientAddress, amount, pin } = args;
 
     if (!Number.isInteger(userId) || userId <= 0) {
-        return {
-            success: false,
-            error: 'Utilisateur invalide.',
-        };
+        return { success: false, error: 'Utilisateur invalide.' };
     }
 
     if (!recipientAddress) {
         return {
             success: false,
             error: 'Adresse Bitcoin destinataire requise.',
+        };
+    }
+    let validAddress = false;
+    try {
+        validAddress = await validateBitcoinAddress(recipientAddress.trim());
+    } catch (error) {
+        console.error('[Bitcoin Transfer] Validation adresse impossible:', error);
+        return {
+            success: false,
+            status: 'pending',
+            error: 'Impossible de vérifier l’adresse Bitcoin auprès du nœud. Aucun débit effectué.',
+        };
+    }
+
+    if (!validAddress) {
+        return {
+            success: false,
+            error: 'Adresse Bitcoin invalide pour le réseau du nœud.',
         };
     }
 
@@ -48,10 +64,7 @@ export async function prepareBitcoinTransfer(
     }
 
     if (!pin) {
-        return {
-            success: false,
-            error: 'Le code PIN est requis.',
-        };
+        return { success: false, error: 'Le code PIN est requis.' };
     }
 
     const pinResult = await verifyUserPin(userId, pin);
@@ -64,15 +77,10 @@ export async function prepareBitcoinTransfer(
     }
 
     const userResult = await db.query(
-        `
-        SELECT
-            id,
-            id_wallet,
-            country
-        FROM users
-        WHERE id = $1
-        LIMIT 1
-        `,
+        `SELECT id, id_wallet, country
+         FROM users
+         WHERE id = $1
+         LIMIT 1`,
         [userId]
     );
 
@@ -83,86 +91,87 @@ export async function prepareBitcoinTransfer(
         };
     }
 
-    const userRow = userResult.rows[0];
+    const user = userResult.rows[0];
 
-    /*
-     * Le type WD_CRYPTO_MONEY est utilisé par le moteur
-     * de transactions pour déterminer les frais.
-     *
-     * Aucun taux de 1 % n'est codé ici.
-     * La valeur est récupérée depuis la configuration
-     * existante du moteur de frais.
-     */
-    const fee = await calculateTransactionFee(
-        amount,
-        'BTC',
-        'WD_CRYPTO_MONEY' as TransactionTypeCode,
-        userRow.country,
-        await db.getConnection()
-    );
-
-    const feeAmount = Number(fee || 0);
-    const totalDebit = amount + feeAmount;
-
-    if (!Number.isFinite(feeAmount) || feeAmount < 0) {
-        return {
-            success: false,
-            error: 'Frais Bitcoin invalides.',
-        };
-    }
-
-    const balanceResult = await db.query(
-        `
-        SELECT
-            user_id,
-            currency_code,
-            balance
-        FROM user_crypto_balances
-        WHERE user_id = $1
-          AND currency_code = 'BTC'
-        LIMIT 1
-        `,
-        [userId]
-    );
-
-    if (balanceResult.rowCount === 0) {
-        return {
-            success: false,
-            error: 'Compte Bitcoin introuvable.',
-        };
-    }
-
-    const balance = Number(
-        balanceResult.rows[0].balance || 0
-    );
-
-    if (!Number.isFinite(balance)) {
-        return {
-            success: false,
-            error: 'Solde Bitcoin invalide.',
-        };
-    }
-
-    if (balance < totalDebit) {
-        return {
-            success: false,
-            error:
-                `Solde Bitcoin insuffisant. Requis: ${totalDebit} BTC ` +
-                `(montant: ${amount} BTC + frais: ${feeAmount} BTC), ` +
-                `disponible: ${balance} BTC.`,
-        };
-    }
-
-    let withdrawalId: number | null = null;
+    // Calcul des frais avec la configuration existante.
+    const feeConnection = await db.getConnection();
+    let feeAmount: number;
 
     try {
-        /*
-         * Trace technique du retrait Bitcoin.
-         * Le statut pending n'est pas une approbation.
-         */
-        const withdrawalResult = await db.query(
-            `
-            INSERT INTO crypto_withdrawals (
+        const configuredFee = await calculateTransactionFee(
+            amount,
+            'BTC',
+            BTC_TYPE,
+            user.country,
+            feeConnection
+        );
+
+        feeAmount = Number(configuredFee);
+
+        if (!Number.isFinite(feeAmount) || feeAmount < 0) {
+            return {
+                success: false,
+                error: 'Frais Bitcoin invalides.',
+            };
+        }
+    } finally {
+        feeConnection.release();
+    }
+
+    const totalDebit = amount + feeAmount;
+
+    if (!Number.isFinite(totalDebit)) {
+        return {
+            success: false,
+            error: 'Montant total du transfert invalide.',
+        };
+    }
+
+    const client = await db.getConnection();
+
+    let withdrawalId: number | null = null;
+    let transactionId: number | null = null;
+    let referenceCode = '';
+    let reservationCommitted = false;
+
+    try {
+        // 1. Réserver le solde et créer les traces AVANT l'envoi.
+        await client.query('BEGIN');
+
+        const balanceResult = await client.query(
+            `SELECT balance
+             FROM user_crypto_balances
+             WHERE user_id = $1
+               AND currency_code = 'BTC'
+             FOR UPDATE`,
+            [userId]
+        );
+
+        if (balanceResult.rowCount === 0) {
+            throw new Error('Compte Bitcoin introuvable.');
+        }
+
+        const balance = Number(balanceResult.rows[0].balance);
+
+        if (!Number.isFinite(balance) || balance < 0) {
+            throw new Error('Solde Bitcoin invalide.');
+        }
+
+        if (balance < totalDebit) {
+            await client.query('ROLLBACK');
+
+            return {
+                success: false,
+                error: 'Solde Bitcoin insuffisant.',
+                amount,
+                fee: feeAmount,
+                totalDebit,
+                availableBalance: balance,
+            };
+        }
+
+        const withdrawalResult = await client.query(
+            `INSERT INTO crypto_withdrawals (
                 user_id,
                 currency_code,
                 amount,
@@ -170,290 +179,247 @@ export async function prepareBitcoinTransfer(
                 status,
                 tx_hash
             )
-            VALUES (
-                $1,
-                'BTC',
-                $2,
-                $3,
-                'pending',
-                NULL
-            )
-            RETURNING id
-            `,
-            [
-                userId,
+            VALUES ($1, 'BTC', $2, $3, 'pending', NULL)
+            RETURNING id`,
+            [userId, amount, recipientAddress]
+        );
+
+        withdrawalId = Number(withdrawalResult.rows[0]?.id);
+
+        if (!Number.isInteger(withdrawalId) || withdrawalId <= 0) {
+            throw new Error('Impossible de créer le retrait Bitcoin.');
+        }
+
+        // Réservation comptable atomique du montant et des frais.
+        const debitResult = await client.query(
+            `UPDATE user_crypto_balances
+             SET balance = balance - $1
+             WHERE user_id = $2
+               AND currency_code = 'BTC'
+               AND balance >= $1
+             RETURNING balance`,
+            [totalDebit, userId]
+        );
+
+        if (debitResult.rowCount !== 1) {
+            throw new Error('Impossible de réserver le solde Bitcoin.');
+        }
+
+        referenceCode = generateReferenceCode(BTC_TYPE);
+
+        const transactionResult = await client.query(
+            `INSERT INTO transactions (
+                reference_code,
+                type_code,
+                status,
                 amount,
-                recipientAddress,
+                currency,
+                fee,
+                description,
+                sender_id,
+                receiver_id,
+                sender_wallet_id,
+                receiver_wallet_id,
+                metadata,
+                btc_tx_hash
+            )
+            VALUES (
+                $1, $2, 'Pending', $3, 'BTC', $4, $5,
+                $6, NULL, $7, NULL, $8::jsonb, NULL
+            )
+            RETURNING id`,
+            [
+                referenceCode,
+                'WD_CRYPTO_MONEY',
+                amount,
+                feeAmount,
+                'Transfert Bitcoin via OnChat',
+                userId,
+                user.id_wallet,
+                JSON.stringify({
+                    source: 'onchat',
+                    currency: 'BTC',
+                    recipientAddress,
+                    withdrawalId,
+                    feeCurrency: 'BTC',
+                    feeTypeCode: 'WD_CRYPTO_MONEY',
+                }),
             ]
         );
 
-        withdrawalId =
-            withdrawalResult.rows[0]?.id ?? null;
+        transactionId = Number(transactionResult.rows[0]?.id);
 
-        if (!withdrawalId) {
-            return {
-                success: false,
-                error: 'Impossible de créer le retrait Bitcoin.',
-            };
+        if (!Number.isInteger(transactionId) || transactionId <= 0) {
+            throw new Error('Impossible de créer la transaction Bitcoin.');
         }
 
-        /*
-         * Envoi direct vers Bitcoin Core.
-         * Aucun workflow d'approbation humaine.
-         */
-        const txHash = await sendBitcoinToAddress(
+        await client.query('COMMIT');
+        reservationCommitted = true;
+
+    } catch (error: any) {
+        try {
+            await client.query('ROLLBACK');
+        } catch (rollbackError) {
+            console.error('[BTC] Échec du rollback :', rollbackError);
+        }
+
+        console.error('[BTC] Échec de la réservation :', error);
+
+        return {
+            success: false,
+            error: 'Impossible de préparer le transfert Bitcoin.',
+        };
+    } finally {
+        client.release();
+    }
+
+    if (!reservationCommitted || !withdrawalId || !transactionId) {
+        return {
+            success: false,
+            error: 'La réservation du transfert Bitcoin a échoué.',
+        };
+    }
+
+    // 2. L'envoi réseau intervient après la réservation persistante.
+    let txHash: string;
+
+    try {
+        txHash = await sendBitcoinToAddress(
             recipientAddress,
             amount
         );
 
-        if (!txHash) {
-            throw new Error(
-                'Bitcoin Core n’a retourné aucun TX hash.'
-            );
+        if (typeof txHash !== 'string' || !txHash.trim()) {
+            throw new Error('Aucun TXID retourné par Bitcoin Core.');
         }
 
-        const client = await db.getConnection();
-
-        try {
-            await client.query('BEGIN');
-
-            /*
-             * Verrouillage du solde BTC avant débit.
-             */
-            const lockedBalanceResult =
-                await client.query(
-                    `
-                    SELECT balance
-                    FROM user_crypto_balances
-                    WHERE user_id = $1
-                      AND currency_code = 'BTC'
-                    FOR UPDATE
-                    `,
-                    [userId]
-                );
-
-            if (lockedBalanceResult.rowCount === 0) {
-                throw new Error(
-                    'Compte Bitcoin introuvable lors de la finalisation.'
-                );
-            }
-
-            const currentBalance = Number(
-                lockedBalanceResult.rows[0].balance || 0
-            );
-
-            if (
-                !Number.isFinite(currentBalance) ||
-                currentBalance < totalDebit
-            ) {
-                throw new Error(
-                    'Solde Bitcoin insuffisant lors de la finalisation.'
-                );
-            }
-
-            /*
-             * Débit du montant + frais.
-             * Le destinataire reçoit uniquement amount.
-             */
-            await client.query(
-                `
-                UPDATE user_crypto_balances
-                SET balance = balance - $1
-                WHERE user_id = $2
-                  AND currency_code = 'BTC'
-                `,
-                [
-                    totalDebit,
-                    userId,
-                ]
-            );
-
-            const referenceCode =
-                generateReferenceCode(
-                    'WD_CRYPTO_MONEY' as TransactionTypeCode
-                );
-
-            /*
-             * Trace dans la table générale des transactions.
-             */
-            const transactionResult =
-                await client.query(
-                    `
-                    INSERT INTO transactions (
-                        reference_code,
-                        type_code,
-                        status,
-                        amount,
-                        currency,
-                        fee,
-                        description,
-                        sender_id,
-                        receiver_id,
-                        sender_wallet_id,
-                        receiver_wallet_id,
-                        metadata,
-                        btc_tx_hash
-                    )
-                    VALUES (
-                        $1,
-                        $2,
-                        'Completed',
-                        $3,
-                        'BTC',
-                        $4,
-                        $5,
-                        $6,
-                        NULL,
-                        $7,
-                        NULL,
-                        $8::jsonb,
-                        $9
-                    )
-                    RETURNING id
-                    `,
-                    [
-                        referenceCode,
-                        'WD_CRYPTO_MONEY',
-                        amount,
-                        feeAmount,
-                        'Transfert Bitcoin via OnChat',
-                        userId,
-                        userRow.id_wallet,
-                        JSON.stringify({
-                            source: 'onchat',
-                            currency: 'BTC',
-                            recipientAddress,
-                            bitcoinTxHash: txHash,
-                            withdrawalId,
-                            feeCurrency: 'BTC',
-                            feeTypeCode: 'WD_CRYPTO_MONEY',
-                        }),
-                        txHash,
-                    ]
-                );
-
-            const transactionId =
-                transactionResult.rows[0]?.id;
-
-            if (!transactionId) {
-                throw new Error(
-                    'Impossible de créer la trace de transaction Bitcoin.'
-                );
-            }
-
-            /*
-             * Finalisation du retrait technique.
-             */
-            await client.query(
-                `
-                UPDATE crypto_withdrawals
-                SET
-                    status = 'completed',
-                    tx_hash = $1
-                WHERE id = $2
-                `,
-                [
-                    txHash,
-                    withdrawalId,
-                ]
-            );
-
-            await client.query('COMMIT');
-
-            /*
-             * Notification interne.
-             */
-            await createNotification(
-                userId,
-                `Transfert Bitcoin de ${amount} BTC`,
-                `Votre transfert Bitcoin a été effectué. Frais: ${feeAmount} BTC. Réf: ${referenceCode}.`,
-                'new_message',
-                {
-                    transactionId,
-                    txHash,
-                    withdrawalId,
-                    currency: 'BTC',
-                    amount,
-                    fee: feeAmount,
-                    recipientAddress,
-                }
-            );
-
-            /*
-             * Notifications email / SMS / WhatsApp
-             * via le mécanisme CashPay existant.
-             */
-            const notificationUser =
-                await getUserFromDb(userId);
-
-            if (notificationUser) {
-                await sendTransactionNotifications(
-                    notificationUser,
-                    {
-                        description:
-                            'Transfert Bitcoin via OnChat',
-                        amount,
-                        currency: 'BTC',
-                        fee: feeAmount,
-                        reference: referenceCode,
-                        newBalance:
-                            currentBalance - totalDebit,
-                        typeCode:
-                            'WD_CRYPTO_MONEY',
-                    }
-                );
-            }
-
-            return {
-                success: true,
-                userId,
-                walletId: userRow.id_wallet,
-                recipientAddress,
-                amount,
-                currency: 'BTC',
-                fee: feeAmount,
-                totalDebit,
-                txHash,
-                withdrawalId,
-                transactionId,
-                reference: referenceCode,
-            };
-        } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
-        } finally {
-            client.release();
-        }
+        txHash = txHash.trim();
     } catch (error: any) {
-        if (withdrawalId) {
-            try {
-                await db.query(
-                    `
-                    UPDATE crypto_withdrawals
-                    SET status = 'failed'
-                    WHERE id = $1
-                    `,
-                    [withdrawalId]
-                );
-            } catch (updateError) {
-                console.error(
-                    '[Bitcoin Transfer] Failed to mark withdrawal as failed:',
-                    updateError
-                );
-            }
-        }
-
-        console.error(
-            '[Bitcoin Transfer] Bitcoin transfer failed:',
-            error
-        );
+        // Ne PAS rembourser ni marquer failed automatiquement :
+        // le résultat réseau peut être incertain.
+        console.error('[BTC] Résultat réseau à vérifier :', {
+            withdrawalId,
+            transactionId,
+            referenceCode,
+            error: error?.message,
+        });
 
         return {
             success: false,
-            error:
-                error?.message ||
-                'Le transfert Bitcoin a échoué.',
+            status: 'pending',
             withdrawalId,
+            transactionId,
+            reference: referenceCode,
+            error:
+                'Résultat du transfert incertain. Le montant reste réservé. ' +
+                'Vérifiez Bitcoin Core et le TXID avant toute nouvelle tentative.',
         };
     }
+
+    // 3. Enregistrer le TXID et finaliser les deux traces.
+    const finalClient = await db.getConnection();
+
+    try {
+        await finalClient.query('BEGIN');
+
+        await finalClient.query(
+            `UPDATE crypto_withdrawals
+             SET status = 'completed', tx_hash = $1
+             WHERE id = $2`,
+            [txHash, withdrawalId]
+        );
+
+        await finalClient.query(
+            `UPDATE transactions
+             SET status = 'Completed', btc_tx_hash = $1
+             WHERE id = $2`,
+            [txHash, transactionId]
+        );
+
+        await finalClient.query('COMMIT');
+    } catch (error) {
+        try {
+            await finalClient.query('ROLLBACK');
+        } catch (rollbackError) {
+            console.error('[BTC] Échec du rollback final :', rollbackError);
+        }
+
+        // Les BTC peuvent être déjà envoyés : conserver les traces
+        // en attente et le TXID dans les journaux pour réconciliation.
+        console.error('[BTC] TXID à réconcilier manuellement :', {
+            txHash,
+            withdrawalId,
+            transactionId,
+            referenceCode,
+            error,
+        });
+
+        return {
+            success: false,
+            status: 'pending',
+            withdrawalId,
+            transactionId,
+            reference: referenceCode,
+            txHash,
+            error:
+                'Les BTC ont été soumis, mais la finalisation comptable ' +
+                'doit être réconciliée. Ne relancez pas le transfert.',
+        };
+    } finally {
+        finalClient.release();
+    }
+
+    // 4. Les notifications ne doivent pas modifier le résultat comptable.
+    try {
+        await createNotification(
+            userId,
+            `Transfert Bitcoin de ${amount} BTC`,
+            `Transfert Bitcoin effectué. Frais : ${feeAmount} BTC. Réf. : ${referenceCode}.`,
+            'new_message',
+            {
+                transactionId,
+                txHash,
+                withdrawalId,
+                currency: 'BTC',
+                amount,
+                fee: feeAmount,
+                recipientAddress,
+            }
+        );
+    } catch (error) {
+        console.error('[BTC] Notification interne non envoyée :', error);
+    }
+
+    try {
+        const notificationUser = await getUserFromDb(userId);
+
+        if (notificationUser) {
+            await sendTransactionNotifications(notificationUser, {
+                description: 'Transfert Bitcoin via OnChat',
+                amount,
+                currency: 'BTC',
+                fee: feeAmount,
+                reference: referenceCode,
+                typeCode: 'WD_CRYPTO_MONEY',
+            });
+        }
+    } catch (error) {
+        console.error('[BTC] Notification externe non envoyée :', error);
+    }
+
+    return {
+        success: true,
+        status: 'completed',
+        userId,
+        walletId: user.id_wallet,
+        recipientAddress,
+        amount,
+        currency: 'BTC',
+        fee: feeAmount,
+        totalDebit,
+        txHash,
+        withdrawalId,
+        transactionId,
+        reference: referenceCode,
+    };
 }

@@ -94,12 +94,12 @@ const TransactionPage = ({ transaction, user, logoBase64 }: { transaction: Trans
                             </div>
                             <div className="flex justify-between text-[10px]">
                                 <span>Frais:</span>
-                                <span className="font-semibold">{transaction.currency} {transaction.fee?.toFixed(2)}</span>
+                                <span className="font-semibold">{transaction.currency} {(transaction.currency === 'BTC' ? Number(transaction.fee ?? 0).toFixed(8).replace(/0+$/, '').replace(/\.$/, '') : Number(transaction.fee ?? 0).toFixed(2))}</span>
                             </div>
                              <div className="flex justify-between items-baseline font-bold text-base pt-1 border-t mt-1">
                                  <span>Total:</span>
                                  <span className={cn(isSender ? "text-red-600" : "text-green-600")}>
-                                    {isSender ? '-' : '+'} {transaction.currency} {totalAmount.toFixed(2)}
+                                    {isSender ? '-' : '+'} {transaction.currency} {(transaction.currency === 'BTC' ? totalAmount.toFixed(8).replace(/0+$/, '').replace(/\.$/, '') : totalAmount.toFixed(2))}
                                 </span>
                             </div>
                         </div>
@@ -160,8 +160,8 @@ export function StatementDisplay({ transactions, fromDate, toDate, onBack, user 
                     `${tx.date} ${tx.time}`,
                     tx.description,
                     `${tx.currency} ${tx.amount}`,
-                    `${tx.currency} ${(tx.fee || 0).toFixed(2)}`,
-                    `${tx.type === 'sent' ? '-' : '+'} ${tx.currency} ${total.toFixed(2)}`,
+                    `${tx.currency} ${tx.currency === 'BTC' ? Number(tx.fee || 0).toFixed(8).replace(/0+$/, '').replace(/\.$/, '') : Number(tx.fee || 0).toFixed(2)}`,
+                    `${tx.type === 'sent' ? '-' : '+'} ${tx.currency} ${tx.currency === 'BTC' ? total.toFixed(8).replace(/0+$/, '').replace(/\.$/, '') : total.toFixed(2)}`,
                     tx.reference
                 ];
             });

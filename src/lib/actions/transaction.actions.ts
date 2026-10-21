@@ -35,6 +35,11 @@ function maskWalletId(walletId?: string | null): string {
  * Envoie les notifications de transaction. 
  * Inclut systématiquement TOUS les soldes disponibles pour le sender et le receiver.
  */
+function formatTransactionAmount(value: number, currency: string): string {
+    if (currency.toUpperCase() !== 'BTC') return value.toFixed(2);
+    return value.toFixed(8).replace(/0+$/, '').replace(/\.$/, '');
+}
+
 export async function sendTransactionNotifications(
     user: User, 
     details: { description: string; amount: number; currency: string; fee: number; reference: string; newBalance: number; typeCode: string },
@@ -49,23 +54,23 @@ export async function sendTransactionNotifications(
         const senderBalances = typeof senderWalletRows[0]?.balances === 'string' ? JSON.parse(senderWalletRows[0].balances) : (senderWalletRows[0]?.balances || {});
         
         const senderBalanceString = Object.entries(senderBalances)
-            .map(([cur, amt]) => `${Number(amt).toFixed(2)} ${cur}`)
+            .map(([cur, amt]) => `${formatTransactionAmount(Number(amt), cur)} ${cur}`)
             .join(', ');
 
         const isHsm = typeCode === 'HSM_LOCK' || typeCode === 'B2B_HSM_ISSUE' || typeCode === 'RW';
         const finalDescription = isHsm ? "Mouvement de fonds sur support physique" : description;
 
         // CONSTRUCTION DU SMS AVEC TOUS LES SOLDES
-        const senderSms = `CashPay: ${finalDescription}. Montant: ${amount} ${currency}. Frais: ${fee.toFixed(2)} ${currency}. Réf: ${reference}. Portefeuille: ${maskedSenderWallet}.\nVos nouveaux soldes: ${senderBalanceString}.`;
+        const senderSms = `CashPay: ${finalDescription}. Montant: ${formatTransactionAmount(amount, currency)} ${currency}. Frais: ${formatTransactionAmount(fee, currency)} ${currency}. Réf: ${reference}. Portefeuille: ${maskedSenderWallet}.\nVos nouveaux soldes: ${senderBalanceString}.`;
         
         if (user.email) {
             await sendEmail(user.email, `Transaction CashPay : ${typeCode}`, 'receipt', {
                 title: 'Confirmation de Transaction',
                 greeting: `Bonjour ${user.first_name || user.full_name},`,
                 message: `Transaction confirmée sur le compte ${maskedSenderWallet}. Vos nouveaux soldes sont : ${senderBalanceString}.`,
-                amount: `${currency} ${amount.toFixed(2)}`,
-                fee: `${currency} ${fee.toFixed(2)}`,
-                total: `${currency} ${(amount + fee).toFixed(2)}`,
+                amount: `${currency} ${formatTransactionAmount(amount, currency)}`,
+                fee: `${currency} ${formatTransactionAmount(fee, currency)}`,
+                total: `${currency} ${formatTransactionAmount(amount + fee, currency)}`,
                 reference,
                 buttonText: 'Voir mes transactions',
                 buttonUrl: `${process.env.NEXT_PUBLIC_APP_URL}/transactions`,
@@ -88,7 +93,7 @@ export async function sendTransactionNotifications(
              const { rows: receiverWalletRows } = await db.query('SELECT balances FROM wallets WHERE user_id = $1', [receiver.id]);
              const recBalances = typeof receiverWalletRows[0]?.balances === 'string' ? JSON.parse(receiverWalletRows[0].balances) : (receiverWalletRows[0]?.balances || {});
              const recBalanceString = Object.entries(recBalances)
-                .map(([cur, amt]) => `${Number(amt).toFixed(2)} ${cur}`)
+                .map(([cur, amt]) => `${formatTransactionAmount(Number(amt), cur)} ${cur}`)
                 .join(', ');
 
              const maskedReceiverWallet = maskWalletId(receiver.walletId);
@@ -96,7 +101,7 @@ export async function sendTransactionNotifications(
              
              await createNotification(
                  receiver.id,
-                 `Paiement Reçu: ${amount} ${currency}`,
+                 `Paiement Reçu: ${formatTransactionAmount(amount, currency)} ${currency}`,
                  `Reçu de ${user.full_name}. Vos nouveaux soldes: ${recBalanceString}.`,
                  'new_message',
                  { contactId: user.id }
@@ -106,7 +111,7 @@ export async function sendTransactionNotifications(
                  await sendEmail(receiver.email, `Paiement Reçu sur ${maskedReceiverWallet}`, 'general', {
                     title: 'Paiement Reçu',
                     greeting: `Bonjour ${receiver.name},`,
-                    message: `Vous avez reçu un paiement de <strong>${amount} ${currency}</strong> de la part de ${user.full_name}.<br/>Vos nouveaux soldes : <strong>${recBalanceString}</strong>.`,
+                    message: `Vous avez reçu un paiement de <strong>${formatTransactionAmount(amount, currency)} ${currency}</strong> de la part de ${user.full_name}.<br/>Vos nouveaux soldes : <strong>${recBalanceString}</strong>.`,
                     buttonText: 'Voir la transaction',
                     buttonUrl: `${process.env.NEXT_PUBLIC_APP_URL}/transactions`,
                     signature: "L'équipe CashPay"
@@ -198,6 +203,7 @@ export async function createTransaction(args: CreateTransactionArgs): Promise<{ 
 
         let feeNum = 0;
         if (
+            typeCode !== 'TV' &&
             !isCreditTransaction &&
             typeCode !== 'EXCHANGE' &&
             typeCode !== 'AGENT_SUB' &&
@@ -209,8 +215,21 @@ export async function createTransaction(args: CreateTransactionArgs): Promise<{ 
         const totalDebitAmount = isCreditTransaction ? 0 : amountToDebit + feeNum;
 
         // 4. Vérification de Solvabilité
-        if (totalDebitAmount > 0 && currentBalance < totalDebitAmount) {
-            throw new Error(`Solde insuffisant en ${debitCurrency}. Requis: ${totalDebitAmount.toFixed(2)} (incluant ${feeNum.toFixed(2)} de frais), disponible: ${currentBalance.toFixed(2)}.`);
+        const isAuthorizedLoanOverdraft =
+            typeCode === 'LR' &&
+            metadata?.method === 'automatic' &&
+            metadata?.allow_overdraft === true &&
+            Number(metadata?.loan_id) > 0 &&
+            Number(metadata?.installment_id) > 0;
+
+        if (
+            totalDebitAmount > 0 &&
+            currentBalance < totalDebitAmount &&
+            !isAuthorizedLoanOverdraft
+        ) {
+            throw new Error(
+                `Solde insuffisant en ${debitCurrency}. Requis: ${totalDebitAmount.toFixed(2)} (incluant ${feeNum.toFixed(2)} de frais), disponible: ${currentBalance.toFixed(2)}.`
+            );
         }
 
         // 5. Exécution du Débit
