@@ -1173,8 +1173,8 @@ export async function POST(
 
                 // Les notifications sont envoyées après validation du transfert.
                 try {
-                    const senderUser = await getUserFromDb(Number(sender.id));
-                    const receiverUser = await getUserFromDb(Number(receiver.id));
+                    const senderUser = await getUserFromDb({ userId: Number(sender.id) });
+                    const receiverUser = await getUserFromDb({ userId: Number(receiver.id) });
 
                     if (senderUser) {
                         await sendTransactionNotifications(
