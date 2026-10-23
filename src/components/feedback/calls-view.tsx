@@ -4,25 +4,23 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { createOpenMeeting } from '@/lib/actions/meeting.actions';
+import { useEffect } from 'react';
+import { createOpenMeeting, getMyRecentMeetings } from '@/lib/actions/meeting.actions';
 import { ArrowLeft, Phone, Video } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
-const mockCalls = [
-    { id: 1, name: 'Jane Smith', avatar: '/avatars/contact-2.png', type: 'incoming', status: 'missed', time: new Date(Date.now() - 20 * 60 * 1000).toISOString() },
-    { id: 2, name: 'John Doe', avatar: '/avatars/contact-1.png', type: 'outgoing', status: 'answered', time: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() },
-    { id: 3, name: 'Mike', avatar: '/avatars/contact-3.png', type: 'incoming', status: 'answered', time: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
-];
+type RecentMeeting = { code: string; topic: string; type: string; status: string; createdAt: string | null };
 
 export function CallsView({ onBack }: { onBack: () => void }) {
     const router = useRouter();
     const [code, setCode] = useState('');
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState('');
+    const [meetings, setMeetings] = useState<RecentMeeting[] | null>(null);
+
+    useEffect(() => { getMyRecentMeetings().then(setMeetings); }, []);
 
     const createMeeting = async (type: 'audio' | 'video') => {
         setBusy(true); setErr('');
@@ -54,25 +52,22 @@ export function CallsView({ onBack }: { onBack: () => void }) {
             </div>
             <ScrollArea className="flex-1 min-h-0 pb-16">
                 <div className="p-2 space-y-1">
-                    {mockCalls.map(call => (
-                        <div key={call.id} className="flex items-center gap-4 p-2 rounded-lg hover:bg-zinc-800">
-                            <Avatar className="h-12 w-12">
-                                <AvatarImage src={call.avatar} />
-                                <AvatarFallback>{call.name[0]}</AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1">
-                                <p className={cn("font-semibold", call.status === 'missed' && 'text-red-500')}>{call.name}</p>
-                                <p className="text-sm text-zinc-400 flex items-center gap-1">
-                                    {call.type === 'incoming' ? 
-                                        <ArrowLeft className={cn("h-4 w-4", call.status === 'missed' ? 'text-red-500' : 'text-green-500')} /> : 
-                                        <ArrowLeft className="h-4 w-4 text-green-500 rotate-180" />
-                                    }
-                                    {formatDistanceToNow(new Date(call.time), { addSuffix: true, locale: fr })}
+                    {meetings === null && <p className="p-6 text-center text-sm text-zinc-500">Chargement…</p>}
+                    {meetings && meetings.length === 0 && <p className="p-6 text-center text-sm text-zinc-500">Aucune réunion pour le moment. Créez-en une ci-dessus.</p>}
+                    {meetings?.map(m => (
+                        <div key={m.code} className="flex items-center gap-4 p-2 rounded-lg hover:bg-zinc-800">
+                            <div className="h-12 w-12 rounded-full bg-zinc-700 flex items-center justify-center text-green-500">
+                                {m.type === 'audio' ? <Phone /> : <Video />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="font-semibold truncate">{m.topic}</p>
+                                <p className="text-sm text-zinc-400 truncate">
+                                    {m.createdAt ? formatDistanceToNow(new Date(m.createdAt), { addSuffix: true, locale: fr }) : m.code}
                                 </p>
                             </div>
-                            <Button variant="ghost" size="icon" className="text-green-500">
-                                {call.type === 'video' ? <Video/> : <Phone />}
-                            </Button>
+                            {m.status === 'active' && (
+                                <Button variant="secondary" size="sm" onClick={() => router.push(`/feedback/meet/${m.code}`)}>Rejoindre</Button>
+                            )}
                         </div>
                     ))}
                 </div>

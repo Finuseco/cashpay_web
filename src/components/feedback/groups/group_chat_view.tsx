@@ -318,7 +318,7 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
     }
     
     return (
-        <div className="flex flex-col h-full bg-[#0b141a] text-white">
+        <div className="flex flex-col h-full min-h-0 bg-[#0b141a] text-white">
             <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#1f2c33] border-b border-zinc-700/50">
                 <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden"><ArrowLeft /></Button>
                 <div className="ml-2 flex items-center gap-3 cursor-pointer flex-1 min-w-0" onClick={() => onViewGroupProfile(group)}>
@@ -381,7 +381,7 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
                 </DialogContent>
             </Dialog>
 
-            <ScrollArea className="flex-1" viewportRef={scrollAreaRef}>
+            <ScrollArea className="flex-1 min-h-0" viewportRef={scrollAreaRef}>
                 <div className="p-4 space-y-4">
                     {group.messages.map((message, index) => {
                         const prevMessage = group.messages[index - 1];

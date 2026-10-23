@@ -165,7 +165,7 @@ export function GroupProfileView({ group, currentUser, onBack, onGroupUpdate }: 
     const watchDestType = payoutForm.watch('destinationType');
 
     return (
-        <div className="flex flex-col h-full bg-[#0b141a] text-white">
+        <div className="flex flex-col h-full min-h-0 bg-[#0b141a] text-white">
             {/* Dialogs */}
             <Dialog open={isAddMemberOpen} onOpenChange={setIsAddMemberOpen}><DialogContent><DialogHeader><DialogTitle>Ajouter un Membre</DialogTitle><DialogDescription>Entrez l'ID du portefeuille du membre à ajouter.</DialogDescription></DialogHeader><Form {...addMemberForm}><form onSubmit={addMemberForm.handleSubmit(handleAddMember)} className="space-y-4 pt-4"><FormField control={addMemberForm.control} name="walletId" render={({ field }) => ( <FormItem><InternationalWalletInput field={field} onVerificationResult={()=>{}} label="ID du Portefeuille" /></FormItem> )}/><DialogFooter><Button type="submit">Ajouter</Button></DialogFooter></form></Form></DialogContent></Dialog>
             <Dialog open={isContributionOpen} onOpenChange={setIsContributionOpen}><DialogContent><DialogHeader><DialogTitle>Contribuer au Groupe</DialogTitle></DialogHeader><Form {...contributionForm}><form onSubmit={contributionForm.handleSubmit(handleContribute)} className="space-y-4 pt-4"><FormField control={contributionForm.control} name="amount" render={({field}) => (<FormItem><FormLabel>Montant</FormLabel><FormControl><Input type="number" {...field}/></FormControl><FormMessage/></FormItem>)}/><FormField control={contributionForm.control} name="currency" render={({field}) => (<FormItem><FormLabel>Devise</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue/></SelectTrigger></FormControl><SelectContent>{userCurrencies.map(c => <SelectItem key={c.code} value={c.code}>{c.code} (Solde: {c.balance})</SelectItem>)}</SelectContent></Select><FormMessage/></FormItem>)}/><FormField control={contributionForm.control} name="pin" render={({field}) => (<FormItem><FormLabel>Votre PIN</FormLabel><FormControl><div className="flex justify-center"><InputOTP maxLength={4} {...field}><InputOTPGroup><InputOTPSlot index={0}/><InputOTPSlot index={1}/><InputOTPSlot index={2}/><InputOTPSlot index={3}/></InputOTPGroup></InputOTP></div></FormControl><FormMessage/></FormItem>)}/><DialogFooter><Button type="submit">Contribuer</Button></DialogFooter></form></Form></DialogContent></Dialog>
@@ -215,7 +215,7 @@ export function GroupProfileView({ group, currentUser, onBack, onGroupUpdate }: 
 
             <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#1f2c33]"><Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft /></Button><h2 className="font-semibold text-lg ml-4">Infos du groupe</h2></header>
 
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 min-h-0">
                 <div className="p-4 flex flex-col items-center">
                     <div className="relative group cursor-pointer">
                         <Avatar className="h-28 w-28 mb-4 border-2 border-primary">

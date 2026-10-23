@@ -159,3 +159,26 @@ export async function checkMeetingCode(meetCode: string) {
     const meeting = await getMeetingByCode(code);
     return meeting ? { exists: true as const, topic: meeting.topic as string, type: meeting.type as string } : { exists: false as const };
 }
+
+/** Réunions récentes de l'utilisateur authentifié (hôte), pour l'onglet Appels. */
+export async function getMyRecentMeetings(limit = 30) {
+    try {
+        const { getAuthenticatedUser } = await import('./user.actions');
+        const me = await getAuthenticatedUser();
+        if (!me) return [];
+        const { rows } = await db.query(
+            `SELECT * FROM meetings WHERE host_user_id = $1 ORDER BY id DESC LIMIT $2`,
+            [me.id, Math.min(Math.max(limit, 1), 100)]
+        );
+        return rows.map((r: any) => ({
+            code: String(r.meeting_provider_id),
+            topic: String(r.topic || 'Réunion'),
+            type: r.type === 'audio' ? 'audio' : 'video',
+            status: String(r.status || ''),
+            createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
+        }));
+    } catch (e) {
+        console.error('[getMyRecentMeetings]', e);
+        return [];
+    }
+}

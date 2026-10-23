@@ -296,6 +296,8 @@ export async function postMessage(
                 imageId
             );
 
+            if (!finalFileUrl) throw new Error("Impossible d'enregistrer l'image.");
+
             metadata = {
                 fileUrl: finalFileUrl,
                 fileName: fileName || `${imageId}.jpg`,
@@ -309,6 +311,8 @@ export async function postMessage(
                 `chat-files/sender_${senderId}`,
                 fileId
             );
+
+            if (!finalFileUrl) throw new Error("Impossible d'enregistrer le fichier joint.");
 
             metadata = {
                 fileUrl: finalFileUrl,
@@ -351,48 +355,53 @@ export async function postMessage(
 
         await connection.query('COMMIT');
 
-        const sender = await getUserFromDb({ userId: senderId });
-        const receiver = await getUserFromDb({ userId: receiverId });
+        // Le message est déjà enregistré : une panne de notification/e-mail ne doit pas le faire échouer.
+        try {
+            const sender = await getUserFromDb({ userId: senderId });
+            const receiver = await getUserFromDb({ userId: receiverId });
 
-        if (receiver && sender) {
-            let notificationText = content;
+            if (receiver && sender) {
+                let notificationText = content;
 
-            if (type === 'image') notificationText = '📷 Photo';
-            if (type === 'audio') notificationText = '🎤 Message vocal';
-            if (type === 'doc') notificationText = '📄 Document';
-            if (type === 'product') notificationText = '🛍️ Produit partagé';
+                if (type === 'image') notificationText = '📷 Photo';
+                if (type === 'audio') notificationText = '🎤 Message vocal';
+                if (type === 'doc') notificationText = '📄 Document';
+                if (type === 'product') notificationText = '🛍️ Produit partagé';
 
-            await createNotification(
-                receiverId,
-                `Nouveau message de ${sender.full_name || 'Quelqu’un'}`,
-                notificationText.substring(0, 100),
-                'new_message',
-                { contactId: senderId }
-            );
-
-            if (receiver.email) {
-                const senderProfilePicture = sender.profile_photo
-                    ? `${process.env.NEXT_PUBLIC_APP_URL}${sender.profile_photo}`
-                    : 'https://www.cashpay-all.com/logos/profile-placeholder.png';
-
-                await sendEmail(
-                    receiver.email,
-                    `Nouveau message de ${sender.full_name}`,
+                await createNotification(
+                    receiverId,
+                    `Nouveau message de ${sender.full_name || 'Quelqu’un'}`,
+                    notificationText.substring(0, 100),
                     'new_message',
-                    {
-                        senderName: sender.full_name,
-                        senderProfilePicture,
-                        messageContent: notificationText,
-                        timestamp: format(
-                            new Date(),
-                            "d MMMM yyyy 'à' HH:mm",
-                            { locale: fr }
-                        ),
-                        replyLink:
-                            `${process.env.NEXT_PUBLIC_APP_URL}/feedback?contactId=${senderId}`,
-                    }
+                    { contactId: senderId }
                 );
+
+                if (receiver.email) {
+                    const senderProfilePicture = sender.profile_photo
+                        ? `${process.env.NEXT_PUBLIC_APP_URL}${sender.profile_photo}`
+                        : 'https://www.cashpay-all.com/logos/profile-placeholder.png';
+
+                    await sendEmail(
+                        receiver.email,
+                        `Nouveau message de ${sender.full_name}`,
+                        'new_message',
+                        {
+                            senderName: sender.full_name,
+                            senderProfilePicture,
+                            messageContent: notificationText,
+                            timestamp: format(
+                                new Date(),
+                                "d MMMM yyyy 'à' HH:mm",
+                                { locale: fr }
+                            ),
+                            replyLink:
+                                `${process.env.NEXT_PUBLIC_APP_URL}/feedback?contactId=${senderId}`,
+                        }
+                    );
+                }
             }
+        } catch (notifyError) {
+            console.error('[postMessage] notification', notifyError);
         }
 
         return {

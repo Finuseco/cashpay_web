@@ -76,7 +76,7 @@ export async function saveBase64Image(base64Data: string | null | undefined, sub
     const path = await import('path');
 
     try {
-        const matches = base64Data.match(/^data:(image|video|application)\/([A-Za-z-+.\/]+);base64,(.+)$/);
+        const matches = base64Data.match(/^data:(image|video|audio|application)\/([A-Za-z0-9-+.\/]+)(?:;[A-Za-z0-9-]+=[^;,]*)*;base64,(.+)$/);
         if (!matches || matches.length !== 4) {
             console.error('Invalid base64 data format.');
             return null;
@@ -94,6 +94,12 @@ export async function saveBase64Image(base64Data: string | null | undefined, sub
         else if (mimeType.includes('webm')) extension = 'webm';
         else if (mimeType.includes('mp4')) extension = 'mp4';
         else if (mimeType.includes('pdf')) extension = 'pdf';
+        else if (mimeType.includes('ogg')) extension = 'ogg';
+        else if (mimeType.includes('mpeg') || mimeType.includes('mp3')) extension = 'mp3';
+        else if (mimeType.includes('wav')) extension = 'wav';
+        else if (mimeType.includes('x-m4a') || mimeType.includes('aac')) extension = 'm4a';
+        else if (mimeType.includes('msword')) extension = 'doc';
+        else if (mimeType.includes('wordprocessingml')) extension = 'docx';
         else extension = mimeType.split('/')[1] || 'bin';
 
         // Ensure subfolder parts are safe

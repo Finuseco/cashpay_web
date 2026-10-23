@@ -321,7 +321,7 @@ export function FeedbackClient() {
             return <NewChatView onBack={handleBackToList} onNewConversation={handleNewConversation} currentUser={currentUser} />;
         }
         if (view === 'create_group') {
-             return <CreateGroupForm />;
+             return <CreateGroupForm onBack={() => setView('groups')} onCreated={() => setView('groups')} />;
         }
         if (view === 'contact_profile' && viewedContact) {
             return <ContactProfileView user={viewedContact} onBack={() => setView('chat')} onStartCall={(type) => startCall(viewedContact, type)} />;

@@ -50,7 +50,7 @@ export function GroupListView({ currentUser, onBack, onCreateGroup, onSelectGrou
     const filteredGroups = groups.filter(g => g.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
     return (
-        <div className="flex flex-col h-full bg-[#111827] text-white">
+        <div className="flex flex-col h-full min-h-0 bg-[#111827] text-white">
             <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#1f2c33] border-b border-zinc-700/50">
                 <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft /></Button>
                 <h2 className="font-bold text-lg ml-4">Groupes</h2>
@@ -69,7 +69,7 @@ export function GroupListView({ currentUser, onBack, onCreateGroup, onSelectGrou
                     />
                 </div>
             </div>
-            <ScrollArea className="flex-1 pb-16">
+            <ScrollArea className="flex-1 min-h-0 pb-16">
                 <div className="p-2 space-y-1">
                     {isLoading ? <div className="flex justify-center p-8"><Loader2 className="animate-spin h-8 w-8 text-zinc-400" /></div> : filteredGroups.length > 0 ? (
                         filteredGroups.map(group => (

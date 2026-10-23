@@ -29,7 +29,7 @@ export function StatusView({ onBack, onViewStatus, currentUser, statusGroups }: 
     const contactStatusGroups = statusGroups.filter(g => g.contact.id !== currentUser?.id);
     
     return (
-        <div className="flex flex-col h-full bg-[#111827]">
+        <div className="flex flex-col h-full min-h-0 bg-[#111827]">
             <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#1f2c33] text-white">
                 <Button variant="ghost" size="icon" onClick={onBack}>
                     <ArrowLeft />

@@ -31,6 +31,7 @@ import NextImage from 'next/image';
 import EmojiPicker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
 import { Card, CardContent } from "@/components/ui/card";
+import { sendChatMessage, fetchChatMessages } from '@/lib/onchat-client';
 
 const transferSchema = z.object({
   amount: z.coerce.number().min(0.01, "Le montant doit être positif."),
@@ -630,6 +631,37 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
     scrollToBottom();
   }, [conversation.messages, scrollToBottom]);
 
+  // Réception des nouveaux messages (même route que l'application mobile).
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
+  const sendingRef = useRef(false);
+  sendingRef.current = isSending;
+  useEffect(() => {
+    let stopped = false;
+    const tick = async () => {
+      if (stopped || document.hidden || sendingRef.current) return;
+      const fresh = await fetchChatMessages(conversationRef.current.id);
+      if (stopped || !fresh || sendingRef.current) return;
+      const current = conversationRef.current.messages.filter(m => !String(m.id).startsWith('temp-'));
+      const lastFresh = fresh[fresh.length - 1];
+      const lastCurrent = current[current.length - 1];
+      if (fresh.length !== current.length || (lastFresh && lastCurrent && lastFresh.id !== lastCurrent.id)) {
+        const last = fresh[fresh.length - 1];
+        onUpdateConversation({
+          ...conversationRef.current,
+          messages: fresh,
+          lastMessage: last?.content ?? conversationRef.current.lastMessage,
+          lastMessageTimestamp: last?.timestamp ?? conversationRef.current.lastMessageTimestamp,
+        });
+        if (lastFresh && Number(lastFresh.senderId) !== Number(currentUser.id)) {
+          markConversationAsRead(conversationRef.current.id, currentUser.id).catch(() => undefined);
+        }
+      }
+    };
+    const timer = setInterval(tick, 3000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [conversation.id, currentUser.id, onUpdateConversation]);
+
   const handleCall = (type: 'audio' | 'video' | 'meeting') => {
       onStartCall(conversation.contact, type);
   };
@@ -713,23 +745,21 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
     };
     onUpdateConversation(nextConversationState);
     
-    const sentMessageData = await postMessage(
-        conversation.id,
-        content,
-        type,
-        currentUser.id,
-        conversation.contact.id,
-        fileDataUri,
-        fileName
-    );
-    
-    const finalConversation = {
-      ...nextConversationState,
-      messages: nextConversationState.messages.map((msg) =>
-        msg.id === tempId ? { ...sentMessageData, senderId: currentUser.id } : msg
-      ),
-    };
-    onUpdateConversation(finalConversation);
+    try {
+        const sentMessageData = await sendChatMessage(conversation.id, { content, type, fileDataUri, fileName });
+        const finalConversation = {
+          ...nextConversationState,
+          messages: nextConversationState.messages.map((msg) =>
+            msg.id === tempId ? { ...sentMessageData, senderId: currentUser.id } : msg
+          ),
+        };
+        onUpdateConversation(finalConversation);
+    } catch (error: any) {
+        // L'envoi a échoué : on retire le message provisoire et on prévient l'utilisateur.
+        onUpdateConversation({ ...conversation, messages: conversation.messages });
+        if (type === 'text') setNewMessage(content);
+        toast({ variant: 'destructive', title: "Message non envoyé", description: error?.message || "Vérifiez votre connexion et réessayez." });
+    }
     
     setIsSending(false);
   }, [conversation, currentUser, onUpdateConversation]);
@@ -737,7 +767,9 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
   const startRecording = async () => {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorderRef.current = new MediaRecorder(stream);
+        const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+            .find((m) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported?.(m));
+        mediaRecorderRef.current = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
         audioChunksRef.current = [];
         
         mediaRecorderRef.current.ondataavailable = (event) => {
@@ -745,7 +777,8 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
         };
         
         mediaRecorderRef.current.onstop = async () => {
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            const audioBlob = new Blob(audioChunksRef.current, { type: (mediaRecorderRef.current?.mimeType || 'audio/webm').split(';')[0] });
+            if (audioBlob.size === 0) { stream.getTracks().forEach(track => track.stop()); return; }
             const reader = new FileReader();
             reader.readAsDataURL(audioBlob);
             reader.onloadend = async () => {
