@@ -9,6 +9,40 @@ import { calculateTransactionFee } from './wallet.actions';
 import { formatUser, countryToCode } from '../utils';
 import type { PoolClient } from 'pg';
 import crypto from 'crypto';
+import { getLocalCurrency } from './currency.actions';
+
+/**
+ * L'identité vient de la session : un identifiant envoyé par le navigateur n'est accepté
+ * que s'il correspond à l'utilisateur connecté.
+ */
+async function sessionUserIdOrNull(claimedUserId?: number | null): Promise<number | null> {
+    const { getAuthenticatedUser } = await import('./user.actions');
+    const me = await getAuthenticatedUser();
+    if (!me) return null;
+    if (claimedUserId != null && Number(claimedUserId) !== Number(me.id)) return null;
+    return Number(me.id);
+}
+
+/**
+ * Crédite la récompense MonPays (PUB_EARN, budget en CDF) dans la devise locale de l'utilisateur
+ * lorsque le taux de son pays est configuré ; sinon en CDF.
+ */
+async function creditShareReward(user: User, reward: number, description: string, metadata: Record<string, any>, connection: PoolClient) {
+    let localCode: string | undefined;
+    try {
+        const local = await getLocalCurrency(user);
+        if (local?.code && local.code !== 'CDF') localCode = local.code;
+    } catch { /* devise locale indisponible : CDF */ }
+
+    if (localCode) {
+        const converted = await createTransaction({
+            user, typeCode: 'PUB_EARN', amount: reward, currency: 'CDF', sourceCurrency: localCode,
+            description, metadata, connection,
+        });
+        if (converted.success) return converted;
+    }
+    return createTransaction({ user, typeCode: 'PUB_EARN', amount: reward, currency: 'CDF', description, metadata, connection });
+}
 
 /**
  * Récupère toutes les entreprises vérifiées.
@@ -25,7 +59,8 @@ export async function getCompanies(): Promise<MonPaysCompany[]> {
                 mc.status,
                 mc.category,
                 mc.country as "countryCode",
-                mc.owner_wallet_id as "ownerWalletId"
+                mc.owner_wallet_id as "ownerWalletId",
+                mc.owner_user_id as "ownerUserId"
             FROM monpays_companies mc 
             WHERE mc.status = 'verified'
             ORDER BY mc.company_name ASC
@@ -39,7 +74,8 @@ export async function getCompanies(): Promise<MonPaysCompany[]> {
             isVerified: row.status === 'verified',
             category: row.category,
             countryCode: row.countryCode,
-            ownerWalletId: row.ownerWalletId
+            ownerWalletId: row.ownerWalletId,
+            ownerUserId: row.ownerUserId != null ? Number(row.ownerUserId) : undefined
         })) as MonPaysCompany[];
     } catch (error) {
         console.error("Failed to fetch MonPays companies:", error);
@@ -77,6 +113,7 @@ export async function getCompanyById(id: string): Promise<MonPaysCompany | null>
             phone: row.phone,
             email: row.email,
             ownerWalletId: row.ownerWalletId,
+            ownerUserId: row.owner_user_id != null ? Number(row.owner_user_id) : undefined,
             category: row.category,
             countryCode: row.country, 
             isVerified: row.status === 'verified',
@@ -123,7 +160,7 @@ export async function getActivities(): Promise<MonPaysActivity[]> {
             views: Number(row.viewsCount || 0),
             isMonetized: Boolean(row.isMonetized),
             rewardPerShare: parseFloat(row.rewardPerShare || '0'),
-            monetizationBudget: parseFloat(row.monetization_budget || '0'),
+            monetizationBudget: parseFloat(row.monetizationBudget || '0'),
             ownerWalletId: row.ownerWalletId
         })) as MonPaysActivity[];
     } catch (error) {
@@ -134,6 +171,9 @@ export async function getActivities(): Promise<MonPaysActivity[]> {
 
 export async function toggleFollowCompany(userId: number, companyId: number) {
     try {
+        const sid = await sessionUserIdOrNull(userId);
+        if (sid === null) return { success: false };
+        userId = sid;
         const { rows: exists } = await db.query('SELECT 1 FROM company_followers WHERE user_id = $1 AND company_id = $2', [userId, companyId]);
         if (exists.length > 0) {
             await db.query('DELETE FROM company_followers WHERE user_id = $1 AND company_id = $2', [userId, companyId]);
@@ -159,6 +199,11 @@ export async function getCompanyFollowerInfo(userId: number | undefined, company
 
 export async function postMonPaysComment(postId: number, userId: number, content: string) {
     try {
+        const sid = await sessionUserIdOrNull(userId);
+        const text = (content || '').trim().slice(0, 2000);
+        if (sid === null || !text) return { success: false };
+        userId = sid;
+        content = text;
         await db.query('INSERT INTO monpays_comments (post_id, user_id, content) VALUES ($1, $2, $3)', [postId, userId, content]);
         return { success: true };
     } catch (e) { return { success: false }; }
@@ -241,10 +286,15 @@ export async function getCompanyAnalytics(userId: number): Promise<any> {
 }
 
 export async function promoteToAdsNetwork(args: { user: User, postId: string, budget: number, pin: string }) {
-    const { user, postId, budget, pin } = args;
+    const { postId, budget, pin } = args;
     
     const pinRes = await verifyCurrentUserPin(pin);
     if (!pinRes.success) return pinRes;
+
+    const { getAuthenticatedUser } = await import('./user.actions');
+    const user = await getAuthenticatedUser();
+    if (!user || (args.user?.id && Number(args.user.id) !== Number(user.id))) return { success: false, error: 'Session invalide.' };
+    if (!Number.isFinite(Number(budget)) || Number(budget) <= 0) return { success: false, error: 'Budget invalide.' };
 
     const connection = await db.getConnection();
     try {
@@ -283,6 +333,9 @@ export async function promoteToAdsNetwork(args: { user: User, postId: string, bu
 export async function initiateTrackedShare(postId: string, userId: number, platform: string): Promise<{ success: boolean; trackingId?: string; shareUrl?: string; error?: string }> {
     const id = parseInt(postId, 10);
     try {
+        const sid = await sessionUserIdOrNull(userId);
+        if (sid === null) return { success: false, error: 'Veuillez vous reconnecter.' };
+        userId = sid;
         const { rows: existing } = await db.query(
             'SELECT tracking_id FROM post_shares WHERE post_id = $1 AND user_id = $2 AND platform = $3',
             [id, userId, platform]
@@ -324,7 +377,18 @@ export async function recordShareClick(trackingId: string, ipAddress: string, us
         if (shareRows.length === 0) throw new Error("Lien de partage invalide.");
         const share = shareRows[0];
 
+        await connection.query('SAVEPOINT share_click_sp');
         try {
+            // Un même visiteur (IP) ne compte qu'une seule fois par lien : évite l'auto-gain par rechargement.
+            const { rows: alreadyCounted } = await connection.query(
+                'SELECT 1 FROM share_clicks WHERE share_id = $1 AND ip_address = $2 LIMIT 1',
+                [share.id, ipAddress]
+            );
+            if (alreadyCounted.length > 0) {
+                await connection.query('COMMIT');
+                return { success: true, targetPostId: share.post_id.toString() };
+            }
+
             await connection.query(
                 'INSERT INTO share_clicks (share_id, ip_address, user_agent) VALUES ($1, $2, $3)',
                 [share.id, ipAddress, userAgent]
@@ -346,25 +410,25 @@ export async function recordShareClick(trackingId: string, ipAddress: string, us
                 const post = postRows[0];
                 const reward = parseFloat(post.reward_per_share);
 
-                if (post.is_monetized && post.monetization_budget >= reward) {
+                if (post.is_monetized && reward > 0 && Number(post.monetization_budget) >= reward) {
                     await connection.query('UPDATE monpays_posts SET monetization_budget = monetization_budget - $1 WHERE id = $2', [reward, updatedShare.post_id]);
                     
                     const { rows: userRows } = await connection.query('SELECT * FROM users WHERE id = $1', [updatedShare.user_id]);
                     const user = formatUser(userRows[0]);
 
-                    const tx = await createTransaction({
-                        user, typeCode: 'PUB_EARN', amount: reward, currency: 'CDF',
-                        description: `Récompense de partage (5 clics atteints) - Post #${updatedShare.post_id}`,
-                        metadata: { tracking_id: trackingId, platform: share.platform },
-                        connection
-                    });
+                    const tx = await creditShareReward(user, reward, `Récompense de partage (5 clics atteints) - Post #${updatedShare.post_id}`, { tracking_id: trackingId, platform: share.platform }, connection);
 
                     if (tx.success) {
                         await connection.query('UPDATE post_shares SET is_paid = true WHERE id = $1', [share.id]);
                     }
                 }
             }
-        } catch (clickError: any) {}
+        } catch (clickError: any) {
+            // Le clic ne doit jamais empêcher la redirection, mais l'erreur ne doit plus être silencieuse
+            // et la transaction ne doit pas rester dans un état avorté.
+            console.error('[recordShareClick]', clickError);
+            await connection.query('ROLLBACK TO SAVEPOINT share_click_sp');
+        }
 
         await connection.query('COMMIT');
         return { success: true, targetPostId: share.post_id.toString() };
@@ -380,6 +444,9 @@ export async function recordShareClick(trackingId: string, ipAddress: string, us
 export async function likeActivity(postId: string, userId: number): Promise<{ success: boolean; likes?: number; isLiked?: boolean }> {
     const id = parseInt(postId, 10);
     try {
+        const sid = await sessionUserIdOrNull(userId);
+        if (sid === null) return { success: false };
+        userId = sid;
         const { rows: existing } = await db.query('SELECT * FROM post_likes WHERE post_id = $1 AND user_id = $2', [id, userId]);
         
         if (existing.length > 0) {
@@ -395,12 +462,24 @@ export async function likeActivity(postId: string, userId: number): Promise<{ su
     }
 }
 
-export async function createMonPaysCompany(args: { user: User; pin: string; companyData: any; }): Promise<{ success: boolean; error?: string; company?: MonPaysCompany }> {
-    const { user, pin, companyData } = args;
+export async function createMonPaysCompany(args: { user: User; pin: string; companyData: any; }): Promise<{ success: boolean; error?: string; company?: MonPaysCompany; fee?: number; currency?: string }> {
+    const { pin, companyData } = args;
 
     const pinVerification = await verifyCurrentUserPin(pin);
     if (!pinVerification.success) {
         return { success: false, error: pinVerification.error };
+    }
+
+    // Le débiteur est toujours l'utilisateur de la session (jamais l'objet envoyé par le navigateur).
+    const { getAuthenticatedUser } = await import('./user.actions');
+    const sessionUser = await getAuthenticatedUser();
+    if (!sessionUser || (args.user?.id && Number(args.user.id) !== Number(sessionUser.id))) {
+        return { success: false, error: 'Session invalide. Veuillez vous reconnecter.' };
+    }
+    const user = sessionUser;
+
+    if (!companyData?.name || !String(companyData.name).trim()) {
+        return { success: false, error: "Le nom de l'entreprise est requis." };
     }
 
     const connection = await db.getConnection();
@@ -536,18 +615,25 @@ export async function createMonPaysCompany(args: { user: User; pin: string; comp
         return {
             success: true,
             company: rows[0],
+            fee: Number(creationFee),
+            currency: paymentCurrency,
         };
     } catch (error: any) {
         await connection.query('ROLLBACK');
 
-        const dbError = await handleDbError(
-            error,
-            'creating MonPays company'
-        );
+        console.error('[createMonPaysCompany]', error);
+
+        // Les erreurs métier (solde insuffisant, frais/taux non configurés…) doivent être
+        // montrées telles quelles ; seules les erreurs SQL/techniques sont masquées.
+        const isTechnical =
+            (typeof error?.code === 'string' && /^[0-9A-Z]{5}$/.test(error.code)) ||
+            ['ECONNREFUSED', 'ETIMEDOUT'].includes(error?.code);
 
         return {
             success: false,
-            error: dbError.error || error.message,
+            error: isTechnical
+                ? (await handleDbError(error, 'creating MonPays company')).error
+                : (error?.message || 'La création de la page a échoué.'),
         };
     } finally {
         connection.release();
@@ -555,6 +641,11 @@ export async function createMonPaysCompany(args: { user: User; pin: string; comp
 }
 
 export async function boostActivity(postId: string, userId: number, amount: number, pin: string): Promise<{ success: boolean; error?: string }> {
+    const sid = await sessionUserIdOrNull(userId);
+    if (sid === null) return { success: false, error: 'Session invalide. Veuillez vous reconnecter.' };
+    userId = sid;
+    if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) return { success: false, error: 'Montant invalide.' };
+
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
@@ -570,7 +661,7 @@ export async function boostActivity(postId: string, userId: number, amount: numb
         `, [postId]);
 
         if (postRows.length === 0) throw new Error("Publication introuvable.");
-        if (postRows[0].owner_user_id !== userId) throw new Error("Seul le propriétaire de la page peut booster ce post.");
+        if (Number(postRows[0].owner_user_id) !== Number(userId)) throw new Error("Seul le propriétaire de la page peut booster ce post.");
 
         const { rows: userRows } = await connection.query('SELECT * FROM users WHERE id = $1', [userId]);
         const user = formatUser(userRows[0]);
@@ -612,6 +703,11 @@ export async function createMonPaysActivity(
     content: string,
     imageDataUrl?: string | null
 ): Promise<{ success: boolean; error?: string; }> {
+    const sid = await sessionUserIdOrNull(userId);
+    if (sid === null) return { success: false, error: 'Session invalide. Veuillez vous reconnecter.' };
+    userId = sid;
+    if (!(content || '').trim() && !imageDataUrl) return { success: false, error: 'Écrivez un texte ou ajoutez une image.' };
+
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
@@ -667,6 +763,7 @@ export async function getCompaniesForUser(userId: number): Promise<MonPaysCompan
             bannerUrl: row.cover_photo_url,
             isVerified: row.status === 'verified',
             ownerWalletId: row.owner_wallet_id,
+            ownerUserId: row.owner_user_id != null ? Number(row.owner_user_id) : undefined,
             category: row.category,
             countryCode: row.country,
             website: row.website_url,
@@ -681,6 +778,9 @@ export async function getCompaniesForUser(userId: number): Promise<MonPaysCompan
 
 export async function shareActivity(postId: string, userId: number): Promise<{ success: boolean; message: string; reward?: number }> {
     const id = parseInt(postId, 10);
+    const sid = await sessionUserIdOrNull(userId);
+    if (sid === null) return { success: false, message: 'Veuillez vous reconnecter.' };
+    userId = sid;
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
@@ -710,12 +810,7 @@ export async function shareActivity(postId: string, userId: number): Promise<{ s
             const { rows: userRows } = await connection.query('SELECT * FROM users WHERE id = $1', [userId]);
             const user = formatUser(userRows[0]);
 
-            const tx = await createTransaction({
-                user, typeCode: 'PUB_EARN', amount: reward, currency: 'CDF',
-                description: `Récompense de partage MonPays - Post #${id}`,
-                metadata: { post_id: id },
-                connection
-            });
+            const tx = await creditShareReward(user, reward, `Récompense de partage MonPays - Post #${id}`, { post_id: id }, connection);
 
             if (!tx.success) throw new Error("Échec du crédit de la récompense.");
 

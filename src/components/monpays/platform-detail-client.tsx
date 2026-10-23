@@ -115,9 +115,11 @@ export function PlatformDetailClient({ activity, company }: { activity: MonPaysA
                 <p className="my-4 text-zinc-200 text-base leading-relaxed">{activity.description}</p>
             </div>
             
-            <div className="relative aspect-video bg-zinc-800">
-                <Image src={activity.imageUrl} alt={activity.title} fill className="object-cover" />
-            </div>
+            {activity.imageUrl && (
+                <div className="relative aspect-video bg-zinc-800">
+                    <Image src={activity.imageUrl} alt={activity.title} fill className="object-cover" />
+                </div>
+            )}
 
             <div className="p-4">
                 <div className="flex justify-between items-center text-zinc-400 text-xs mb-4">

@@ -548,9 +548,11 @@ useEffect(() => {
                 openAlert({
                     variant: 'success',
                     title: 'Demande soumise !',
-                    description: `Votre demande de création pour l'entreprise "${submissionData.name}" a été soumise. Elle est maintenant en attente de validation par notre équipe.`,
+                    description: `Votre demande de création pour l'entreprise "${submissionData.name}" a été soumise. ${
+                        typeof result.fee === 'number' ? `Frais débités : ${result.fee.toFixed(2)} ${result.currency}. ` : ''
+                    }Elle est maintenant en attente de validation par notre équipe.`,
                 });
-                router.push('/monpays/dashboard');
+                router.push('/monpays/company/manage');
                 return;
             }
 

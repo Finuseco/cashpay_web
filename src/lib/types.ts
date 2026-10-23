@@ -601,6 +601,7 @@ export interface MonPaysCompany {
   bannerUrl: string;
   isVerified: boolean;
   ownerWalletId: string;
+  ownerUserId?: number;
   
   website?: string;
   address?: string;

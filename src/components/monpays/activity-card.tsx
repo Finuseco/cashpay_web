@@ -159,6 +159,7 @@ export function ActivityCard({ activity, company }: { activity: MonPaysActivity,
             <p className="mt-3 text-sm leading-relaxed text-zinc-200">{activity.description}</p>
         </div>
 
+        {activity.imageUrl ? (
         <Link href={`/monpays/platform/${activity.id}`}>
           <div className="relative aspect-video bg-zinc-900 group cursor-pointer">
             <Image
@@ -177,6 +178,10 @@ export function ActivityCard({ activity, company }: { activity: MonPaysActivity,
           </div>
         </Link>
         
+        ) : (
+          <Link href={`/monpays/platform/${activity.id}`} className="block h-1" aria-label="Voir la publication" />
+        )}
+
         <div className="px-4 py-2 bg-zinc-800/50">
             <div className="flex justify-between items-center text-zinc-400 text-[10px] mb-2">
                 <div className="flex items-center gap-1">
@@ -195,7 +200,7 @@ export function ActivityCard({ activity, company }: { activity: MonPaysActivity,
                     {isLiking ? <Loader2 className="h-4 w-4 animate-spin mr-2"/> : <ThumbsUp className="h-4 w-4 mr-2"/>} J'aime
                 </Button>
                 <Button asChild variant="ghost" className="text-zinc-400 hover:text-white hover:bg-zinc-700 h-9 text-xs">
-                    <Link href={`/feedback?contactId=${company.ownerWalletId}`} onClick={(e) => e.stopPropagation()}>
+                    <Link href={`/feedback?contactId=${company.ownerUserId ?? ''}`} onClick={(e) => e.stopPropagation()}>
                         <MessageSquare className="h-4 w-4 mr-2"/> Chat
                     </Link>
                 </Button>

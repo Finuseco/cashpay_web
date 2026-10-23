@@ -14,8 +14,9 @@ import type { MonPaysCompany, MonPaysActivity, User, StatusGroup } from '@/lib/t
 import { getCompanies, getActivities, getCompaniesForUser } from '@/lib/actions/monpays.actions';
 import { getStatusesForUser } from '@/lib/actions/status.actions';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
+import { StatusViewer } from '@/components/status/status-viewer';
 
-const StoryCard = ({ statusGroup }: { statusGroup: StatusGroup }) => {
+const StoryCard = ({ statusGroup, onOpen }: { statusGroup: StatusGroup; onOpen: () => void }) => {
     const latestStatus = statusGroup.statuses[statusGroup.statuses.length - 1];
 
     let backgroundStyle: React.CSSProperties = {
@@ -30,7 +31,7 @@ const StoryCard = ({ statusGroup }: { statusGroup: StatusGroup }) => {
     }
 
     return (
-        <div style={backgroundStyle} className="relative w-28 h-48 rounded-lg overflow-hidden shrink-0 group cursor-pointer">
+        <div role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => e.key === 'Enter' && onOpen()} style={backgroundStyle} className="relative w-28 h-48 rounded-lg overflow-hidden shrink-0 group cursor-pointer">
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
             <Avatar className="absolute top-2 left-2 h-8 w-8 border-2 border-blue-500">
                 <AvatarImage src={statusGroup.contact.profile_photo || ''} />
@@ -66,6 +67,8 @@ function DashboardClient() {
   const [activities, setActivities] = useState<MonPaysActivity[]>([]);
   const [companies, setCompanies] = useState<MonPaysCompany[]>([]);
   const [myVerifiedCompanies, setMyVerifiedCompanies] = useState<MonPaysCompany[]>([]);
+  const [myPendingCount, setMyPendingCount] = useState(0);
+  const [statusViewerIndex, setStatusViewerIndex] = useState<number | null>(null);
   const [statusGroups, setStatusGroups] = useState<StatusGroup[]>([]);
   const [user, setUser] = useState<User | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(true);
@@ -89,6 +92,7 @@ function DashboardClient() {
                 getStatusesForUser(fetchedUser.id)
             ]);
             setMyVerifiedCompanies(myCompanies.filter(c => c.isVerified));
+            setMyPendingCount(myCompanies.filter(c => !c.isVerified).length);
             setStatusGroups(fetchedStatuses);
         }
         setIsLoadingData(false);
@@ -146,13 +150,23 @@ function DashboardClient() {
         )}
       </div>
 
+      {myPendingCount > 0 && (
+        <Link href="/monpays/company/manage" className="block px-4 py-2 text-xs bg-amber-500/10 border-b border-amber-500/30 text-amber-300">
+          Votre page entreprise est en attente de validation. Voir mes pages →
+        </Link>
+      )}
+
+      {statusViewerIndex !== null && (
+        <StatusViewer statusGroups={statusGroups} initialGroupIndex={statusViewerIndex} onClose={() => setStatusViewerIndex(null)} />
+      )}
+
       {/* Stories Section */}
        <div className="border-b border-zinc-700 bg-zinc-800">
           <ScrollArea>
                 <div className="flex space-x-2 p-3">
                     <CreateStoryCard user={user} />
-                    {statusGroups.map(group => (
-                        <StoryCard key={group.contact.id} statusGroup={group} />
+                    {statusGroups.map((group, index) => (
+                        <StoryCard key={group.contact.id} statusGroup={group} onOpen={() => setStatusViewerIndex(index)} />
                     ))}
                 </div>
                 <ScrollBar orientation="horizontal" className="invisible"/>

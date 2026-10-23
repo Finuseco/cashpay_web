@@ -15,7 +15,7 @@ const defaultCurrencies = [
     { code: 'EUR', name: 'Euro', symbol: '€' },
 ];
 
-async function getLocalCurrency(user: User | null): Promise<Currency | null> {
+export async function getLocalCurrency(user: User | null): Promise<Currency | null> {
     if (!user || !user.country) return null;
     
     const userCountryCode = countryToCode(user.country);
