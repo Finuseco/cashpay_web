@@ -1,4 +1,7 @@
-'use server';
+// Module serveur uniquement (appelé par les actions et les routes API).
+// Il ne porte volontairement plus la directive 'use server' : sinon chaque
+// fonction exportée (dont sendBitcoinToAddress) deviendrait un point d'entrée
+// appelable depuis le navigateur.
 
 const RPC_USER = process.env.BITCOIN_RPC_USER;
 const RPC_PASSWORD = process.env.BITCOIN_RPC_PASSWORD;
@@ -21,13 +24,37 @@ interface RpcResponse {
     id: string;
 }
 
+/**
+ * Erreur remontée par bitcoinRpcRequest.
+ * - definitive = true  : le nœud a répondu explicitement par une erreur RPC.
+ *   L'opération n'a pas été exécutée (aucun BTC envoyé).
+ * - definitive = false : pas de réponse exploitable (réseau, timeout, HTTP
+ *   inattendu). Le résultat est INCERTAIN : ne jamais rembourser sans vérifier.
+ */
+export interface BitcoinRpcFailure extends Error {
+    definitive: boolean;
+    rpcCode?: number;
+}
+
+function makeRpcFailure(
+    message: string,
+    definitive: boolean,
+    rpcCode?: number
+): BitcoinRpcFailure {
+    const failure = new Error(message) as BitcoinRpcFailure;
+    failure.definitive = definitive;
+    failure.rpcCode = rpcCode;
+    return failure;
+}
+
 async function bitcoinRpcRequest(
     method: string,
     params: any[] = []
 ): Promise<RpcResponse> {
     if (!RPC_USER || !RPC_PASSWORD) {
-        throw new Error(
-            'Bitcoin RPC credentials are not configured in the .env file.'
+        throw makeRpcFailure(
+            'Bitcoin RPC credentials are not configured in the .env file.',
+            true
         );
     }
 
@@ -49,12 +76,23 @@ async function bitcoinRpcRequest(
             cache: 'no-store',
         });
 
-        const data: RpcResponse = await response.json();
+        let data: RpcResponse;
+
+        try {
+            data = await response.json();
+        } catch {
+            throw makeRpcFailure(
+                `Bitcoin RPC '${method}': réponse illisible (HTTP ${response.status}).`,
+                false
+            );
+        }
 
         if (data.error) {
-            throw new Error(
+            throw makeRpcFailure(
                 `Bitcoin RPC error for ${method}: ` +
-                `${data.error.message} (Code: ${data.error.code})`
+                `${data.error.message} (Code: ${data.error.code})`,
+                true,
+                Number(data.error.code)
             );
         }
 
@@ -65,8 +103,12 @@ async function bitcoinRpcRequest(
             error
         );
 
-        throw new Error(
-            `Failed to communicate with Bitcoin wallet: ${error.message}`
+        const definitive = error?.definitive === true;
+
+        throw makeRpcFailure(
+            `Failed to communicate with Bitcoin wallet: ${error?.message}`,
+            definitive,
+            error?.rpcCode
         );
     }
 }
@@ -117,27 +159,71 @@ export async function validateBitcoinAddress(
     return response.result?.isvalid === true;
 }
 
+/**
+ * Solde dépensable (confirmé) du portefeuille du nœud, en BTC.
+ * Sert à vérifier la liquidité AVANT de débiter un utilisateur.
+ */
+export async function getBitcoinWalletBalance(): Promise<number> {
+    const response = await bitcoinRpcRequest(
+        'getbalance',
+        ['*', 1]
+    );
+
+    const balance = Number(response.result);
+
+    if (!Number.isFinite(balance) || balance < 0) {
+        throw new Error('Bitcoin Core returned an invalid wallet balance.');
+    }
+
+    return balance;
+}
+
 export async function sendBitcoinToAddress(
     recipientAddress: string,
-    amount: number
+    amount: number,
+    /**
+     * Référence enregistrée par le nœud avec la transaction (ex. la référence
+     * CashPay). Elle permet de retrouver l'envoi si la base n'a pas pu être
+     * finalisée : voir reconcileBitcoinWithdrawals.
+     */
+    comment?: string
 ): Promise<string> {
     if (!recipientAddress) {
-        throw new Error(
-            'Bitcoin recipient address is required.'
+        throw makeRpcFailure(
+            'Bitcoin recipient address is required.',
+            true
         );
     }
 
-    if (!Number.isFinite(amount) || amount <= 0) {
-        throw new Error(
-            'Bitcoin amount must be greater than zero.'
+    // Bitcoin n'a pas plus de 8 décimales : on arrondit pour éviter
+    // les notations flottantes (ex. 0.30000000000000004).
+    const normalizedAmount = Number(Number(amount).toFixed(8));
+
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+        throw makeRpcFailure(
+            'Bitcoin amount must be greater than zero.',
+            true
         );
     }
+
+    // Portefeuille Bitcoin Core chiffré : on le déverrouille 30 s, le temps de
+    // l'envoi (la phrase est lue dans l'environnement du serveur uniquement).
+    const walletPassphrase = process.env.BITCOIN_RPC_WALLET_PASSPHRASE;
+
+    if (walletPassphrase) {
+        await bitcoinRpcRequest('walletpassphrase', [walletPassphrase, 30]);
+    }
+
+    const safeComment = comment
+        ? String(comment).replace(/[^\w .:-]/g, '').slice(0, 100)
+        : '';
 
     const response = await bitcoinRpcRequest(
         'sendtoaddress',
         [
-            recipientAddress,
-            amount,
+            recipientAddress.trim(),
+            normalizedAmount,
+            ...(safeComment ? [safeComment] : []),
         ]
     );
 

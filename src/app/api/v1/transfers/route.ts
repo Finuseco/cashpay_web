@@ -710,6 +710,18 @@ export async function POST(
         }
 
 
+        // Les transferts crypto n'ont pas de mode "aperçu" : sans ce garde-fou,
+        // une requête avec preview=true exécuterait un VRAI transfert.
+        if (preview && (currency === 'USDT' || currency === 'BTC')) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: 'L’aperçu n’est pas disponible pour les transferts crypto : envoyez la requête sans "preview".'
+                },
+                { status: 400 }
+            );
+        }
+
         // USDT_TRC20_INTERNAL_TRANSFER
         if (currency === 'USDT') {
             if (!recipientAddress || !pin) {
@@ -738,13 +750,26 @@ export async function POST(
             );
 
             if (ownerResult.rows.length === 0) {
-                return NextResponse.json(
-                    {
-                        success: false,
-                        error: 'Le transfert USDT externe doit être traité par le service de retrait sécurisé.'
-                    },
-                    { status: 501 }
+                // Adresse hors CashPay : retrait réel sur la blockchain TRON.
+                // Même schéma de réponse que le transfert BTC externe.
+                const { prepareUsdtTransfer } = await import(
+                    '@/lib/actions/usdt-transfer.actions'
                 );
+
+                const result = await prepareUsdtTransfer({
+                    userId,
+                    recipientAddress,
+                    amount,
+                    pin,
+                });
+
+                return NextResponse.json(result, {
+                    status: result.success
+                        ? 200
+                        : (result as { status?: string }).status === 'pending'
+                            ? 202
+                            : 400,
+                });
             }
 
             const pinResult = await verifyUserPin(userId, pin);

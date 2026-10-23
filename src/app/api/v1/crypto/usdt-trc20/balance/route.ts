@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { getTronUsdtBalance } from '@/services/tron';
+import {
+  getUserUsdtAddress,
+  getUsdtLedgerBalance,
+  syncUsdtDepositsForUser,
+} from '@/services/usdt';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,16 +20,10 @@ export async function GET() {
       );
     }
 
-    const result = await db.query(
-      `SELECT address
-       FROM user_crypto_addresses
-       WHERE user_id = $1
-         AND currency_code = 'USDT_TRC20'
-       LIMIT 1`,
-      [user.id],
-    );
+    const userId = Number(user.id);
+    const address = await getUserUsdtAddress(userId);
 
-    if (result.rows.length === 0) {
+    if (!address) {
       return NextResponse.json(
         {
           success: false,
@@ -36,15 +34,30 @@ export async function GET() {
       );
     }
 
-    const address = result.rows[0].address;
-    const balance = await getTronUsdtBalance(address);
+    // Crédite d'abord les dépôts récents : un dépôt apparaît sans attendre.
+    await syncUsdtDepositsForUser(userId);
+
+    // Le solde utilisable est celui du registre CashPay (il tient compte des
+    // dépôts, des transferts internes et des retraits).
+    const balance = await getUsdtLedgerBalance(userId);
+
+    // Information complémentaire : ce qui se trouve sur l'adresse on-chain.
+    let onChainBalance: number | null = null;
+
+    try {
+      onChainBalance = (await getTronUsdtBalance(address)).balance;
+    } catch (error) {
+      console.error('[USDT_TRC20_BALANCE] Solde on-chain indisponible', error);
+    }
 
     return NextResponse.json({
       success: true,
       currency: 'USDT_TRC20',
-      address: balance.address,
-      balance: balance.balance,
-      source: 'TRON_BLOCKCHAIN',
+      network: 'TRC20',
+      address,
+      balance,
+      onChainBalance,
+      source: 'CASHPAY_LEDGER',
     });
   } catch (error) {
     console.error('[USDT_TRC20_BALANCE]', error);

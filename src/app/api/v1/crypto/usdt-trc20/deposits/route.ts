@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
+import { syncUsdtDepositsForUser } from '@/services/usdt';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,9 @@ export async function GET() {
         { status: 401 },
       );
     }
+
+    // Crédite d'abord les dépôts récents (ne lève jamais d'erreur).
+    await syncUsdtDepositsForUser(Number(user.id));
 
     const result = await db.query(
       `SELECT id, amount, tx_hash, status, confirmations,

@@ -1,0 +1,3 @@
+# CashPay USDT (TRC-20) : dépôts + retraits en attente chaque minute (balayage toutes les 10 min).
+# Créez /etc/cashpay-usdt-job.env avec USDT_SCAN_SECRET (et CASH_PAY_APP_URL si besoin).
+* * * * * /var/www/cashpay-all/wallet/scripts/cron/usdt-trc20.sh >> /var/log/cashpay-usdt-trc20.log 2>&1

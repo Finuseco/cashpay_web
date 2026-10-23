@@ -4,7 +4,12 @@
 import { db } from '@/lib/db';
 import { verifyUserPin } from './auth.actions';
 import { calculateTransactionFee } from './wallet.actions';
-import { sendBitcoinToAddress, validateBitcoinAddress } from '@/services/bitcoin';
+import {
+    sendBitcoinToAddress,
+    validateBitcoinAddress,
+    getBitcoinWalletBalance,
+} from '@/services/bitcoin';
+import { refundCryptoWithdrawal } from './crypto-refund';
 import { sendTransactionNotifications } from './transaction.actions';
 import { createNotification } from './notification.actions';
 import { getUserFromDb } from './helpers';
@@ -25,7 +30,11 @@ const BTC_TYPE = 'WD_CRYPTO_MONEY' as TransactionTypeCode;
 export async function prepareBitcoinTransfer(
     args: BitcoinTransferArgs
 ) {
-    const { userId, recipientAddress, amount, pin } = args;
+    const { userId, recipientAddress, pin } = args;
+
+    // Bitcoin : 8 décimales maximum. Le même montant arrondi sert au
+    // débit en base ET à l'envoi au nœud (aucun écart possible).
+    const amount = Number(Number(args.amount).toFixed(8));
 
     if (!Number.isInteger(userId) || userId <= 0) {
         return { success: false, error: 'Utilisateur invalide.' };
@@ -118,12 +127,32 @@ export async function prepareBitcoinTransfer(
         feeConnection.release();
     }
 
-    const totalDebit = amount + feeAmount;
+    const totalDebit = Number((amount + feeAmount).toFixed(8));
 
     if (!Number.isFinite(totalDebit)) {
         return {
             success: false,
             error: 'Montant total du transfert invalide.',
+        };
+    }
+
+    // Liquidité du nœud : on ne débite pas l'utilisateur si le portefeuille
+    // Bitcoin Core ne peut de toute façon pas payer ce transfert.
+    try {
+        const nodeBalance = await getBitcoinWalletBalance();
+
+        if (nodeBalance < amount) {
+            return {
+                success: false,
+                error: 'Liquidité Bitcoin insuffisante pour le moment. Aucun débit effectué.',
+            };
+        }
+    } catch (error) {
+        console.error('[BTC] Solde du nœud indisponible :', error);
+
+        return {
+            success: false,
+            error: 'Service Bitcoin momentanément indisponible. Aucun débit effectué.',
         };
     }
 
@@ -133,6 +162,7 @@ export async function prepareBitcoinTransfer(
     let transactionId: number | null = null;
     let referenceCode = '';
     let reservationCommitted = false;
+    let newBalance = 0;
 
     try {
         // 1. Réserver le solde et créer les traces AVANT l'envoi.
@@ -204,6 +234,8 @@ export async function prepareBitcoinTransfer(
         if (debitResult.rowCount !== 1) {
             throw new Error('Impossible de réserver le solde Bitcoin.');
         }
+
+        newBalance = Number(debitResult.rows[0].balance);
 
         referenceCode = generateReferenceCode(BTC_TYPE);
 
@@ -286,7 +318,8 @@ export async function prepareBitcoinTransfer(
     try {
         txHash = await sendBitcoinToAddress(
             recipientAddress,
-            amount
+            amount,
+            referenceCode
         );
 
         if (typeof txHash !== 'string' || !txHash.trim()) {
@@ -295,8 +328,45 @@ export async function prepareBitcoinTransfer(
 
         txHash = txHash.trim();
     } catch (error: any) {
-        // Ne PAS rembourser ni marquer failed automatiquement :
-        // le résultat réseau peut être incertain.
+        // Le nœud a répondu par une erreur RPC explicite (fonds insuffisants,
+        // adresse refusée, transaction rejetée…) : RIEN n'a été envoyé.
+        // On peut donc recréditer l'utilisateur en toute sécurité.
+        if (error?.definitive === true) {
+            const refunded = await refundCryptoWithdrawal({
+                withdrawalId,
+                transactionId,
+                userId,
+                balanceCurrencyCode: 'BTC',
+                totalDebit,
+                reason: String(error?.message || 'Refus du nœud Bitcoin'),
+            });
+
+            console.error('[BTC] Envoi refusé par le nœud :', {
+                withdrawalId,
+                transactionId,
+                referenceCode,
+                refunded,
+                rpcCode: error?.rpcCode,
+                error: error?.message,
+            });
+
+            if (refunded) {
+                return {
+                    success: false,
+                    withdrawalId,
+                    transactionId,
+                    reference: referenceCode,
+                    error:
+                        'Le transfert Bitcoin a été refusé par le réseau. ' +
+                        'Votre solde a été recrédité.',
+                };
+            }
+            // Si le remboursement échoue, on retombe sur le cas "incertain" :
+            // le montant reste réservé et la réconciliation se fait à la main.
+        }
+
+        // Résultat réseau incertain (pas de réponse exploitable du nœud) :
+        // ne PAS rembourser ni marquer failed automatiquement.
         console.error('[BTC] Résultat réseau à vérifier :', {
             withdrawalId,
             transactionId,
@@ -391,7 +461,7 @@ export async function prepareBitcoinTransfer(
     }
 
     try {
-        const notificationUser = await getUserFromDb(userId);
+        const notificationUser = await getUserFromDb({ userId });
 
         if (notificationUser) {
             await sendTransactionNotifications(notificationUser, {
@@ -400,6 +470,7 @@ export async function prepareBitcoinTransfer(
                 currency: 'BTC',
                 fee: feeAmount,
                 reference: referenceCode,
+                newBalance,
                 typeCode: 'WD_CRYPTO_MONEY',
             });
         }

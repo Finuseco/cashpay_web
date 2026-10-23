@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import type { User, Currency, Notification, Card } from "@/lib/types";
 import { CurrencyCard } from "./currency-card";
 import { BitcoinBalanceCard } from "./bitcoin-balance-card";
+import { UsdtBalanceCard } from "./usdt-balance-card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,8 +35,9 @@ import { getUserAstroProfile } from "@/lib/actions/astro.actions";
 import { HoroscopeCard } from "@/components/dashboard/horoscope-card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DepositFlow } from "@/components/crypto/deposit-flow";
-import { WithdrawalFlow } from "@/components/crypto/withdrawal-flow";
-import { ConversionFlow } from "@/components/crypto/conversion-flow";
+import { CryptoSendFlow } from "@/components/crypto/crypto-send-flow";
+import { BitcoinExchangeFlow } from "@/components/crypto/bitcoin-exchange-flow";
+import { UsdtReceiveFlow } from "@/components/crypto/usdt-receive-flow";
 
 function NotificationItem({ notification }: { notification: Notification }) {
     return (
@@ -63,6 +65,8 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
   const [cryptoBalances, setCryptoBalances] = useState<any[]>([]);
   const [bitcoinAction, setBitcoinAction] = useState<"receive" | "send" | "buy" | "sell" | null>(null);
   const [isBitcoinActivated, setIsBitcoinActivated] = useState(false);
+  const [usdtAction, setUsdtAction] = useState<"receive" | "send" | null>(null);
+  const [isUsdtActivated, setIsUsdtActivated] = useState(false);
   const [astroProfile, setAstroProfile] = useState<Awaited<ReturnType<typeof getUserAstroProfile>> | null>(null);
   const { isVisible: isFooterVisible, toggleVisibility: toggleFooterVisibility } = useFooterStore();
 
@@ -78,6 +82,7 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
 
         if (!cancelled) {
           setIsBitcoinActivated(Boolean(addresses.BTC));
+          setIsUsdtActivated(Boolean(addresses.USDT_TRC20));
           setCryptoBalances(balances);
         }
       } catch (error) {
@@ -91,6 +96,24 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
       cancelled = true;
     };
   }, [user?.id]);
+
+  // Recharge les soldes crypto après un envoi, un achat ou une vente.
+  const refreshCryptoBalances = async () => {
+    if (!user?.id) return;
+
+    try {
+      setCryptoBalances(await getCryptoBalances(user.id));
+    } catch (error) {
+      console.error("[DashboardHeader] Failed to refresh crypto balances:", error);
+    }
+  };
+
+  const btcBalance = Number(
+    cryptoBalances.find((item) => item.currency_code === "BTC")?.balance ?? 0
+  );
+  const usdtBalance = Number(
+    cryptoBalances.find((item) => item.currency_code === "USDT_TRC20")?.balance ?? 0
+  );
 
   useEffect(() => {
     setIsClient(true);
@@ -306,6 +329,31 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
                         }}
                         isActivated={isBitcoinActivated}
                     />
+
+                    <UsdtBalanceCard
+                        usdtBalance={usdtBalance}
+                        isActivated={isUsdtActivated}
+                        onReceive={() => setUsdtAction("receive")}
+                        onSend={() => setUsdtAction("send")}
+                        onActivate={async () => {
+                          try {
+                            const response = await fetch("/api/v1/crypto/usdt-trc20/address", {
+                              method: "POST",
+                              credentials: "same-origin",
+                            });
+                            const data = await response.json().catch(() => null);
+
+                            if (response.ok && data?.success) {
+                              setIsUsdtActivated(true);
+                              await refreshCryptoBalances();
+                            } else {
+                              console.error("[DashboardHeader] USDT activation failed:", data?.error);
+                            }
+                          } catch (error) {
+                            console.error("[DashboardHeader] USDT activation failed:", error);
+                          }
+                        }}
+                    />
                 </div>
             </div>
          ) : renderedPageTitle ? (
@@ -332,25 +380,55 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
                    )}
 
                    {bitcoinAction === "send" && (
-                     <WithdrawalFlow
-                       user={user}
-                       balances={cryptoBalances}
+                     <CryptoSendFlow
+                       currency="BTC"
+                       balance={btcBalance}
+                       onCompleted={refreshCryptoBalances}
                      />
                    )}
 
                    {bitcoinAction === "buy" && (
-                     <ConversionFlow
-                       user={user}
-                       balances={cryptoBalances}
+                     <BitcoinExchangeFlow
+                       direction="BUY_BTC"
                        fiatCurrencies={currencies || []}
+                       btcBalance={btcBalance}
+                       onCompleted={refreshCryptoBalances}
                      />
                    )}
 
                    {bitcoinAction === "sell" && (
-                     <ConversionFlow
-                       user={user}
-                       balances={cryptoBalances}
+                     <BitcoinExchangeFlow
+                       direction="SELL_BTC"
                        fiatCurrencies={currencies || []}
+                       btcBalance={btcBalance}
+                       onCompleted={refreshCryptoBalances}
+                     />
+                   )}
+                 </div>
+               </DialogContent>
+             </Dialog>
+           )}
+
+           {usdtAction && user && (
+             <Dialog open={!!usdtAction} onOpenChange={(open) => !open && setUsdtAction(null)}>
+               <DialogContent className="w-[calc(100%-24px)] max-w-lg max-h-[85vh] overflow-y-auto bg-zinc-900 border-zinc-700 p-0">
+                 <DialogHeader className="px-5 pt-5">
+                   <DialogTitle className="text-white">
+                     {usdtAction === "receive" && "Recevoir des USDT"}
+                     {usdtAction === "send" && "Envoyer des USDT"}
+                   </DialogTitle>
+                 </DialogHeader>
+
+                 <div className="px-4 pb-5">
+                   {usdtAction === "receive" && (
+                     <UsdtReceiveFlow onRefreshed={refreshCryptoBalances} />
+                   )}
+
+                   {usdtAction === "send" && (
+                     <CryptoSendFlow
+                       currency="USDT"
+                       balance={usdtBalance}
+                       onCompleted={refreshCryptoBalances}
                      />
                    )}
                  </div>

@@ -12,6 +12,9 @@ import { getLiveCryptoPrice as getLiveCryptoPriceFromService } from '@/services/
 import { verifyCurrentUserPin } from './auth.actions';
 import crypto from 'crypto';
 import { getNewBitcoinAddress, listBitcoinTransactions } from '@/services/bitcoin';
+import { deriveUserTronAddress, isBase58TronAddress } from '@/services/tron';
+import { syncUsdtDepositsForUser } from '@/services/usdt';
+import { reconcileBitcoinWithdrawals } from '@/services/bitcoin-withdrawals';
 import { getAuthenticatedUser } from './user.actions';
 import { sendEmail } from '@/services/email';
 import type { PoolClient } from 'pg';
@@ -43,6 +46,26 @@ export async function getUserCryptoAddresses(userId: number): Promise<Record<str
             addresses[row.currency_code] = row.address;
         });
 
+        // USDT TRC-20 : d'anciennes lignes contiennent une adresse FICTIVE
+        // ("USD_…") qui ne peut pas recevoir de fonds. On la remplace par une
+        // vraie adresse TRON dès que la conservation des clés est configurée,
+        // sinon on ne la montre pas à l'utilisateur.
+        if (addresses['USDT_TRC20'] && !isBase58TronAddress(addresses['USDT_TRC20'])) {
+            try {
+                const realAddress = deriveUserTronAddress(userId);
+
+                await connection.query(
+                    'UPDATE user_crypto_addresses SET address = $1 WHERE user_id = $2 AND currency_code = $3',
+                    [realAddress, userId, 'USDT_TRC20']
+                );
+
+                addresses['USDT_TRC20'] = realAddress;
+            } catch (error) {
+                console.warn('[Crypto] Adresse USDT fictive masquée (clés TRON non configurées).');
+                delete addresses['USDT_TRC20'];
+            }
+        }
+
         const missingCryptos = SUPPORTED_CRYPTOS.filter(
             (crypto) => !addresses[crypto] && crypto !== 'BTC'
         );
@@ -57,6 +80,14 @@ export async function getUserCryptoAddresses(userId: number): Promise<Record<str
 
                 if (cryptoCurrency === 'BTC') {
                     newAddress = await getNewBitcoinAddress(`user_${userId}`);
+                } else if (cryptoCurrency === 'USDT_TRC20') {
+                    try {
+                        newAddress = deriveUserTronAddress(userId);
+                    } catch (error) {
+                        // Jamais d'adresse fictive pour de l'argent réel :
+                        // sans clés TRON configurées, on ne crée rien.
+                        continue;
+                    }
                 } else {
                     const hash = crypto
                         .createHash('sha256')
@@ -253,6 +284,14 @@ export async function syncBitcoinBalances(): Promise<{ success: boolean; synchro
 
         const transactions = await listBitcoinTransactions(1000, 0, true);
 
+        // Finalise les retraits que le nœud a bien envoyés mais dont la base
+        // est restée "pending" (n'affecte jamais la suite de la synchronisation).
+        try {
+            await reconcileBitcoinWithdrawals(transactions);
+        } catch (reconcileError) {
+            console.error('[Bitcoin Sync] Rapprochement des retraits impossible :', reconcileError);
+        }
+
         for (const tx of transactions) {
             if (
                 tx?.category !== "receive" ||
@@ -277,6 +316,14 @@ export async function syncBitcoinBalances(): Promise<{ success: boolean; synchro
             await connection.query("BEGIN");
 
             try {
+                // Deux lectures de solde simultanées (appli mobile + web) ne
+                // doivent jamais créditer deux fois le même dépôt : on
+                // sérialise le traitement de chaque transaction Bitcoin.
+                await connection.query(
+                    "SELECT pg_advisory_xact_lock(hashtext($1))",
+                    [`btc-deposit:${txHash}`]
+                );
+
                 const existing = await connection.query(
                     "SELECT id, user_id, status FROM crypto_deposits WHERE tx_hash = $1 FOR UPDATE",
                     [txHash]
@@ -341,6 +388,8 @@ export async function syncBitcoinBalances(): Promise<{ success: boolean; synchro
 
 export async function getCryptoBalances(userId: number): Promise<CryptoBalance[]> {
     await syncBitcoinBalances();
+    // Crédite les dépôts USDT récents de cet utilisateur (ne lève jamais d'erreur).
+    await syncUsdtDepositsForUser(userId);
     try {
         const { rows } = await db.query('SELECT currency_code, balance FROM user_crypto_balances WHERE user_id = $1', [userId]);
         const balancesMap = new Map(rows.map(row => [row.currency_code, parseFloat(row.balance)]));
