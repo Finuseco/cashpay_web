@@ -14,7 +14,7 @@ export default function OnChatLayout({
 }>) {
   return (
     <PortalPinLock portalName="OnChat">
-        <div className="h-screen w-screen overflow-hidden">
+        <div className="h-[100dvh] w-screen overflow-hidden">
             {children}
         </div>
     </PortalPinLock>

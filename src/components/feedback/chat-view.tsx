@@ -101,7 +101,7 @@ const InChatTransferForm = ({
               <FormLabel>Devise</FormLabel>
 
               <FormControl>
-                <div className="grid grid-cols-2 gap-2">
+                <div role="radiogroup" aria-label="Devise" className="grid grid-cols-2 gap-2">
                   {currencies.map((currency) => {
                     const selected =
                       field.value === currency.code;
@@ -110,6 +110,8 @@ const InChatTransferForm = ({
                       <button
                         key={currency.code}
                         type="button"
+                        role="radio"
+                        aria-checked={selected}
                         onClick={() =>
                           field.onChange(currency.code)
                         }

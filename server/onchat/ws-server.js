@@ -234,6 +234,119 @@ async function getConversationOtherUser(
         : null;
 }
 
+
+// ---------------------------------------------------------------------------
+// Salles de réunion (visioconférence multi-participants, façon Zoom).
+// Ajout : n'affecte pas la signalisation 1-à-1 existante (call.*).
+// La salle est identifiée par meetings.meeting_provider_id (code de réunion).
+// ---------------------------------------------------------------------------
+const MEET_MAX_PEERS = Number(process.env.ONCHAT_MEET_MAX_PEERS || 8);
+const meetRooms = new Map(); // code -> Map<userId, Set<socket>>
+
+function normalizeMeetCode(value) {
+    const code = typeof value === 'string' ? value.trim() : '';
+    return /^[A-Za-z0-9_-]{4,64}$/.test(code) ? code : '';
+}
+
+function meetPeerIds(code) {
+    const room = meetRooms.get(code);
+    return room ? Array.from(room.keys()) : [];
+}
+
+function sendToMeetUser(code, userId, event, data) {
+    const room = meetRooms.get(code);
+    const sockets = room && room.get(Number(userId));
+    if (!sockets) return false;
+    for (const s of sockets) send(s, event, data);
+    return true;
+}
+
+function leaveMeetRoom(code, user, socket) {
+    const room = meetRooms.get(code);
+    if (!room) return;
+    const sockets = room.get(user.id);
+    if (!sockets) return;
+    sockets.delete(socket);
+    if (sockets.size > 0) return;
+    room.delete(user.id);
+    for (const peerId of room.keys()) {
+        sendToMeetUser(code, peerId, 'meet.peer_left', { meetCode: code, userId: user.id });
+    }
+    if (room.size === 0) meetRooms.delete(code);
+}
+
+function leaveAllMeetRooms(user, socket) {
+    for (const code of Array.from(meetRooms.keys())) {
+        leaveMeetRoom(code, user, socket);
+    }
+}
+
+async function handleMeetEvent(socket, user, event, data) {
+    const code = normalizeMeetCode(data.meetCode);
+    if (!code) {
+        send(socket, 'error', { code: 'INVALID_MEET_CODE', message: 'Code de réunion invalide.' });
+        return;
+    }
+
+    if (event === 'meet.join') {
+        const { rows } = await pool.query(
+            "SELECT 1 FROM meetings WHERE meeting_provider_id = $1 AND status = 'active' LIMIT 1",
+            [code]
+        );
+        if (rows.length === 0) {
+            send(socket, 'error', { code: 'MEET_NOT_FOUND', message: 'Réunion introuvable ou terminée.' });
+            return;
+        }
+        let room = meetRooms.get(code);
+        if (!room) {
+            room = new Map();
+            meetRooms.set(code, room);
+        }
+        if (!room.has(user.id) && room.size >= MEET_MAX_PEERS) {
+            send(socket, 'error', { code: 'MEET_FULL', message: 'La réunion est complète.' });
+            return;
+        }
+        const existing = Array.from(room.keys()).filter((id) => id !== user.id);
+        let sockets = room.get(user.id);
+        const isNewPeer = !sockets;
+        if (!sockets) {
+            sockets = new Set();
+            room.set(user.id, sockets);
+        }
+        sockets.add(socket);
+        // Le nouvel arrivant reçoit la liste ; c'est lui qui envoie les offres.
+        send(socket, 'meet.peers', { meetCode: code, selfId: user.id, peers: existing });
+        if (isNewPeer) {
+            for (const peerId of existing) {
+                sendToMeetUser(code, peerId, 'meet.peer_joined', { meetCode: code, userId: user.id });
+            }
+        }
+        return;
+    }
+
+    const room = meetRooms.get(code);
+    const inRoom = room && room.get(user.id) && room.get(user.id).has(socket);
+    if (!inRoom) {
+        send(socket, 'error', { code: 'MEET_NOT_JOINED', message: "Vous n'êtes pas dans cette réunion." });
+        return;
+    }
+
+    if (event === 'meet.leave') {
+        leaveMeetRoom(code, user, socket);
+        return;
+    }
+
+    if (event === 'meet.signal') {
+        const to = Number(data.to);
+        if (!Number.isFinite(to) || to === user.id || !room.has(to)) return;
+        sendToMeetUser(code, to, 'meet.signal', {
+            meetCode: code,
+            from: user.id,
+            payload: data.payload,
+        });
+    }
+}
+
 async function handleEvent(socket, user, message) {
     const event = message?.event;
     const data = message?.data || {};
@@ -244,6 +357,11 @@ async function handleEvent(socket, user, message) {
 
     if (event === 'ping') {
         send(socket, 'pong');
+        return;
+    }
+
+    if (event === 'meet.join' || event === 'meet.leave' || event === 'meet.signal') {
+        await handleMeetEvent(socket, user, event, data);
         return;
     }
 
@@ -460,6 +578,7 @@ wss.on('connection', (socket, request, user) => {
     });
 
     socket.on('close', () => {
+        leaveAllMeetRooms(user, socket);
         removeConnection(
             user.id,
             socket

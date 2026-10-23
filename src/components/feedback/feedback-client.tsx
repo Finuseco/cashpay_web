@@ -64,6 +64,7 @@ import { NewsView } from '@/components/feedback/news-view';
 import { GroupProfileView } from './groups/group-profile-view';
 import { getGroupWithMessages } from '@/lib/actions/group.actions';
 import { startCallSession, endCallSession } from '@/lib/actions/call.actions';
+import { createOpenMeeting } from '@/lib/actions/meeting.actions';
 
 
 type View = 'list' | 'chat' | 'new_chat' | 'call' | 'contact_profile' | 'status' | 'create_group' | 'groups' | 'calls' | 'group_chat' | 'news' | 'group_profile';
@@ -262,26 +263,25 @@ export function FeedbackClient() {
     
     const startCall = async (contact: User, type: 'audio' | 'video' | 'meeting') => {
         if (!currentUser) return;
-        if (type === 'meeting') {
-            openAlert({title: 'Bientôt disponible', description: 'Les réunions de groupe seront bientôt disponibles.'});
+        // Appel web : réunion WebRTC (même moteur que la visioconférence), le lien est envoyé au contact.
+        const meeting = await createOpenMeeting({ type: type === 'audio' ? 'audio' : 'video', topic: `Appel avec ${contact.first_name || contact.full_name}` });
+        if (!meeting.success) {
+            openAlert({ title: "Erreur d'appel", description: meeting.error || "Impossible d'initier l'appel.", variant: 'error' });
             return;
         }
-        const call: Call = {
-            id: `call_${Date.now()}`,
-            type: type,
-            caller: currentUser,
-            callee: contact,
-            status: 'ringing'
-        };
-        const { sessionId } = await startCallSession(call);
-        if (sessionId) {
-            setActiveCall({ ...call, sessionId });
-            setView('call');
-        } else {
-            openAlert({ title: "Erreur d'appel", description: "Impossible d'initier l'appel.", variant: 'error' });
+        const link = `${window.location.origin}/feedback/meet/${meeting.meetCode}`;
+        const conv = activeConversation && activeConversation.contact.id === contact.id
+            ? activeConversation
+            : conversations.find(c => c.contact.id === contact.id);
+        if (conv) {
+            try {
+                await postMessage(conv.id, `${type === 'audio' ? '📞 Appel audio' : '🎥 Appel vidéo'} — rejoignez : ${link}`, 'text', currentUser.id, contact.id);
+            } catch (e) {
+                console.error('[OnChat] envoi du lien d’appel', e);
+            }
         }
+        window.location.href = link;
     };
-    
 
     const endCall = (reason: Call['status']) => {
         audioFeedback.stopAllSounds();
@@ -383,8 +383,8 @@ export function FeedbackClient() {
     const showFooter = ['list', 'calls', 'groups', 'news'].includes(view);
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 h-full bg-zinc-900 relative">
-          <div className={cn("h-full md:col-span-1 border-r border-zinc-800", view !== 'list' && "hidden md:block")}>
+        <div className="grid grid-cols-1 grid-rows-[minmax(0,1fr)] md:grid-cols-3 lg:grid-cols-4 h-full min-h-0 overflow-hidden bg-zinc-900 relative">
+          <div className={cn("h-full min-h-0 overflow-hidden md:col-span-1 border-r border-zinc-800", view !== 'list' && "hidden md:block")}>
             <ConversationList
               conversations={conversations}
               onSelectContact={handleSelectConversation}
@@ -396,8 +396,8 @@ export function FeedbackClient() {
             />
           </div>
 
-          <div className={cn("h-full md:col-span-2 lg:col-span-3", view === 'list' && "hidden md:flex")}>
-            {renderContent()}
+          <div className={cn("h-full min-h-0 min-w-0 overflow-hidden flex flex-col md:col-span-2 lg:col-span-3", view === 'list' && "hidden md:flex", showFooter && "pb-16 md:pb-0")}>
+            <div className="flex-1 min-h-0 overflow-hidden">{renderContent()}</div>
           </div>
           
            {showFooter && (

@@ -122,3 +122,40 @@ export async function getMeetingByCode(meetCode: string) {
         return null;
     }
 }
+
+/**
+ * Crée une réunion ouverte (type Zoom) : l'hôte partage le lien/code et
+ * n'importe quel utilisateur OnChat connecté peut la rejoindre.
+ * L'hôte est l'utilisateur authentifié (jamais un identifiant venant du client).
+ */
+export async function createOpenMeeting(args: { topic?: string; type?: 'audio' | 'video' }) {
+    try {
+        const { getAuthenticatedUser } = await import('./user.actions');
+        const host = await getAuthenticatedUser();
+        if (!host) return { success: false as const, error: 'Authentification requise.' };
+
+        const topic = (args.topic || '').trim().slice(0, 120) || `Réunion de ${host.first_name || host.full_name}`;
+        const type = args.type === 'audio' ? 'audio' : 'video';
+        const meetCode = `${crypto.randomBytes(3).toString('hex')}-${crypto.randomBytes(3).toString('hex')}-${crypto.randomBytes(3).toString('hex')}`;
+        const base = process.env.NEXT_PUBLIC_APP_URL || '';
+        const joinUrl = `${base}/feedback/meet/${meetCode}`;
+
+        await db.query(
+            `INSERT INTO meetings (host_user_id, topic, meeting_provider_id, join_url, type, status)
+             VALUES ($1, $2, $3, $4, $5, 'active')`,
+            [host.id, topic, meetCode, joinUrl, type]
+        );
+        return { success: true as const, meetCode, joinUrl };
+    } catch (error: any) {
+        console.error('[createOpenMeeting]', error?.message);
+        return { success: false as const, error: 'Impossible de créer la réunion.' };
+    }
+}
+
+/** Vérifie qu'un code de réunion est actif (utilisé avant de rejoindre). */
+export async function checkMeetingCode(meetCode: string) {
+    const code = (meetCode || '').trim();
+    if (!/^[A-Za-z0-9_-]{4,64}$/.test(code)) return { exists: false as const };
+    const meeting = await getMeetingByCode(code);
+    return meeting ? { exists: true as const, topic: meeting.topic as string, type: meeting.type as string } : { exists: false as const };
+}

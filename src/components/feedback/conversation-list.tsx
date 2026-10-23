@@ -125,7 +125,7 @@ export function ConversationList({ conversations, onSelectContact, onNewChat, on
   }, [conversations, searchTerm]);
 
   return (
-    <div className="h-full flex flex-col bg-[#111827] text-white">
+    <div className="h-full min-h-0 flex flex-col bg-[#111827] text-white">
        <header className="flex flex-col p-2 sm:p-3 shrink-0 bg-[#1f2c33]">
           <div className="flex items-center justify-between">
              <OnChatLogo />
@@ -173,7 +173,7 @@ export function ConversationList({ conversations, onSelectContact, onNewChat, on
                     />
                 </div>
             </div>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 min-h-0">
                 <div className="p-2 space-y-0 pb-16">
                 {filteredConversations.length > 0 ? (
                     filteredConversations.map((conv) => (

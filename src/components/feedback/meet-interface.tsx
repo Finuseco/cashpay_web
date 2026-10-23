@@ -1,154 +1,113 @@
-
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-    Mic, MicOff, Video as VideoIcon, VideoOff, PhoneOff, 
-    Settings, Users, MessageSquare, ShieldCheck, Copy, 
-    Share2, PlayCircle, Monitor, AlertTriangle 
-} from 'lucide-react';
+import { Mic, MicOff, Video as VideoIcon, VideoOff, PhoneOff, Users, ShieldCheck, Copy, Monitor, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import type { User } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { useWebRtc } from '@/hooks/use-webrtc';
+import { useMeetRoom } from '@/hooks/use-meet-room';
 
 interface MeetInterfaceProps {
     meetCode: string;
     user: User;
+    withVideo?: boolean;
 }
 
-export function MeetInterface({ meetCode, user }: MeetInterfaceProps) {
+function VideoTile({ stream, muted, label, off }: { stream: MediaStream | null; muted?: boolean; label: string; off?: boolean }) {
+    const ref = useRef<HTMLVideoElement>(null);
+    useEffect(() => {
+        if (ref.current && ref.current.srcObject !== stream) ref.current.srcObject = stream;
+    }, [stream]);
+    return (
+        <div className="relative rounded-2xl bg-zinc-900 border border-zinc-800/50 overflow-hidden min-h-0 min-w-0">
+            <video ref={ref} autoPlay playsInline muted={muted} className="w-full h-full object-cover" />
+            {(off || !stream) && (
+                <div className="absolute inset-0 flex items-center justify-center bg-zinc-800">
+                    <div className="h-20 w-20 rounded-full bg-zinc-700 flex items-center justify-center text-3xl font-black">{label[0]}</div>
+                </div>
+            )}
+            <span className="absolute bottom-2 left-2 text-xs bg-black/50 rounded px-2 py-0.5">{label}</span>
+        </div>
+    );
+}
+
+export function MeetInterface({ meetCode, user, withVideo = true }: MeetInterfaceProps) {
     const router = useRouter();
     const [elapsed, setElapsed] = useState(0);
     const [isMuted, setIsMuted] = useState(false);
-    const [isCameraOff, setIsCameraOff] = useState(false);
-    const [showParticipants, setShowParticipants] = useState(false);
-    
-    const { 
-        status, 
-        error, 
-        localVideoRef, 
-        remoteVideoRef, 
-        startLocalStream, 
-        endCall 
-    } = useWebRtc();
+    const [isCameraOff, setIsCameraOff] = useState(!withVideo);
+    const room = useMeetRoom(meetCode, withVideo);
+    const { status, error, peers, localStream, isScreenSharing, join, leave } = room;
+
+    useEffect(() => { join(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        startLocalStream();
-        const timer = setInterval(() => setElapsed(prev => prev + 1), 1000);
-        return () => {
-            clearInterval(timer);
-            endCall();
-        };
-    }, [startLocalStream, endCall]);
+        if (status !== 'joined') return;
+        const timer = setInterval(() => setElapsed((p) => p + 1), 1000);
+        return () => clearInterval(timer);
+    }, [status]);
 
-    const formatTime = (seconds: number) => {
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        const s = seconds % 60;
-        return [h, m, s].map(v => v.toString().padStart(2, '0')).join(':');
-    };
+    const fmt = (s: number) => [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60].map((v) => String(v).padStart(2, '0')).join(':');
 
-    const handleLeave = () => {
-        endCall();
-        router.push('/feedback');
+    const handleLeave = () => { leave(); router.push('/feedback'); };
+    const handleCopy = async () => {
+        try { await navigator.clipboard.writeText(`${window.location.origin}/feedback/meet/${meetCode}`); } catch { /* ignoré */ }
     };
+    const toggleMic = () => { room.setMicEnabled(isMuted); setIsMuted(!isMuted); };
+    const toggleCam = () => { room.setCameraEnabled(isCameraOff); setIsCameraOff(!isCameraOff); };
 
-    const handleCopyLink = () => {
-        navigator.clipboard.writeText(window.location.href);
-        alert("Lien de réunion copié dans le presse-papiers.");
-    };
-
-    const handleToggleMic = () => {
-        if (localVideoRef.current?.srcObject) {
-            const stream = localVideoRef.current.srcObject as MediaStream;
-            stream.getAudioTracks().forEach(track => track.enabled = isMuted);
-            setIsMuted(!isMuted);
-        }
-    };
-
-    const handleToggleCamera = () => {
-        if (localVideoRef.current?.srcObject) {
-            const stream = localVideoRef.current.srcObject as MediaStream;
-            stream.getVideoTracks().forEach(track => track.enabled = isCameraOff);
-            setIsCameraOff(!isCameraOff);
-        }
-    };
+    const tiles = peers.length + 1;
+    const cols = tiles <= 1 ? 'grid-cols-1' : tiles <= 4 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2 lg:grid-cols-3';
 
     return (
-        <div className="flex flex-col h-screen bg-[#0b0f1a] text-white overflow-hidden font-sans">
-            <header className="h-16 flex items-center justify-between px-6 z-20 bg-gradient-to-b from-black/60 to-transparent">
-                <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2 bg-primary/20 backdrop-blur-xl px-4 py-2 rounded-2xl border border-primary/20 shadow-2xl">
+        <div className="flex flex-col h-[100dvh] bg-[#0b0f1a] text-white overflow-hidden">
+            <header className="shrink-0 h-14 flex items-center justify-between px-4 bg-black/40">
+                <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-2 bg-primary/20 px-3 py-1.5 rounded-xl border border-primary/20">
                         <ShieldCheck className="h-4 w-4 text-primary" />
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em]">{meetCode}</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest truncate">{meetCode}</p>
                     </div>
-                    {status === 'connected' && (
-                        <Badge variant="outline" className="h-8 rounded-full border-green-500/30 text-green-500 font-mono font-bold">
-                           <PlayCircle className="h-3 w-3 mr-2 animate-pulse"/> {formatTime(elapsed)}
-                        </Badge>
-                    )}
+                    {status === 'joined' && <Badge variant="outline" className="font-mono border-green-500/30 text-green-500">{fmt(elapsed)}</Badge>}
+                    <Badge variant="outline" className="text-zinc-300"><Users className="h-3 w-3 mr-1" />{tiles}</Badge>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="icon" onClick={handleCopyLink} title="Copier le lien"><Copy className="h-4 w-4"/></Button>
-                    <Button variant="ghost" size="icon" title="Partager"><Share2 className="h-4 w-4"/></Button>
-                </div>
+                <Button variant="ghost" size="icon" onClick={handleCopy} title="Copier le lien"><Copy className="h-4 w-4" /></Button>
             </header>
 
-            <div className="flex-1 relative p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="relative rounded-3xl bg-zinc-900 border border-zinc-800/50 overflow-hidden shadow-2xl group">
-                    <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                    {isCameraOff && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-zinc-800/80 backdrop-blur-sm">
-                            <div className="h-24 w-24 rounded-full bg-zinc-700 flex items-center justify-center border-4 border-white/10 shadow-2xl">
-                                <span className="text-3xl font-black">{user.full_name[0]}</span>
-                            </div>
-                        </div>
-                    )}
-                </div>
-                <div className="relative rounded-3xl bg-zinc-900 border border-zinc-800/50 overflow-hidden shadow-2xl flex items-center justify-center">
-                    <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
-                    {status !== 'connected' && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-zinc-900">
-                            <div className="relative h-20 w-20">
-                                <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                                <div className="absolute inset-0 rounded-full border-t-4 border-primary animate-spin" />
-                                <Users className="absolute inset-0 m-auto h-8 w-8 text-primary/40" />
-                            </div>
-                            <p className="text-zinc-500 font-black uppercase tracking-[0.3em] text-[10px]">Attente de l'interlocuteur</p>
-                        </div>
-                    )}
-                </div>
-            </div>
+            <main className={cn('flex-1 min-h-0 p-3 grid gap-3 auto-rows-fr', cols)}>
+                <VideoTile stream={localStream} muted label={`${user.first_name || user.full_name} (vous)`} off={isCameraOff} />
+                {peers.map((p) => (
+                    <VideoTile key={p.userId} stream={p.stream} label={`Participant ${p.userId}`} />
+                ))}
+            </main>
 
-            <div className="h-28 flex items-center justify-center gap-4 bg-zinc-900/80 backdrop-blur-2xl border-t border-white/5 p-6">
-                <div className="flex items-center gap-3 sm:gap-6 bg-black/40 p-2 rounded-[2.5rem] border border-white/10 shadow-2xl">
-                    <Button variant="outline" size="icon" onClick={handleToggleMic} className={cn("h-12 w-12 rounded-full", isMuted ? "bg-red-500 border-red-500 text-white" : "bg-zinc-800 text-white")}>
-                        {isMuted ? <MicOff className="h-5 w-5"/> : <Mic className="h-5 w-5"/>}
-                    </Button>
-                    <Button variant="outline" size="icon" onClick={handleToggleCamera} className={cn("h-12 w-12 rounded-full", isCameraOff ? "bg-red-500 border-red-500 text-white" : "bg-zinc-800 text-white")}>
-                        {isCameraOff ? <VideoOff className="h-5 w-5"/> : <VideoIcon className="h-5 w-5"/>}
-                    </Button>
-                    <Button variant="destructive" size="icon" onClick={handleLeave} className="h-14 w-16 rounded-[24px] shadow-2xl hover:scale-105 transition-all">
-                        <PhoneOff className="fill-current h-6 w-6" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className={cn("h-12 w-12 rounded-full", showParticipants ? "text-primary bg-primary/10" : "text-zinc-400")}>
-                        <Users className="h-5 w-5"/>
-                    </Button>
-                </div>
-            </div>
+            {status === 'connecting' || status === 'media' ? (
+                <p className="text-center text-xs text-zinc-400 pb-1 flex items-center justify-center gap-2"><Loader2 className="h-3 w-3 animate-spin" />Connexion…</p>
+            ) : null}
+            {status === 'joined' && peers.length === 0 && (
+                <p className="text-center text-xs text-zinc-400 pb-1">En attente d'autres participants. Partagez le lien.</p>
+            )}
+
             {error && (
-                <div className="absolute bottom-32 left-1/2 -translate-x-1/2 w-full max-w-sm z-50">
-                    <Alert variant="destructive" className="bg-red-500/10 backdrop-blur-xl text-white">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertTitle>Erreur Média</AlertTitle>
-                        <AlertDescription>{error}</AlertDescription>
-                    </Alert>
+                <div className="mx-4 mb-2 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm">
+                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /><span>{error}</span>
+                    {status === 'error' && <Button size="sm" variant="outline" className="ml-auto shrink-0" onClick={() => join()}>Réessayer</Button>}
                 </div>
             )}
+
+            <div className="shrink-0 flex items-center justify-center gap-3 bg-zinc-900/80 border-t border-white/5 p-3">
+                <Button variant="outline" size="icon" onClick={toggleMic} className={cn('h-12 w-12 rounded-full', isMuted ? 'bg-red-500 border-red-500 text-white' : 'bg-zinc-800 text-white')}>
+                    {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                </Button>
+                <Button variant="outline" size="icon" onClick={toggleCam} className={cn('h-12 w-12 rounded-full', isCameraOff ? 'bg-red-500 border-red-500 text-white' : 'bg-zinc-800 text-white')}>
+                    {isCameraOff ? <VideoOff className="h-5 w-5" /> : <VideoIcon className="h-5 w-5" />}
+                </Button>
+                <Button variant="outline" size="icon" onClick={room.toggleScreenShare} className={cn('h-12 w-12 rounded-full hidden sm:inline-flex', isScreenSharing ? 'bg-primary text-white' : 'bg-zinc-800 text-white')} title="Partager l'écran">
+                    <Monitor className="h-5 w-5" />
+                </Button>
+                <Button variant="destructive" size="icon" onClick={handleLeave} className="h-12 w-16 rounded-2xl"><PhoneOff className="h-6 w-6" /></Button>
+            </div>
         </div>
     );
 }
