@@ -54,10 +54,25 @@ export class ChessLogic {
             this.moveHistory = [...logicToCopy.moveHistory];
             this.captured = { white: [...logicToCopy.captured.white], black: [...logicToCopy.captured.black] };
         } else if (fen) {
-            const { board, turn } = this.fenToBoard(fen);
+            const { board, turn, enPassant } = this.fenToBoard(fen);
             this.board = board;
             this.turn = turn;
-            this.moveHistory = []; // FEN doesn't contain history
+            this.moveHistory = [];
+            if (enPassant) {
+                // Reconstitue le dernier coup (avance de deux cases d'un pion) à partir de la case « en passant ».
+                const col = 'abcdefgh'.indexOf(enPassant[0]);
+                const rank = parseInt(enPassant[1], 10);
+                const passedRow = 8 - rank;
+                if (col >= 0 && (passedRow === 5 || passedRow === 2)) {
+                    const color: PlayerColor = passedRow === 5 ? 'white' : 'black';
+                    const fromRow = passedRow === 5 ? 6 : 1;
+                    const toRow = passedRow === 5 ? 4 : 3;
+                    this.moveHistory.push({
+                        from: { row: fromRow, col }, to: { row: toRow, col },
+                        piece: { type: 'pawn', color, symbol: '' }, notation: '',
+                    });
+                }
+            }
             this.captured = { white: [], black: [] };
         } else {
             this.board = getInitialBoard();
@@ -90,38 +105,97 @@ export class ChessLogic {
                 fen += '/';
             }
         }
-        fen += ` ${this.turn[0]} KQkq - 0 1`; // Simplified FEN for this use case
+        // Case « en passant » : nécessaire pour que le coup reste possible après resynchronisation par FEN.
+        let enPassant = '-';
+        const last = this.moveHistory.length > 0 ? this.moveHistory[this.moveHistory.length - 1] : null;
+        if (last && last.piece.type === 'pawn' && Math.abs(last.from.row - last.to.row) === 2) {
+            const passedRow = (last.from.row + last.to.row) / 2;
+            enPassant = `${'abcdefgh'[last.to.col]}${8 - passedRow}`;
+        }
+        fen += ` ${this.turn[0]} KQkq ${enPassant} 0 1`; // FEN simplifié (pas de roque géré)
         return fen;
     }
 
-    getBestMove(level: number): { from: Position; to: Position } | null {
-        const allPossibleMoves: { from: Position; to: Position; piece: ChessPiece }[] = [];
+    private static PIECE_VALUE: Record<PieceType, number> = { pawn: 100, knight: 320, bishop: 330, rook: 500, queen: 900, king: 0 };
+
+    /** Évaluation statique (du point de vue de `color`) : matériel + contrôle du centre + avancement des pions. */
+    private evaluate(color: PlayerColor): number {
+        let score = 0;
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const p = this.board[r][c];
+                if (!p) continue;
+                let v = ChessLogic.PIECE_VALUE[p.type];
+                const centre = 3.5 - Math.max(Math.abs(r - 3.5), Math.abs(c - 3.5)); // 0..3
+                if (p.type !== 'king' && p.type !== 'rook') v += centre * 6;
+                if (p.type === 'pawn') v += (p.color === 'white' ? 6 - r : r - 1) * 4;
+                score += p.color === color ? v : -v;
+            }
+        }
+        return score;
+    }
+
+    private allLegalMoves(color: PlayerColor): { from: Position; to: Position }[] {
+        const moves: { from: Position; to: Position }[] = [];
         for (let r = 0; r < 8; r++) {
             for (let c = 0; c < 8; c++) {
                 const piece = this.board[r][c];
-                if (piece && piece.color === this.turn) {
-                    const validMoves = this.getValidMovesForPiece({ row: r, col: c });
-                    for (const move of validMoves) {
-                        allPossibleMoves.push({ from: { row: r, col: c }, to: move, piece });
-                    }
+                if (piece && piece.color === color) {
+                    for (const to of this.getValidMovesForPiece({ row: r, col: c })) moves.push({ from: { row: r, col: c }, to });
                 }
             }
         }
+        return moves;
+    }
 
-        if (allPossibleMoves.length === 0) return null;
+    private applyForSearch(m: { from: Position; to: Position }): ChessLogic {
+        const next = new ChessLogic(this);
+        const piece = next.board[m.from.row][m.from.col];
+        const promote = piece && piece.type === 'pawn' && (m.to.row === 0 || m.to.row === 7) ? 'queen' : undefined;
+        next.movePiece(m.from, m.to, promote);
+        return next;
+    }
 
-        // Simple difficulty scaling
-        if (level < 5) {
-            // Low level: completely random move
-            return allPossibleMoves[Math.floor(Math.random() * allPossibleMoves.length)];
-        } else {
-            // Higher level: prefer captures, otherwise random
-            const capturingMoves = allPossibleMoves.filter(move => this.board[move.to.row][move.to.col] !== null);
-            if (capturingMoves.length > 0) {
-                return capturingMoves[Math.floor(Math.random() * capturingMoves.length)];
+    /**
+     * Coup de l'ordinateur. Niveaux 1-3 : surtout aléatoire ; 4-6 : meilleur gain matériel immédiat ;
+     * 7-10 : recherche sur 2 demi-coups (réponse de l'adversaire prise en compte), avec détection du mat.
+     */
+    getBestMove(level: number): { from: Position; to: Position } | null {
+        const me = this.turn;
+        const opp: PlayerColor = me === 'white' ? 'black' : 'white';
+        const moves = this.allLegalMoves(me);
+        if (moves.length === 0) return null;
+        const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
+
+        if (level <= 3 && Math.random() < 0.7) return pick(moves);
+
+        let bestScore = -Infinity;
+        let best: { from: Position; to: Position }[] = [];
+        for (const m of moves) {
+            const after = this.applyForSearch(m);
+            let score: number;
+            if (after.isCheckmate(opp)) {
+                score = 100000;
+            } else if (level >= 7) {
+                const replies = after.allLegalMoves(opp);
+                if (replies.length === 0) {
+                    score = after.isCheck(opp) ? 100000 : 0; // mat / pat
+                } else {
+                    let worst = Infinity;
+                    for (const reply of replies) {
+                        const afterReply = after.applyForSearch(reply);
+                        const s = afterReply.isCheckmate(me) ? -100000 : afterReply.evaluate(me);
+                        if (s < worst) worst = s;
+                    }
+                    score = worst;
+                }
+            } else {
+                score = after.evaluate(me) + (after.isCheck(opp) ? 15 : 0);
             }
-            return allPossibleMoves[Math.floor(Math.random() * allPossibleMoves.length)];
+            if (score > bestScore + 1e-9) { bestScore = score; best = [m]; }
+            else if (Math.abs(score - bestScore) <= 1e-9) best.push(m);
         }
+        return pick(best);
     }
 
     getValidMovesForPiece(pos: Position): Position[] {
@@ -227,8 +301,8 @@ export class ChessLogic {
         return true;
     }
 
-    private fenToBoard(fen: string): { board: Board; turn: PlayerColor } {
-        const [boardPart, turnPart] = fen.split(' ');
+    private fenToBoard(fen: string): { board: Board; turn: PlayerColor; enPassant: string | null } {
+        const [boardPart, turnPart, , epPart] = fen.split(' ');
         const board: Board = Array(8).fill(null).map(() => Array(8).fill(null));
         const rows = boardPart.split('/');
 
@@ -244,7 +318,7 @@ export class ChessLogic {
             }
         }
 
-        return { board, turn: turnPart === 'w' ? 'white' : 'black' };
+        return { board, turn: turnPart === 'w' ? 'white' : 'black', enPassant: epPart && epPart !== '-' ? epPart : null };
     }
 
     private pieceToFenChar(piece: ChessPiece): string {

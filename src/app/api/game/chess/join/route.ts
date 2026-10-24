@@ -1,30 +1,13 @@
-
 import { type NextRequest, NextResponse } from 'next/server';
+import { joinChessGame } from '@/lib/actions/game.actions';
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 
-/**
- * API endpoint to join an existing chess game.
- * MOCK ENDPOINT
- */
+/** Rejoint une vraie partie : la mise est débitée du second joueur. */
 export async function POST(request: NextRequest) {
-  const { gameCode } = await request.json();
-
-  if (!gameCode) {
-    return NextResponse.json({ success: false, error: 'Game code is required.' }, { status: 400 });
-  }
-  
-  if (gameCode.toUpperCase() === 'INVALID') {
-    return NextResponse.json({ success: false, error: 'Partie non trouvée ou déjà pleine' }, { status: 404 });
-  }
-
-  // In a real app, this would call `joinChessGame` action.
-  console.log(`[Chess API Mock] Joining game with code: ${gameCode}`);
-  
-  return NextResponse.json({ 
-    success: true, 
-    gameId: 12345, // mock ID
-    opponent: {
-        name: "John Doe",
-        avatar: "https://placehold.co/100x100.png"
-    }
-  });
+    const { gameCode } = await request.json().catch(() => ({}));
+    if (!gameCode) return NextResponse.json({ success: false, error: 'Game code is required.' }, { status: 400 });
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const result = await joinChessGame(user, String(gameCode));
+    return NextResponse.json(result, { status: result.success ? 200 : 404 });
 }

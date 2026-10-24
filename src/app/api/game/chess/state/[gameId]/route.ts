@@ -1,20 +1,10 @@
-
 import { type NextRequest, NextResponse } from 'next/server';
+import { getGameState } from '@/lib/actions/game.actions';
 
-/**
- * API endpoint to get the current state of a chess game.
- * MOCK ENDPOINT
- */
-export async function GET(request: NextRequest, { params }: { params: { gameId: string } }) {
-  const gameId = params.gameId;
-
-  console.log(`[Chess API Mock] Fetching state for game: ${gameId}`);
-  
-  // In a real app, this would call `getGameState` action.
-  return NextResponse.json({ 
-    fen: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
-    turn: "black",
-    history: ["e4"],
-    // ... other game state info
-  });
+/** État réel d'une partie (réservé aux deux joueurs, identifiés par la session). */
+export async function GET(_request: NextRequest, { params }: { params: { gameId: string } }) {
+    const state = await getGameState(parseInt(params.gameId, 10));
+    if (!state) return NextResponse.json({ success: false, error: 'Partie introuvable ou accès refusé.' }, { status: 404 });
+    const { fullGame, ...rest } = state;
+    return NextResponse.json({ success: true, ...rest });
 }

@@ -1,24 +1,12 @@
-
 import { type NextRequest, NextResponse } from 'next/server';
+import { makeMove } from '@/lib/actions/game.actions';
 
-/**
- * API endpoint to submit a move in a chess game.
- * MOCK ENDPOINT
- */
+/** Joue un coup : validé et rejoué par le serveur (tour, légalité, mat/pat, règlement des gains). */
 export async function POST(request: NextRequest) {
-  const { gameId, move } = await request.json();
-
-  if (!gameId || !move || !move.from || !move.to) {
-    return NextResponse.json({ success: false, error: 'Game ID and move are required.' }, { status: 400 });
-  }
-
-  // In a real app, this would call `makeMove` action and validate it.
-  console.log(`[Chess API Mock] Move in game ${gameId}: ${move.from} to ${move.to}`);
-  
-  // A real response would return the new board state after the opponent's move if playing vs AI.
-  // For PvP, it might just confirm the move was accepted.
-  return NextResponse.json({ 
-    success: true, 
-    newState: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1" // Example FEN after e2e4
-  });
+    const { gameId, move, promotion } = await request.json().catch(() => ({}));
+    if (!gameId || !move || !move.from || !move.to) {
+        return NextResponse.json({ success: false, error: 'Game ID and move are required.' }, { status: 400 });
+    }
+    const result = await makeMove(Number(gameId), move, undefined, promotion);
+    return NextResponse.json(result, { status: result.success ? 200 : 400 });
 }
