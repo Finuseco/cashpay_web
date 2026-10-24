@@ -841,3 +841,40 @@ export async function shareActivity(postId: string, userId: number): Promise<{ s
         connection.release();
     }
 }
+
+
+/**
+ * Frais de création d'une page entreprise, dans la devise de paiement choisie (même calcul que la création :
+ * frais de référence USD « MONPAYS_PAGE » × taux USD→devise du pays de l'utilisateur).
+ */
+export async function getMonPaysCreationFee(paymentCurrency: string = 'USD'): Promise<{ success: boolean; fee?: number; currency?: string; referenceFeeUSD?: number; error?: string }> {
+    const { getAuthenticatedUser } = await import('./user.actions');
+    const user = await getAuthenticatedUser();
+    if (!user) return { success: false, error: 'Session expirée.' };
+
+    const connection = await db.getConnection();
+    try {
+        const referenceFeeUSD = await calculateTransactionFee(0, 'USD', 'MONPAYS_PAGE', user.country, connection);
+        if (!(referenceFeeUSD > 0)) return { success: false, error: "Le frais de création MonPays n'est pas configuré." };
+
+        const currency = String(paymentCurrency || 'USD').toUpperCase();
+        let fee = referenceFeeUSD;
+        if (currency !== 'USD') {
+            const countryCode = countryToCode(user.country);
+            if (!countryCode) return { success: false, error: "Le pays de l'utilisateur n'est pas correctement configuré." };
+            const { rows } = await connection.query(
+                `SELECT rate FROM exchange_rates WHERE country_code = $1 AND from_currency = 'USD' AND to_currency = $2 LIMIT 1`,
+                [countryCode, currency]
+            );
+            const rate = Number(rows[0]?.rate);
+            if (!Number.isFinite(rate) || rate <= 0) return { success: false, error: `Taux USD → ${currency} indisponible pour ${countryCode}.` };
+            fee = referenceFeeUSD * rate;
+        }
+        return { success: true, fee, currency, referenceFeeUSD };
+    } catch (e: any) {
+        console.error('[getMonPaysCreationFee]', e);
+        return { success: false, error: 'Impossible de calculer les frais.' };
+    } finally {
+        connection.release();
+    }
+}
