@@ -495,15 +495,17 @@ export async function processLoanRepayments(userId?: number) {
                 if (remainingBeforePenalty <= 0.005) continue;
                 let penaltyApplied = 0;
 
-                // Une pénalité peut être appliquée au maximum une fois par jour
-                // pour une même échéance. Les déclenchements multiples du même jour
-                // ne doivent donc jamais doubler la pénalité.
+                // Une pénalité est appliquée une fois par PÉRIODE (hebdomadaire par défaut, réglable avec
+                // LOAN_PENALTY_INTERVAL_DAYS) et par échéance en retard : les passages répétés de l'agent
+                // dans la même période ne doublent jamais la pénalité, mais récupèrent toujours le solde
+                // disponible. Les pénalités s'additionnent d'une période à l'autre jusqu'au règlement de la dette.
+                const penaltyIntervalDays = Math.max(1, Math.floor(Number(process.env.LOAN_PENALTY_INTERVAL_DAYS || 7)) || 7);
                 const canPenaltyResult = await connection.query(
-                    `SELECT (last_penalty_date IS NULL OR last_penalty_date < CURRENT_DATE) AS can_apply
+                    `SELECT (last_penalty_date IS NULL OR last_penalty_date <= CURRENT_DATE - $2::integer) AS can_apply
                      FROM loan_installments
                      WHERE id=$1
                      FOR UPDATE`,
-                    [inst.id]
+                    [inst.id, penaltyIntervalDays]
                 );
                 const canApplyPenalty = Boolean(canPenaltyResult.rows[0]?.can_apply);
                 if (canApplyPenalty) {
