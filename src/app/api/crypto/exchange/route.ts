@@ -11,38 +11,73 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type FiatCurrency = string;
-type Direction = 'BUY_BTC' | 'SELL_BTC';
+type Crypto = 'BTC' | 'USDT';
+type Direction = 'BUY_BTC' | 'SELL_BTC' | 'BUY_USDT' | 'SELL_USDT';
 
-async function getBitcoinPrice(
-  currency: FiatCurrency,
+async function getCryptoPrice(
+  crypto: Crypto,
+  fiat: FiatCurrency,
   countryCode: string,
+  direction: Direction,
 ): Promise<number> {
+  if (crypto === 'BTC') {
+    const { rows } = await db.query(
+      `SELECT from_currency, to_currency, rate
+         FROM exchange_rates
+        WHERE country_code = $1
+          AND (
+            (from_currency = 'BTC' AND to_currency = $2)
+            OR (from_currency = $2 AND to_currency = 'BTC')
+          )
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [countryCode, fiat],
+    );
+
+    if (!rows.length) {
+      throw new Error(`Taux BTC/${fiat} absent pour le pays ${countryCode}.`);
+    }
+
+    const rate = Number(rows[0].rate);
+
+    if (!Number.isFinite(rate) || rate <= 0) {
+      throw new Error('Le taux BTC enregistré est invalide.');
+    }
+
+    return rows[0].from_currency === 'BTC' ? rate : 1 / rate;
+  }
+
+  // Les taux USDT sont stockés sous le code USDT dans exchange_rates.
+  // Achat : fiat -> USDT. Vente : USDT -> fiat.
+  const from = direction === 'BUY_USDT' ? fiat : 'USDT';
+  const to = direction === 'BUY_USDT' ? 'USDT' : fiat;
+
   const { rows } = await db.query(
-    `SELECT from_currency, to_currency, rate
+    `SELECT rate
        FROM exchange_rates
       WHERE country_code = $1
-        AND (
-          (from_currency = 'BTC' AND to_currency = $2)
-          OR (from_currency = $2 AND to_currency = 'BTC')
-        )
+        AND from_currency = $2
+        AND to_currency = $3
       ORDER BY created_at DESC
       LIMIT 1`,
-    [countryCode, currency],
+    [countryCode, from, to],
   );
 
   if (!rows.length) {
-    throw new Error(
-      `Taux BTC/${currency} absent pour le pays ${countryCode}. Aucun échange effectué.`,
-    );
+    throw new Error(`Taux ${from}/${to} absent pour le pays ${countryCode}.`);
   }
 
   const rate = Number(rows[0].rate);
+
   if (!Number.isFinite(rate) || rate <= 0) {
-    throw new Error('Le taux BTC enregistré dans CashPay All est invalide.');
+    throw new Error(`Le taux ${from}/${to} enregistré est invalide.`);
   }
 
-  return rows[0].from_currency === 'BTC' ? rate : 1 / rate;
+  // Pour BUY_USDT, le taux représente les USDT obtenus par unité fiat.
+  // Pour SELL_USDT, il représente la devise fiat obtenue par USDT.
+  return rate;
 }
+
 export async function POST(request: NextRequest) {
   let connection: Awaited<ReturnType<typeof db.getConnection>> | undefined;
   let transactionStarted = false;
@@ -52,18 +87,32 @@ export async function POST(request: NextRequest) {
 
     if (!user) {
       return NextResponse.json(
-        { success: false, error: 'Session invalide. Veuillez vous reconnecter.' },
+        {
+          success: false,
+          error: 'Session invalide. Veuillez vous reconnecter.',
+        },
         { status: 401 },
       );
     }
 
     const body = await request.json();
-    const direction = body?.direction as Direction;
+    const direction = String(body?.direction ?? '').toUpperCase() as Direction;
+
+    if (!['BUY_BTC', 'SELL_BTC', 'BUY_USDT', 'SELL_USDT'].includes(direction)) {
+      return NextResponse.json(
+        { success: false, error: 'Direction invalide.' },
+        { status: 400 },
+      );
+    }
 
     const countryCode = countryToCode(user.country);
+
     if (!countryCode) {
       return NextResponse.json(
-        { success: false, error: 'Pays du compte introuvable ou non reconnu.' },
+        {
+          success: false,
+          error: 'Pays du compte introuvable ou non reconnu.',
+        },
         { status: 400 },
       );
     }
@@ -74,7 +123,10 @@ export async function POST(request: NextRequest) {
 
     if (!localCurrency) {
       return NextResponse.json(
-        { success: false, error: 'Devise locale introuvable pour ce pays.' },
+        {
+          success: false,
+          error: 'Devise locale introuvable pour ce pays.',
+        },
         { status: 400 },
       );
     }
@@ -84,13 +136,6 @@ export async function POST(request: NextRequest) {
     const amount = Number(body?.amount);
     const pin = String(body?.pin ?? '');
 
-    if (!['BUY_BTC', 'SELL_BTC'].includes(direction)) {
-      return NextResponse.json(
-        { success: false, error: 'Direction invalide. Utilisez BUY_BTC ou SELL_BTC.' },
-        { status: 400 },
-      );
-    }
-
     if (
       !/^[A-Z]{3}$/.test(currency) ||
       ![localCurrency, 'USD', 'EUR'].includes(currency)
@@ -98,7 +143,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: `Devise non autorisée. Devise locale du compte : ${localCurrency}.`,
+          error: `Devise non autorisée. Devise locale : ${localCurrency}.`,
         },
         { status: 400 },
       );
@@ -122,28 +167,45 @@ export async function POST(request: NextRequest) {
 
     if (!pinResult.success) {
       return NextResponse.json(
-        { success: false, error: pinResult.error || 'PIN incorrect.' },
+        {
+          success: false,
+          error: pinResult.error || 'PIN incorrect.',
+        },
         { status: 401 },
       );
     }
 
-    // BUY_BTC: amount is the fiat amount to debit.
-    // SELL_BTC: amount is the BTC amount to debit.
-    const marketPrice = await getBitcoinPrice(currency, countryCode);
-    const fiatAmount =
-      direction === 'BUY_BTC' ? Number(amount.toFixed(2)) :
-      Number((amount * marketPrice).toFixed(2));
+    const isUsdt = direction === 'BUY_USDT' || direction === 'SELL_USDT';
+    const isBuy = direction === 'BUY_BTC' || direction === 'BUY_USDT';
+    const crypto: Crypto = isUsdt ? 'USDT' : 'BTC';
+    const ledgerCurrency = isUsdt ? 'USDT_TRC20' : 'BTC';
+    const decimals = isUsdt ? 6 : 8;
 
-    const btcAmount =
-      direction === 'BUY_BTC'
-        ? Number((amount / marketPrice).toFixed(8))
-        : Number(amount.toFixed(8));
+    const marketPrice = await getCryptoPrice(
+      crypto,
+      currency,
+      countryCode,
+      direction,
+    );
+
+    // Achat BTC : amount est la somme fiat dépensée.
+    // Achat USDT : amount est multiplié par le taux fiat -> USDT.
+    // Vente : amount est la quantité de crypto vendue.
+    const fiatAmount = isBuy
+      ? Number(amount.toFixed(2))
+      : Number((amount * marketPrice).toFixed(2));
+
+    const cryptoAmount = isBuy
+      ? isUsdt
+        ? Number((amount * marketPrice).toFixed(decimals))
+        : Number((amount / marketPrice).toFixed(decimals))
+      : Number(amount.toFixed(decimals));
 
     if (
       !Number.isFinite(fiatAmount) ||
-      !Number.isFinite(btcAmount) ||
+      !Number.isFinite(cryptoAmount) ||
       fiatAmount <= 0 ||
-      btcAmount <= 0
+      cryptoAmount <= 0
     ) {
       return NextResponse.json(
         { success: false, error: 'Montant calculé invalide.' },
@@ -157,7 +219,6 @@ export async function POST(request: NextRequest) {
     await connection.query('BEGIN');
     transactionStarted = true;
 
-    // Lock the user's fiat wallet before changing any balance.
     const { rows: walletRows } = await connection.query(
       'SELECT balances FROM wallets WHERE user_id = $1 FOR UPDATE',
       [user.id],
@@ -175,29 +236,29 @@ export async function POST(request: NextRequest) {
 
     const fiatBalance = Number(balances[currency] ?? 0);
 
-    // Ensure the BTC balance row exists, then lock it.
     await connection.query(
       `INSERT INTO user_crypto_balances (user_id, currency_code, balance)
-       VALUES ($1, 'BTC', 0)
+       VALUES ($1, $2, 0)
        ON CONFLICT (user_id, currency_code) DO NOTHING`,
-      [user.id],
+      [user.id, ledgerCurrency],
     );
 
     const { rows: cryptoRows } = await connection.query(
       `SELECT balance
-       FROM user_crypto_balances
-       WHERE user_id = $1 AND currency_code = 'BTC'
-       FOR UPDATE`,
-      [user.id],
+         FROM user_crypto_balances
+        WHERE user_id = $1
+          AND currency_code = $2
+        FOR UPDATE`,
+      [user.id, ledgerCurrency],
     );
 
     if (!cryptoRows.length) {
-      throw new Error('Portefeuille BTC introuvable.');
+      throw new Error(`Portefeuille ${crypto} introuvable.`);
     }
 
-    const btcBalance = Number(cryptoRows[0].balance);
+    const cryptoBalance = Number(cryptoRows[0].balance);
 
-    if (direction === 'BUY_BTC') {
+    if (isBuy) {
       if (fiatBalance < fiatAmount) {
         throw new Error(`Solde ${currency} insuffisant.`);
       }
@@ -211,22 +272,24 @@ export async function POST(request: NextRequest) {
 
       await connection.query(
         `UPDATE user_crypto_balances
-         SET balance = balance + $1
-         WHERE user_id = $2 AND currency_code = 'BTC'`,
-        [btcAmount, user.id],
+            SET balance = balance + $1
+          WHERE user_id = $2
+            AND currency_code = $3`,
+        [cryptoAmount, user.id, ledgerCurrency],
       );
     } else {
-      if (btcBalance < btcAmount) {
-        throw new Error('Solde BTC insuffisant.');
+      if (cryptoBalance < cryptoAmount) {
+        throw new Error(`Solde ${crypto} insuffisant.`);
       }
 
       balances[currency] = Number((fiatBalance + fiatAmount).toFixed(2));
 
       await connection.query(
         `UPDATE user_crypto_balances
-         SET balance = balance - $1
-         WHERE user_id = $2 AND currency_code = 'BTC'`,
-        [btcAmount, user.id],
+            SET balance = balance - $1
+          WHERE user_id = $2
+            AND currency_code = $3`,
+        [cryptoAmount, user.id, ledgerCurrency],
       );
 
       await connection.query(
@@ -236,11 +299,12 @@ export async function POST(request: NextRequest) {
     }
 
     const transactionMetadata = {
-      operation: 'BTC_FIAT_EXCHANGE',
+      operation: `${crypto}_FIAT_EXCHANGE`,
       direction,
-      cryptoCurrency: 'BTC',
+      cryptoCurrency: crypto,
+      ledgerCurrency,
       fiatCurrency: currency,
-      btcAmount,
+      cryptoAmount,
       fiatAmount,
       marketPrice,
       rateProvider: 'exchange_rates',
@@ -250,19 +314,27 @@ export async function POST(request: NextRequest) {
 
     await connection.query(
       `INSERT INTO transactions (
-         reference_code, type_code, status, amount, currency,
-         fee, description, sender_id, receiver_id,
-         sender_wallet_id, receiver_wallet_id, metadata
+         reference_code,
+         type_code,
+         status,
+         amount,
+         currency,
+         fee,
+         description,
+         sender_id,
+         receiver_id,
+         sender_wallet_id,
+         receiver_wallet_id,
+         metadata
        )
-       VALUES ($1, 'EXCHANGE', 'Completed', $2, $3,
-               0, $4, $5, NULL, $6, NULL, $7::jsonb)`,
+       VALUES ($1, 'EXCHANGE', 'Completed', $2, $3, 0, $4, $5, NULL, $6, NULL, $7::jsonb)`,
       [
         reference,
         fiatAmount,
         currency,
-        direction === 'BUY_BTC'
-          ? `Achat de ${btcAmount} BTC`
-          : `Vente de ${btcAmount} BTC`,
+        isBuy
+          ? `Achat de ${cryptoAmount} ${crypto}`
+          : `Vente de ${cryptoAmount} ${crypto}`,
         user.id,
         user.id_wallet ?? null,
         JSON.stringify(transactionMetadata),
@@ -272,14 +344,33 @@ export async function POST(request: NextRequest) {
     await connection.query('COMMIT');
     transactionStarted = false;
 
-    // Notifications are sent after the financial transaction commits.
-    await createNotification(
-      Number(user.id),
-      'Échange BTC effectué',
-      direction === 'BUY_BTC'
-        ? `Achat de ${btcAmount} BTC pour ${fiatAmount} ${currency}. Taux: 1 BTC = ${marketPrice} ${currency}. Réf: ${reference}`
-        : `Vente de ${btcAmount} BTC pour ${fiatAmount} ${currency}. Taux: 1 BTC = ${marketPrice} ${currency}. Réf: ${reference}`,
-      'general',
+    // Une erreur de notification ne doit pas annuler l'échange validé.
+    try {
+      const rateDescription = isUsdt
+        ? isBuy
+          ? `1 ${currency} = ${marketPrice} USDT`
+          : `1 USDT = ${marketPrice} ${currency}`
+        : `1 BTC = ${marketPrice} ${currency}`;
+
+      await createNotification(
+        Number(user.id),
+        `Échange ${crypto} effectué`,
+        `${isBuy ? 'Achat' : 'Vente'} de ${cryptoAmount} ${crypto} pour ${fiatAmount} ${currency}. Taux : ${rateDescription}. Réf. : ${reference}`,
+        'general',
+      );
+    } catch (notificationError) {
+      console.error(
+        'Échec de notification après échange validé :',
+        notificationError,
+      );
+    }
+
+    const updatedCryptoBalance = Number(
+      (
+        isBuy
+          ? cryptoBalance + cryptoAmount
+          : cryptoBalance - cryptoAmount
+      ).toFixed(decimals),
     );
 
     return NextResponse.json({
@@ -287,16 +378,16 @@ export async function POST(request: NextRequest) {
       reference,
       direction,
       currency,
-      btcAmount,
+      ...(isUsdt
+        ? { usdtAmount: cryptoAmount }
+        : { btcAmount: cryptoAmount }),
       fiatAmount,
       rate: marketPrice,
       rateProvider: 'exchange_rates',
       fee: 0,
       balances: {
         fiat: balances[currency],
-        btc: direction === 'BUY_BTC'
-          ? Number((btcBalance + btcAmount).toFixed(8))
-          : Number((btcBalance - btcAmount).toFixed(8)),
+        [isUsdt ? 'usdt' : 'btc']: updatedCryptoBalance,
       },
       message: 'Échange enregistré avec succès.',
     });
@@ -305,12 +396,14 @@ export async function POST(request: NextRequest) {
       try {
         await connection.query('ROLLBACK');
       } catch (rollbackError) {
-        console.error('Échec du rollback de l’échange BTC:', rollbackError);
+        console.error('Échec du rollback de l’échange crypto :', rollbackError);
       }
     }
 
     const message =
-      error instanceof Error ? error.message : 'Erreur pendant l’échange BTC.';
+      error instanceof Error
+        ? error.message
+        : 'Erreur pendant l’échange crypto.';
 
     console.error('Crypto exchange error:', error);
 
