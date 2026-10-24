@@ -382,7 +382,7 @@ const MessageBubble = ({
         ) : isImage && fileData?.fileUrl ? (
              <div className="flex flex-col gap-1">
                 <div className="relative group/img cursor-pointer" onClick={() => onImageClick(fileData!.fileUrl)}>
-                    <NextImage src={fileData.fileUrl} alt="image sent" width={250} height={250} className="rounded-md object-cover" />
+                    <img src={fileData.fileUrl} alt="Image envoyée" width={250} height={250} loading="lazy" className="rounded-md object-cover max-w-full h-auto" />
                     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center rounded-md">
                         <Maximize2 className="h-8 w-8 text-white/80" />
                     </div>
@@ -398,7 +398,13 @@ const MessageBubble = ({
         ) : transferData ? (
              <p className="whitespace-pre-wrap text-sm p-2 italic">{transferData.text}</p>
         ) : (
-            <p className="whitespace-pre-wrap text-sm p-2">{message.content}</p>
+            <p className="whitespace-pre-wrap break-words text-sm p-2">
+              {String(message.content ?? '').split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+                /^https?:\/\//.test(part)
+                  ? <a key={i} href={part} className="underline text-sky-300 break-all">{part}</a>
+                  : <React.Fragment key={i}>{part}</React.Fragment>
+              )}
+            </p>
         )}
         <div className="flex items-center justify-end gap-1.5 text-xs text-green-300/60 mt-1 self-end px-1.5 pb-1">
           <span>{format(new Date(message.timestamp), 'HH:mm')}</span>
@@ -843,7 +849,8 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
       <Dialog open={!!lightboxUrl} onOpenChange={(open) => !open && setLightboxUrl(null)}>
           <DialogContent className="max-w-[95vw] max-h-[90vh] p-0 bg-transparent border-none shadow-none flex items-center justify-center">
               <div className="relative w-full h-full flex items-center justify-center">
-                  <NextImage src={lightboxUrl!} alt="lightbox" width={1200} height={1200} className="max-w-full max-h-[85vh] object-contain rounded-lg" />
+                  <DialogTitle className="sr-only">Aperçu de l'image</DialogTitle>
+                  {lightboxUrl && <img src={lightboxUrl} alt="Aperçu" className="max-w-full max-h-[85vh] object-contain rounded-lg" />}
                   <Button variant="ghost" size="icon" className="absolute -top-10 right-0 text-white" onClick={() => setLightboxUrl(null)}><X /></Button>
               </div>
           </DialogContent>

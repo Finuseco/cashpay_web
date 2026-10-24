@@ -46,6 +46,16 @@ const nextConfig = {
       },
     ],
   },
+  // Fichiers ajoutés dans /public après le build (images/audios du chat, MonPays…) : servis par
+  // /api/uploads grâce à une réécriture « fallback » (appliquée seulement si le fichier n'est pas connu de Next).
+  async rewrites() {
+    return {
+      fallback: [
+        { source: '/images/:path*', destination: '/api/uploads/images/:path*' },
+        { source: '/uploads/:path*', destination: '/api/uploads/uploads/:path*' },
+      ],
+    };
+  },
   typescript: {
     ignoreBuildErrors: true,
   },

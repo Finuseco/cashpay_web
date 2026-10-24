@@ -248,6 +248,15 @@ function normalizeMeetCode(value) {
     return /^[A-Za-z0-9_-]{4,64}$/.test(code) ? code : '';
 }
 
+async function meetUserName(userId) {
+    try {
+        const { rows } = await pool.query('SELECT full_name FROM users WHERE id = $1 LIMIT 1', [userId]);
+        return rows[0] && rows[0].full_name ? String(rows[0].full_name) : `Participant ${userId}`;
+    } catch (e) {
+        return `Participant ${userId}`;
+    }
+}
+
 function meetPeerIds(code) {
     const room = meetRooms.get(code);
     return room ? Array.from(room.keys()) : [];
@@ -315,10 +324,13 @@ async function handleMeetEvent(socket, user, event, data) {
         }
         sockets.add(socket);
         // Le nouvel arrivant reçoit la liste ; c'est lui qui envoie les offres.
-        send(socket, 'meet.peers', { meetCode: code, selfId: user.id, peers: existing });
+        const names = {};
+        for (const id of existing) names[id] = await meetUserName(id);
+        send(socket, 'meet.peers', { meetCode: code, selfId: user.id, peers: existing, names });
         if (isNewPeer) {
+            const myName = await meetUserName(user.id);
             for (const peerId of existing) {
-                sendToMeetUser(code, peerId, 'meet.peer_joined', { meetCode: code, userId: user.id });
+                sendToMeetUser(code, peerId, 'meet.peer_joined', { meetCode: code, userId: user.id, name: myName });
             }
         }
         return;
@@ -343,6 +355,7 @@ async function handleMeetEvent(socket, user, event, data) {
             meetCode: code,
             from: user.id,
             payload: data.payload,
+            name: typeof data.name === 'string' ? data.name.slice(0, 80) : undefined,
         });
     }
 }

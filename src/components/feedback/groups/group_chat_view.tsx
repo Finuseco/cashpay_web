@@ -178,7 +178,7 @@ const GroupMessageBubble = ({
                     ) : isImage && imageUrl ? (
                         <div className="flex flex-col gap-1">
                             <div className="relative group/img cursor-pointer" onClick={() => onImageClick(imageUrl)}>
-                                <NextImage src={imageUrl} alt="group image" width={250} height={250} className="rounded-md object-cover" />
+                                <img src={imageUrl} alt="Image du groupe" width={250} height={250} loading="lazy" className="rounded-md object-cover max-w-full h-auto" />
                                 <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center rounded-md">
                                     <Maximize2 className="h-8 w-8 text-white/80" />
                                 </div>
@@ -350,7 +350,8 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
             <Dialog open={!!lightboxUrl} onOpenChange={(open) => !open && setLightboxUrl(null)}>
                 <DialogContent className="max-w-[95vw] max-h-[90vh] p-0 bg-transparent border-none shadow-none flex items-center justify-center">
                     <div className="relative w-full h-full flex items-center justify-center">
-                        <NextImage src={lightboxUrl!} alt="lightbox" width={1200} height={1200} className="max-w-full max-h-[85vh] object-contain rounded-lg" />
+                        <DialogTitle className="sr-only">Aperçu de l'image</DialogTitle>
+                  {lightboxUrl && <img src={lightboxUrl} alt="Aperçu" className="max-w-full max-h-[85vh] object-contain rounded-lg" />}
                         <Button variant="ghost" size="icon" className="absolute -top-10 right-0 text-white" onClick={() => setLightboxUrl(null)}><X /></Button>
                     </div>
                 </DialogContent>

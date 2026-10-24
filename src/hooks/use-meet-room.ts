@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 export interface RemotePeer {
     userId: number;
+    name?: string;
     stream: MediaStream | null;
     state: RTCPeerConnectionState | 'new';
 }
@@ -204,9 +205,12 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             const { event, data } = msg || {};
             if (event === 'meet.peers') {
                 setStatus('joined');
-                for (const id of data.peers as number[]) await callPeer(Number(id));
+                for (const id of data.peers as number[]) {
+                    updatePeer(Number(id), { name: data.names?.[id] });
+                    await callPeer(Number(id));
+                }
             } else if (event === 'meet.peer_joined') {
-                updatePeer(Number(data.userId), {}); // il nous enverra l'offre
+                updatePeer(Number(data.userId), { name: data.name }); // il nous enverra l'offre
             } else if (event === 'meet.peer_left') {
                 removePeer(Number(data.userId));
             } else if (event === 'meet.signal') {
