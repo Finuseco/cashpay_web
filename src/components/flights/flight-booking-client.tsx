@@ -7,16 +7,18 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { 
-    Plane, ArrowRight, Calendar as CalendarIcon, UserPlus, 
-    Trash2, Loader2, ShieldCheck, Info, ArrowDown, Search 
+import {
+    Plane, ArrowRight, Calendar as CalendarIcon, UserPlus,
+    Trash2, Loader2, ShieldCheck, Info, ArrowDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Popover as CountryPopover, PopoverContent as CountryPopoverContent, PopoverTrigger as CountryPopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandInput, CommandList, CommandItem, CommandEmpty } from '@/components/ui/command';
+import { ChevronsUpDown, Check } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -44,6 +46,60 @@ const formSchema = z.object({
 });
 
 type Step = 'search' | 'selection' | 'passengers' | 'payment';
+
+function CountryCombobox({
+    value,
+    onChange,
+    countries,
+    placeholder,
+}: {
+    value: string;
+    onChange: (v: string) => void;
+    countries: Country[];
+    placeholder: string;
+}) {
+    const [open, setOpen] = useState(false);
+    const selected = countries.find(c => c.code === value);
+    return (
+        <CountryPopover open={open} onOpenChange={setOpen}>
+            <CountryPopoverTrigger asChild>
+                <button
+                    type="button"
+                    role="combobox"
+                    aria-expanded={open}
+                    className={cn(
+                        "flex h-12 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                        !value && "text-muted-foreground"
+                    )}
+                >
+                    {selected ? selected.name : placeholder}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </button>
+            </CountryPopoverTrigger>
+            <CountryPopoverContent className="w-[280px] p-0" align="start">
+                <Command>
+                    <CommandInput placeholder="Rechercher un pays..." />
+                    <CommandEmpty>Aucun pays trouvé.</CommandEmpty>
+                    <CommandList className="max-h-60">
+                        {countries.map(c => (
+                            <CommandItem
+                                key={c.code}
+                                value={c.name}
+                                onSelect={() => {
+                                    onChange(c.code);
+                                    setOpen(false);
+                                }}
+                            >
+                                <Check className={cn("mr-2 h-4 w-4", value === c.code ? "opacity-100" : "opacity-0")} />
+                                {c.name}
+                            </CommandItem>
+                        ))}
+                    </CommandList>
+                </Command>
+            </CountryPopoverContent>
+        </CountryPopover>
+    );
+}
 
 export function FlightBookingClient({ user, countries }: { user: User, countries: Country[] }) {
     const [step, setStep] = useState<Step>('search');
@@ -162,21 +218,27 @@ export function FlightBookingClient({ user, countries }: { user: User, countries
                                         
                                         <div className="grid md:grid-cols-2 gap-4">
                                             <FormField control={form.control} name="originCountry" render={({ field }) => (
-                                                <FormItem>
+                                                <FormItem className="flex flex-col">
                                                     <FormLabel>Départ</FormLabel>
-                                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                        <FormControl><SelectTrigger className="h-12"><SelectValue placeholder="Ville de départ"/></SelectTrigger></FormControl>
-                                                        <SelectContent>{countries.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}</SelectContent>
-                                                    </Select>
+                                                    <CountryCombobox
+                                                        value={field.value}
+                                                        onChange={field.onChange}
+                                                        countries={countries}
+                                                        placeholder="Ville de départ"
+                                                    />
+                                                    <FormMessage />
                                                 </FormItem>
                                             )}/>
                                             <FormField control={form.control} name="destinationCountry" render={({ field }) => (
-                                                <FormItem>
+                                                <FormItem className="flex flex-col">
                                                     <FormLabel>Arrivée</FormLabel>
-                                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                        <FormControl><SelectTrigger className="h-12"><SelectValue placeholder="Destination"/></SelectTrigger></FormControl>
-                                                        <SelectContent>{countries.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}</SelectContent>
-                                                    </Select>
+                                                    <CountryCombobox
+                                                        value={field.value}
+                                                        onChange={field.onChange}
+                                                        countries={countries}
+                                                        placeholder="Destination"
+                                                    />
+                                                    <FormMessage />
                                                 </FormItem>
                                             )}/>
                                         </div>

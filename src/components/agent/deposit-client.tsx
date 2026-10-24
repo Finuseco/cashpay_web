@@ -18,7 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { Loader2, QrCode, UserCheck, Search } from "lucide-react";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { QrScannerDialog } from "../shared/qr-scanner-dialog";
 import { agentDeposit } from "@/lib/actions/agent.actions";
 import { getAuthenticatedUser } from "@/lib/actions/user.actions";
@@ -225,16 +226,14 @@ export function AgentDepositClient() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Devise</FormLabel>
-                       <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                               {agentCurrencies.map(c => <SelectItem key={c.code} value={c.code}>{c.code}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
+                       <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex flex-wrap gap-2">
+                            {agentCurrencies.map(c => (
+                                <div key={c.code}>
+                                    <RadioGroupItem value={c.code} id={`dep-cur-${c.code}`} className="sr-only" />
+                                    <Label htmlFor={`dep-cur-${c.code}`} className={`flex items-center justify-center h-10 px-4 border-2 rounded-lg cursor-pointer font-bold text-sm transition-all ${field.value === c.code ? 'border-primary bg-primary/5 text-primary' : 'border-zinc-200 text-zinc-400'}`}>{c.code}</Label>
+                                </div>
+                            ))}
+                        </RadioGroup>
                       <FormMessage />
                     </FormItem>
                   )}

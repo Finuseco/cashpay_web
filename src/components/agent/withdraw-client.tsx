@@ -27,7 +27,8 @@ import type { WalletInfo } from "@/lib/actions/wallet.actions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import type { User, Currency } from '@/lib/types';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { calculateTransactionFee } from "@/lib/actions/wallet.actions";
 import { Separator } from "@/components/ui/separator";
 import { getUserCurrencies } from "@/lib/actions/currency.actions";
@@ -217,7 +218,20 @@ export function AgentWithdrawClient() {
                            <FormItem className="sm:col-span-2"> <FormLabel>Montant à Retirer</FormLabel> <FormControl> <Input type="number" placeholder="0.00" {...field} value={field.value || ''} /> </FormControl> <FormMessage /> </FormItem>
                        )} />
                        <FormField control={detailsForm.control} name="currency" render={({ field }) => (
-                           <FormItem> <FormLabel>Devise</FormLabel> <Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{agentCurrencies.map(code => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent></Select> <FormMessage /> </FormItem>
+                           <FormItem>
+                               <FormLabel>Devise</FormLabel>
+                               <FormControl>
+                                   <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex flex-wrap gap-2">
+                                       {agentCurrencies.map(code => (
+                                           <div key={code}>
+                                               <RadioGroupItem value={code} id={`wd-cur-${code}`} className="sr-only" />
+                                               <Label htmlFor={`wd-cur-${code}`} className={`flex items-center justify-center h-10 px-4 border-2 rounded-lg cursor-pointer font-bold text-sm transition-all ${field.value === code ? 'border-primary bg-primary/5 text-primary' : 'border-zinc-200 text-zinc-400'}`}>{code}</Label>
+                                           </div>
+                                       ))}
+                                   </RadioGroup>
+                               </FormControl>
+                               <FormMessage />
+                           </FormItem>
                        )} />
                     </div>
                     {transactionFee > 0 && <p className="text-sm text-muted-foreground">Frais de transaction estimés: {transactionFee.toFixed(2)} {currencyValue}</p>}

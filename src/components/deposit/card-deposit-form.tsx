@@ -10,7 +10,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { User } from '@/lib/types';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
+import { Label } from "../ui/label";
 import { Loader2, ShieldCheck, CreditCard, Lock, User as UserIcon } from "lucide-react";
 import { Checkbox } from "../ui/checkbox";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../ui/card";
@@ -69,13 +70,16 @@ export const CardDepositForm = ({ user, onSubmit, isSubmitting }: { user: User |
                     render={({ field }) => (
                         <FormItem>
                             <FormLabel>{t('depositCurrencyLabel', 'Devise')}</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <FormControl><SelectTrigger className="h-12 font-semibold"><SelectValue/></SelectTrigger></FormControl>
-                                <SelectContent>
-                                    <SelectItem value="USD">USD</SelectItem>
-                                    <SelectItem value="EUR">EUR</SelectItem>
-                                </SelectContent>
-                            </Select>
+                            <FormControl>
+                                <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex gap-2 h-12 items-center">
+                                    {['USD', 'EUR'].map(c => (
+                                        <div key={c} className="flex items-center">
+                                            <RadioGroupItem value={c} id={`card-cur-${c}`} className="sr-only" />
+                                            <Label htmlFor={`card-cur-${c}`} className={`flex items-center justify-center h-10 px-4 border-2 rounded-lg cursor-pointer font-bold text-sm transition-all ${field.value === c ? 'border-primary bg-primary/5 text-primary' : 'border-zinc-200 text-zinc-400'}`}>{c}</Label>
+                                        </div>
+                                    ))}
+                                </RadioGroup>
+                            </FormControl>
                             <FormMessage />
                         </FormItem>
                     )}
