@@ -6,6 +6,48 @@ import { db } from '@/lib/db';
 import { handleDbError } from './helpers';
 import type { User, Call } from '@/lib/types';
 
+/** Type d'appel : audio ou vidéo */
+export type CallType = 'audio' | 'video';
+
+/**
+ * Initie un appel 1-on-1 :
+ * 1. Crée une réunion Meet pour générer le lien de rejoindre
+ * 2. Enregistre l'appel dans call_logs
+ * Retourne { success, callId, inviteLink }
+ */
+export async function initiateCall(args: {
+    callerId: number;
+    receiverId: number;
+    type: CallType;
+}): Promise<{ success: boolean; callId?: string; inviteLink?: string; error?: string }> {
+    try {
+        const { createOpenMeeting } = await import('./meeting.actions');
+        const { getAuthenticatedUser } = await import('./user.actions');
+
+        const host = await getAuthenticatedUser();
+        if (!host) return { success: false, error: 'Authentification requise.' };
+
+        // Créer la réunion Meet pour avoir un lien
+        const meeting = await createOpenMeeting({ type: args.type });
+        if (!meeting.success) return { success: false, error: meeting.error };
+
+        const callId = `call_${meeting.meetCode}`;
+
+        // Enregistrer dans call_logs
+        await db.query(
+            `INSERT INTO call_logs (id, caller_id, receiver_id, is_video, status, duration_seconds, started_at)
+             VALUES ($1, $2, $3, $4, 'MISSED', 0, NOW())
+             ON CONFLICT (id) DO NOTHING`,
+            [callId, args.callerId, args.receiverId, args.type === 'video']
+        );
+
+        return { success: true, callId, inviteLink: meeting.joinUrl };
+    } catch (error: any) {
+        console.error('[initiateCall]', error?.message);
+        return { success: false, error: "Impossible d'initier l'appel." };
+    }
+}
+
 /**
  * Logs the start of a new call session.
  */

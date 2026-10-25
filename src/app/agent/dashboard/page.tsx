@@ -93,10 +93,10 @@ export default async function AgentDashboardPage() {
 
             {/* List Actions */}
             <div className="space-y-3">
-                <button className="w-full flex justify-between items-center p-4 rounded-lg bg-gradient-to-r from-[#000E38] to-[#FF6600] text-white font-semibold shadow-md">
+                <Link href="/agent/products" className="w-full flex justify-between items-center p-4 rounded-lg bg-gradient-to-r from-[#000E38] to-[#FF6600] text-white font-semibold shadow-md">
                     <span>Gestion des stocks</span>
                     <ChevronsRight className="h-6 w-6" />
-                </button>
+                </Link>
                 <Link href="/agent/history" className="w-full flex justify-between items-center p-4 rounded-lg bg-gradient-to-r from-[#000E38] to-[#FF6600] text-white font-semibold shadow-md">
                     <span>Historiques des transactions</span>
                     <ChevronsRight className="h-6 w-6" />
