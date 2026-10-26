@@ -27,6 +27,8 @@ function symbol(v: unknown): string {
   return SYMBOLS[c] || c;
 }
 
+const JOURS = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+
 function date(v: unknown): string {
   if (!v) return 'Non disponible';
   const d = new Date(String(v));
@@ -37,6 +39,21 @@ function date(v: unknown): string {
         month: 'long',
         year: 'numeric',
       });
+}
+
+/** Retourne "Lundi 14 avril 2025 à 10h30" */
+function dateWithDay(v: unknown): { line1: string; line2: string } | null {
+  if (!v) return null;
+  const d = new Date(String(v));
+  if (Number.isNaN(d.getTime())) return null;
+  const jour = JOURS[d.getDay()];
+  const datePart = d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return {
+    line1: `${jour} ${datePart}`,
+    line2: `à ${h}h${m}`,
+  };
 }
 
 /* Le backend fournit duration. Les autres règles servent seulement aux anciennes lignes. */
@@ -98,6 +115,31 @@ function installmentStatus(v: unknown): string {
     case 'partial': return 'Partielle';
     case 'overdue': return 'En retard';
     default: return 'À payer';
+  }
+}
+
+/** Retourne le label "X jours restants" / "Dépassé de X jours" / null si déjà payée */
+function daysLabel(dueDate: unknown, status: unknown): { text: string; overdue: boolean } | null {
+  const s = String(status || '').toLowerCase();
+  if (s === 'paid') return null; // payée, pas besoin d'afficher
+
+  if (!dueDate) return null;
+  const due = new Date(String(dueDate));
+  if (Number.isNaN(due.getTime())) return null;
+
+  const now = new Date();
+  // Comparer seulement les dates (ignorer l'heure)
+  const todayMs = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const dueMs = Date.UTC(due.getFullYear(), due.getMonth(), due.getDate());
+  const diffDays = Math.round((dueMs - todayMs) / 86_400_000);
+
+  if (diffDays > 0) {
+    return { text: `${diffDays} jour${diffDays > 1 ? 's' : ''} restant${diffDays > 1 ? 's' : ''}`, overdue: false };
+  } else if (diffDays === 0) {
+    return { text: "Aujourd'hui", overdue: false };
+  } else {
+    const abs = Math.abs(diffDays);
+    return { text: `Dépassé de ${abs} jour${abs > 1 ? 's' : ''}`, overdue: true };
   }
 }
 
@@ -265,13 +307,27 @@ export function LoanHistoryClient({
                   <div className="grid gap-4 border-b border-white/10 p-5 sm:grid-cols-2 lg:grid-cols-4">
                     <div>
                       <p className="text-xs text-zinc-400">Début</p>
-                      <p className="mt-1 text-sm">
-                        {date((loan as any).start_date || (loan as any).approval_date || (loan as any).request_date)}
-                      </p>
+                      {(() => {
+                        const dd = dateWithDay((loan as any).start_date || (loan as any).approval_date || (loan as any).request_date);
+                        return dd ? (
+                          <p className="mt-1 text-sm leading-snug">
+                            <span className="font-medium">{dd.line1}</span><br/>
+                            <span className="text-zinc-400">{dd.line2}</span>
+                          </p>
+                        ) : <p className="mt-1 text-sm text-zinc-400">Non disponible</p>;
+                      })()}
                     </div>
                     <div>
-                      <p className="text-xs text-zinc-400">Fin</p>
-                      <p className="mt-1 text-sm">{date((loan as any).end_date)}</p>
+                      <p className="text-xs text-zinc-400">Fin prévue</p>
+                      {(() => {
+                        const dd = dateWithDay((loan as any).end_date);
+                        return dd ? (
+                          <p className="mt-1 text-sm leading-snug">
+                            <span className="font-medium">{dd.line1}</span><br/>
+                            <span className="text-zinc-400">{dd.line2}</span>
+                          </p>
+                        ) : <p className="mt-1 text-sm text-zinc-400">Non disponible</p>;
+                      })()}
                     </div>
                     <div>
                       <p className="text-xs text-zinc-400">Nombre d'échéances</p>
@@ -348,21 +404,42 @@ export function LoanHistoryClient({
                       <p className="text-sm text-zinc-400">Aucun échéancier disponible.</p>
                     ) : (
                       <div className="space-y-2">
-                        {schedule.map((item: any, index: number) => (
+                        {schedule.map((item: any, index: number) => {
+                          const dl = daysLabel(item.due_date, item.status);
+                          return (
                           <div
                             key={Number(item.id) || `${id}-${index}`}
                             className="rounded-lg border border-white/10 bg-[#000E38] p-4"
                           >
                             <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
                               <div>
-                                <p className="font-medium">
-                                  Échéance #{num(item.installment_number) || index + 1}
-                                </p>
-                                <p className="mt-1 text-xs text-zinc-400">
-                                  Date : {date(item.due_date)}
-                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-medium">
+                                    Échéance #{num(item.installment_number) || index + 1}
+                                  </p>
+                                  {dl && (
+                                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                      dl.overdue
+                                        ? 'bg-red-500/20 text-red-400'
+                                        : 'bg-emerald-500/20 text-emerald-400'
+                                    }`}>
+                                      {dl.text}
+                                    </span>
+                                  )}
+                                </div>
+                                {(() => {
+                                  const dd = dateWithDay(item.due_date);
+                                  return dd ? (
+                                    <p className="mt-1 text-xs leading-snug">
+                                      <span className="font-medium text-white/80">{dd.line1}</span>
+                                      <span className="ml-1 text-zinc-400">{dd.line2}</span>
+                                    </p>
+                                  ) : (
+                                    <p className="mt-1 text-xs text-zinc-400">Date non disponible</p>
+                                  );
+                                })()}
                               </div>
-                              <div>
+                              <div className="text-right">
                                 <p className="font-semibold">
                                   {s}{money(item.amount)}
                                 </p>
@@ -380,7 +457,8 @@ export function LoanHistoryClient({
                               </p>
                             )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </section>
@@ -407,9 +485,17 @@ export function LoanHistoryClient({
                                 <p className="font-medium">
                                   {penalty ? 'Pénalité' : 'Remboursement'}
                                 </p>
-                                <p className="text-xs text-zinc-400">
-                                  {date(repayment.payment_date)}
-                                </p>
+                                {(() => {
+                                  const dd = dateWithDay(repayment.payment_date);
+                                  return dd ? (
+                                    <p className="text-xs leading-snug">
+                                      <span className="text-zinc-300">{dd.line1}</span>
+                                      <span className="ml-1 text-zinc-400">{dd.line2}</span>
+                                    </p>
+                                  ) : (
+                                    <p className="text-xs text-zinc-400">Date inconnue</p>
+                                  );
+                                })()}
                                 {repayment.installment_number ? (
                                   <p className="mt-1 text-xs text-zinc-400">
                                     Échéance #{repayment.installment_number}

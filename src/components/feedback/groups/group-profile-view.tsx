@@ -22,7 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Input } from '@/components/ui/input';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+
 import { getUserCurrencies } from '@/lib/actions/currency.actions';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { cn } from '@/lib/utils';
@@ -168,7 +168,46 @@ export function GroupProfileView({ group, currentUser, onBack, onGroupUpdate }: 
         <div className="flex flex-col h-full min-h-0 bg-[#0b141a] text-white">
             {/* Dialogs */}
             <Dialog open={isAddMemberOpen} onOpenChange={setIsAddMemberOpen}><DialogContent><DialogHeader><DialogTitle>Ajouter un Membre</DialogTitle><DialogDescription>Entrez l'ID du portefeuille du membre à ajouter.</DialogDescription></DialogHeader><Form {...addMemberForm}><form onSubmit={addMemberForm.handleSubmit(handleAddMember)} className="space-y-4 pt-4"><FormField control={addMemberForm.control} name="walletId" render={({ field }) => ( <FormItem><InternationalWalletInput field={field} onVerificationResult={()=>{}} label="ID du Portefeuille" /></FormItem> )}/><DialogFooter><Button type="submit">Ajouter</Button></DialogFooter></form></Form></DialogContent></Dialog>
-            <Dialog open={isContributionOpen} onOpenChange={setIsContributionOpen}><DialogContent><DialogHeader><DialogTitle>Contribuer au Groupe</DialogTitle></DialogHeader><Form {...contributionForm}><form onSubmit={contributionForm.handleSubmit(handleContribute)} className="space-y-4 pt-4"><FormField control={contributionForm.control} name="amount" render={({field}) => (<FormItem><FormLabel>Montant</FormLabel><FormControl><Input type="number" {...field}/></FormControl><FormMessage/></FormItem>)}/><FormField control={contributionForm.control} name="currency" render={({field}) => (<FormItem><FormLabel>Devise</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue/></SelectTrigger></FormControl><SelectContent>{userCurrencies.map(c => <SelectItem key={c.code} value={c.code}>{c.code} (Solde: {c.balance})</SelectItem>)}</SelectContent></Select><FormMessage/></FormItem>)}/><FormField control={contributionForm.control} name="pin" render={({field}) => (<FormItem><FormLabel>Votre PIN</FormLabel><FormControl><div className="flex justify-center"><InputOTP maxLength={4} {...field}><InputOTPGroup><InputOTPSlot index={0}/><InputOTPSlot index={1}/><InputOTPSlot index={2}/><InputOTPSlot index={3}/></InputOTPGroup></InputOTP></div></FormControl><FormMessage/></FormItem>)}/><DialogFooter><Button type="submit">Contribuer</Button></DialogFooter></form></Form></DialogContent></Dialog>
+            <Dialog open={isContributionOpen} onOpenChange={setIsContributionOpen}>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Contribuer au Groupe</DialogTitle></DialogHeader>
+                <Form {...contributionForm}>
+                  <form onSubmit={contributionForm.handleSubmit(handleContribute)} className="space-y-4 pt-4">
+                    <FormField control={contributionForm.control} name="amount" render={({field}) => (
+                      <FormItem><FormLabel>Montant</FormLabel><FormControl><Input type="number" {...field}/></FormControl><FormMessage/></FormItem>
+                    )}/>
+                    <FormField control={contributionForm.control} name="currency" render={({field}) => (
+                      <FormItem>
+                        <FormLabel>Devise</FormLabel>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {userCurrencies.length === 0 ? (
+                            <p className="text-xs text-zinc-400">Chargement...</p>
+                          ) : userCurrencies.map(c => (
+                            <button
+                              key={c.code}
+                              type="button"
+                              onClick={() => field.onChange(c.code)}
+                              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
+                                field.value === c.code
+                                  ? 'bg-primary text-white border-primary'
+                                  : 'bg-zinc-800 text-zinc-300 border-zinc-600 hover:border-primary'
+                              }`}
+                            >
+                              {c.code} <span className="text-xs opacity-70">({Number(c.balance).toFixed(2)})</span>
+                            </button>
+                          ))}
+                        </div>
+                        <FormMessage/>
+                      </FormItem>
+                    )}/>
+                    <FormField control={contributionForm.control} name="pin" render={({field}) => (
+                      <FormItem><FormLabel>Votre PIN</FormLabel><FormControl><div className="flex justify-center"><InputOTP maxLength={4} {...field}><InputOTPGroup><InputOTPSlot index={0}/><InputOTPSlot index={1}/><InputOTPSlot index={2}/><InputOTPSlot index={3}/></InputOTPGroup></InputOTP></div></FormControl><FormMessage/></FormItem>
+                    )}/>
+                    <DialogFooter><Button type="submit">Contribuer</Button></DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
             
             <Dialog open={isPayoutOpen} onOpenChange={setIsPayoutOpen}>
                 <DialogContent>
@@ -198,7 +237,29 @@ export function GroupProfileView({ group, currentUser, onBack, onGroupUpdate }: 
                             ) : (
                                 <div className="space-y-4">
                                     <FormField control={payoutForm.control} name="mobileOperator" render={({field}) => (
-                                        <FormItem><FormLabel>Opérateur</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Opérateur"/></SelectTrigger></FormControl><SelectContent><SelectItem value="airtel">Airtel Money</SelectItem><SelectItem value="mpesa">M-Pesa</SelectItem><SelectItem value="mtn">MTN MoMo</SelectItem></SelectContent></Select></FormItem>
+                                        <FormItem>
+                                          <FormLabel>Opérateur</FormLabel>
+                                          <div className="flex flex-wrap gap-2 mt-1">
+                                            {[
+                                              { value: 'airtel', label: 'Airtel Money' },
+                                              { value: 'mpesa', label: 'M-Pesa' },
+                                              { value: 'mtn', label: 'MTN MoMo' },
+                                            ].map(op => (
+                                              <button
+                                                key={op.value}
+                                                type="button"
+                                                onClick={() => field.onChange(op.value)}
+                                                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
+                                                  field.value === op.value
+                                                    ? 'bg-primary text-white border-primary'
+                                                    : 'bg-zinc-800 text-zinc-300 border-zinc-600 hover:border-primary'
+                                                }`}
+                                              >
+                                                {op.label}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        </FormItem>
                                     )}/>
                                     <FormField control={payoutForm.control} name="mobilePhone" render={({field}) => (<FormItem><FormLabel>Numéro Mobile Money</FormLabel><FormControl><Input placeholder="08..." {...field}/></FormControl></FormItem>)}/>
                                 </div>

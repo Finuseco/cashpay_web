@@ -116,6 +116,22 @@ async function getBitcoinAddress(userId: number) {
     return rows[0].address || null;
 }
 
+async function getUsdtAddress(userId: number) {
+    const { rows } = await db.query(
+        `
+        SELECT address
+        FROM user_crypto_addresses
+        WHERE user_id = $1
+          AND currency_code = 'USDT_TRC20'
+        ORDER BY id DESC
+        LIMIT 1
+        `,
+        [userId]
+    );
+
+    return rows[0]?.address || null;
+}
+
 /**
  * GET /api/v1/wallet
  *
@@ -337,6 +353,23 @@ export async function GET(
             )?.balance ?? 0;
 
         /*
+         * Adresse et solde USDT TRC-20.
+         */
+        let usdtAddress: string | null = null;
+
+        try {
+            usdtAddress = await getUsdtAddress(user.id);
+        } catch (error) {
+            console.error('[API V1 WALLET] usdt address error:', error);
+        }
+
+        const usdtBalance =
+            normalizedCryptoBalances.find(
+                (item: any) =>
+                    String(item.currency).toUpperCase() === 'USDT_TRC20'
+            )?.balance ?? 0;
+
+        /*
          * Cartes liées au Wallet.
          */
         let cards: any[] = [];
@@ -450,6 +483,13 @@ export async function GET(
                     Boolean(
                         bitcoinAddress
                     ),
+            },
+
+            usdt: {
+                address: usdtAddress,
+                balance: normalizeBalance(usdtBalance),
+                network: 'TRC20',
+                available: Boolean(usdtAddress),
             },
 
             cards:
