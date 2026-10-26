@@ -12,7 +12,6 @@ import { Switch } from '@/components/ui/switch';
 import { getDomainInfo, updateDnsRecords, purchaseSslCertificate, setDomainForwarding, sendRegistrantConsentEmail, manageDnssec } from '@/lib/actions/domain.actions';
 import { DashboardLayout } from '@/components/dashboard/dashboard-layout';
 import { Loader2, ArrowLeft, Globe, Server, KeyRound, Lock, Redo, Trash2, Plus, Forward, Mail, ShieldCheck, MailWarning, Shield, AppWindow } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import Image from 'next/image';
@@ -184,7 +183,22 @@ export default function ManageDomainPage() {
                                <TableBody>
                                    {dnsRecords.map((record, index) => (
                                        <TableRow key={index}>
-                                           <TableCell><Select value={record.type} onValueChange={(val) => handleDnsRecordChange(index, 'type', val)}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="A">A</SelectItem><SelectItem value="CNAME">CNAME</SelectItem><SelectItem value="MX">MX</SelectItem><SelectItem value="TXT">TXT</SelectItem></SelectContent></Select></TableCell>
+                                           <TableCell className="min-w-[160px]">
+                                               <div className="flex flex-wrap gap-1">
+                                                   {['A','CNAME','MX','TXT','NS','AAAA'].map(t => (
+                                                       <button
+                                                           key={t}
+                                                           type="button"
+                                                           onClick={() => handleDnsRecordChange(index, 'type', t)}
+                                                           className={`px-2 py-0.5 rounded text-xs font-mono font-semibold border transition-all ${
+                                                               record.type === t
+                                                                   ? 'bg-primary text-white border-primary'
+                                                                   : 'bg-background text-foreground border-border hover:border-primary'
+                                                           }`}
+                                                       >{t}</button>
+                                                   ))}
+                                               </div>
+                                           </TableCell>
                                            <TableCell><Input value={record.name} onChange={(e) => handleDnsRecordChange(index, 'name', e.target.value)} placeholder="@, www, mail..."/></TableCell>
                                            <TableCell><Input value={record.value} onChange={(e) => handleDnsRecordChange(index, 'value', e.target.value)} placeholder="Adresse IP, nom de domaine..."/></TableCell>
                                            <TableCell><Input type="number" value={record.ttl} onChange={(e) => handleDnsRecordChange(index, 'ttl', Number(e.target.value))}/></TableCell>

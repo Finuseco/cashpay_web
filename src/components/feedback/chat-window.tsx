@@ -28,9 +28,16 @@ import { useRouter } from 'next/navigation';
 const CallInviteBubble = ({ message, isMe }: { message: Message, isMe: boolean }) => {
     const metadata = message.metadata ? (typeof message.metadata === 'string' ? JSON.parse(message.metadata) : message.metadata) : {};
     const [elapsed, setElapsed] = useState(0);
-    const isActive = metadata.status === 'active' || metadata.status === 'ringing';
-    const isEnded = metadata.status === 'ended' || metadata.status === 'missed';
+    const [liveInfo, setLiveInfo] = useState<{ participants?: number; status?: string } | null>(null);
+    const [copied, setCopied] = useState(false);
+    const router = useRouter();
 
+    const isActive = (liveInfo?.status ?? metadata.status) === 'active' || (liveInfo?.status ?? metadata.status) === 'ringing';
+    const isEnded = (liveInfo?.status ?? metadata.status) === 'ended' || (liveInfo?.status ?? metadata.status) === 'missed';
+    const isMeeting = message.type === 'meeting_link';
+    const meetCode = metadata.meetCode || metadata.meet_code || (metadata.joinUrl?.split('/').pop());
+
+    // Chrono en live
     useEffect(() => {
         let interval: NodeJS.Timeout;
         if (isActive) {
@@ -42,53 +49,132 @@ const CallInviteBubble = ({ message, isMe }: { message: Message, isMe: boolean }
         return () => clearInterval(interval);
     }, [isActive, metadata.startedAt, message.timestamp]);
 
+    // Polling statut live de la réunion toutes les 10s
+    useEffect(() => {
+        if (!meetCode || isEnded) return;
+        const check = async () => {
+            try {
+                const res = await fetch(`/api/v1/meetings/${meetCode}/status`, { cache: 'no-store' });
+                if (res.ok) {
+                    const d = await res.json();
+                    if (d.success) setLiveInfo({ status: d.status, participants: d.participants });
+                }
+            } catch { /* silencieux */ }
+        };
+        check();
+        const t = setInterval(check, 10000);
+        return () => clearInterval(t);
+    }, [meetCode, isEnded]);
+
     const formatTime = (s: number) => {
-        const mins = Math.floor(s / 60);
-        const secs = s % 60;
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = s % 60;
+        if (h > 0) return `${h}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
+        return `${m}:${sec.toString().padStart(2,'0')}`;
     };
 
     const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(metadata.joinUrl);
-        alert("Lien de réunion copié !");
+        const url = metadata.joinUrl || `${window.location.origin}/feedback/meet/${meetCode}`;
+        navigator.clipboard.writeText(url).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        });
     };
 
+    const handleJoin = () => {
+        const url = metadata.joinUrl || `/feedback/meet/${meetCode}`;
+        router.push(url);
+    };
+
+    const participantCount = liveInfo?.participants ?? metadata.participants ?? null;
+    const topic = metadata.topic || (isMeeting ? 'Réunion' : (metadata.type === 'video' ? 'Appel Vidéo' : 'Appel Audio'));
+
     return (
-        <div className={cn("p-4 rounded-2xl border-2 w-full max-w-xs space-y-3 shadow-xl animate-in zoom-in-95", 
-            isActive ? "border-green-500 bg-green-50/50" : "border-zinc-200 bg-white",
-            isEnded && metadata.status === 'missed' && "border-red-400 bg-red-50/50"
+        <div className={cn(
+            "rounded-2xl border-2 w-full max-w-[280px] overflow-hidden shadow-xl animate-in zoom-in-95",
+            isActive ? "border-green-500" : isEnded ? "border-zinc-600" : "border-primary/60",
+            "bg-zinc-900 dark:bg-zinc-900"
         )}>
-            <div className="flex items-center justify-between">
+            {/* Header coloré */}
+            <div className={cn(
+                "px-4 py-3 flex items-center justify-between",
+                isActive ? "bg-green-600" : isEnded ? "bg-zinc-700" : "bg-primary"
+            )}>
                 <div className="flex items-center gap-2">
-                    <div className={cn("p-2 rounded-full", isActive ? "bg-green-500 text-white animate-pulse" : "bg-zinc-100 text-zinc-400")}>
-                        {metadata.type === 'video' ? <Video className="h-4 w-4" /> : <Phone className="h-4 w-4" />}
+                    <div className={cn("p-1.5 rounded-full bg-white/20", isActive && "animate-pulse")}>
+                        {isMeeting ? <Video className="h-3.5 w-3.5 text-white" /> : metadata.type === 'video' ? <Video className="h-3.5 w-3.5 text-white" /> : <Phone className="h-3.5 w-3.5 text-white" />}
                     </div>
                     <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest opacity-50">
-                            {metadata.type === 'video' ? 'Appel Vidéo' : 'Appel Audio'}
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white/70">
+                            {isMeeting ? 'Réunion OnChat' : metadata.type === 'video' ? 'Appel Vidéo' : 'Appel Audio'}
                         </p>
-                        <p className="text-xs font-bold">
-                            {isActive ? 'En cours...' : (metadata.status === 'missed' ? 'Appel manqué' : 'Appel terminé')}
+                        <p className="text-xs font-bold text-white">
+                            {isActive ? '● En cours' : isEnded ? (metadata.status === 'missed' ? 'Manqué' : 'Terminé') : 'Invitation'}
                         </p>
                     </div>
                 </div>
-                {isActive && <Badge className="bg-green-600 font-mono text-[10px]">{formatTime(elapsed)}</Badge>}
+                {isActive && <Badge className="bg-white/20 text-white font-mono text-[10px] border-0">{formatTime(elapsed)}</Badge>}
             </div>
 
-            <p className="text-sm font-medium text-zinc-700 leading-tight">
-                {isMe ? "Vous avez lancé cet appel" : "Invitation à rejoindre la session"}
-            </p>
+            {/* Corps */}
+            <div className="px-4 py-3 space-y-2.5">
+                <p className="text-sm font-semibold text-white truncate">{topic}</p>
 
-            <div className="flex gap-2">
-                {!isEnded && (
-                    <Button asChild className={cn("flex-1 font-bold h-10", isActive ? "bg-green-600 hover:bg-green-700" : "bg-primary")}>
-                        <Link href={metadata.joinUrl}>REJOINDRE</Link>
-                    </Button>
+                {/* Participants live */}
+                {isActive && participantCount !== null && (
+                    <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                        <div className="flex -space-x-1">
+                            {Array.from({ length: Math.min(participantCount, 3) }).map((_, i) => (
+                                <div key={i} className="h-5 w-5 rounded-full bg-green-500/30 border-2 border-zinc-900 flex items-center justify-center">
+                                    <span className="text-[7px] text-green-400">●</span>
+                                </div>
+                            ))}
+                        </div>
+                        <span>{participantCount} participant{participantCount > 1 ? 's' : ''}</span>
+                    </div>
                 )}
-                <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={handleCopy} title="Copier le lien">
-                    <Copy className="h-4 w-4" />
-                </Button>
+
+                <p className="text-xs text-zinc-500">
+                    {isMe ? 'Vous avez lancé cette session' : 'Appuyez pour rejoindre'}
+                </p>
+
+                {/* Actions */}
+                <div className="flex gap-2 pt-1">
+                    {!isEnded && (
+                        <Button
+                            onClick={handleJoin}
+                            className={cn(
+                                "flex-1 font-bold h-9 text-xs",
+                                isActive ? "bg-green-600 hover:bg-green-700 text-white" : "bg-primary hover:bg-primary/90 text-white"
+                            )}
+                        >
+                            {isActive ? '▶ Rejoindre' : 'Rejoindre'}
+                        </Button>
+                    )}
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 shrink-0 text-zinc-400 hover:text-white hover:bg-zinc-700"
+                        onClick={handleCopy}
+                        title="Copier le lien"
+                    >
+                        {copied ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 shrink-0 text-zinc-400 hover:text-white hover:bg-zinc-700"
+                        onClick={() => {
+                            const url = metadata.joinUrl || `${window.location.origin}/feedback/meet/${meetCode}`;
+                            if (navigator.share) navigator.share({ title: topic, url });
+                        }}
+                        title="Partager"
+                    >
+                        <Share2 className="h-4 w-4" />
+                    </Button>
+                </div>
             </div>
         </div>
     );

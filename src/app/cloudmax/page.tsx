@@ -8,7 +8,6 @@ import { Check, Cloud, Server, Search, Loader2, XCircle, CheckCircle, ExternalLi
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { Input } from '@/components/ui/input';
 import { checkDomainAvailability, addDomainToCart, purchaseDomain } from '@/lib/actions/domain.actions';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import Link from 'next/link';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import type { User } from '@/lib/types';
@@ -110,19 +109,24 @@ function CloudWebSection({ user }: { user: User | null }) {
                     )}
                     
                     {searchResult?.available && (
-                         <div className="pt-2">
+                        <div className="pt-2 space-y-2">
                             <Label>Durée d'enregistrement</Label>
-                            <Select value={duration} onValueChange={setDuration}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {[...Array(10).keys()].map(i => {
-                                        const years = i + 1;
-                                        return <SelectItem key={years} value={String(years)}>{years} an{years > 1 ? 's' : ''} - {DOMAIN_PRICE_PER_YEAR * years}$</SelectItem>
-                                    })}
-                                </SelectContent>
-                            </Select>
+                            <div className="flex flex-wrap gap-2">
+                                {[1, 2, 3, 5].map(years => (
+                                    <button
+                                        key={years}
+                                        type="button"
+                                        onClick={() => setDuration(String(years))}
+                                        className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
+                                            duration === String(years)
+                                                ? 'bg-primary text-white border-primary shadow-md'
+                                                : 'bg-background text-foreground border-border hover:border-primary'
+                                        }`}
+                                    >
+                                        {years} an{years > 1 ? 's' : ''} — {DOMAIN_PRICE_PER_YEAR * years}$
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     )}
 
