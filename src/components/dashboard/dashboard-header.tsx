@@ -38,6 +38,7 @@ import { DepositFlow } from "@/components/crypto/deposit-flow";
 import { CryptoSendFlow } from "@/components/crypto/crypto-send-flow";
 import { BitcoinExchangeFlow } from "@/components/crypto/bitcoin-exchange-flow";
 import { UsdtReceiveFlow } from "@/components/crypto/usdt-receive-flow";
+import { UsdtExchangeFlow } from "@/components/crypto/usdt-exchange-flow";
 
 function NotificationItem({ notification }: { notification: Notification }) {
     return (
@@ -65,7 +66,7 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
   const [cryptoBalances, setCryptoBalances] = useState<any[]>([]);
   const [bitcoinAction, setBitcoinAction] = useState<"receive" | "send" | "buy" | "sell" | null>(null);
   const [isBitcoinActivated, setIsBitcoinActivated] = useState(false);
-  const [usdtAction, setUsdtAction] = useState<"receive" | "send" | null>(null);
+  const [usdtAction, setUsdtAction] = useState<"receive" | "send" | "buy" | "sell" | null>(null);
   const [isUsdtActivated, setIsUsdtActivated] = useState(false);
   const [astroProfile, setAstroProfile] = useState<Awaited<ReturnType<typeof getUserAstroProfile>> | null>(null);
   const { isVisible: isFooterVisible, toggleVisibility: toggleFooterVisibility } = useFooterStore();
@@ -335,6 +336,8 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
                         isActivated={isUsdtActivated}
                         onReceive={() => setUsdtAction("receive")}
                         onSend={() => setUsdtAction("send")}
+                        onBuy={() => setUsdtAction("buy")}
+                        onSell={() => setUsdtAction("sell")}
                         onActivate={async () => {
                           try {
                             const response = await fetch("/api/v1/crypto/usdt-trc20/address", {
@@ -416,6 +419,8 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
                    <DialogTitle className="text-white">
                      {usdtAction === "receive" && "Recevoir des USDT"}
                      {usdtAction === "send" && "Envoyer des USDT"}
+                     {usdtAction === "buy" && "Acheter des USDT"}
+                     {usdtAction === "sell" && "Vendre des USDT"}
                    </DialogTitle>
                  </DialogHeader>
 
@@ -428,6 +433,24 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
                      <CryptoSendFlow
                        currency="USDT"
                        balance={usdtBalance}
+                       onCompleted={refreshCryptoBalances}
+                     />
+                   )}
+
+                   {usdtAction === "buy" && (
+                     <UsdtExchangeFlow
+                       direction="BUY_USDT"
+                       fiatCurrencies={currencies || []}
+                       usdtBalance={usdtBalance}
+                       onCompleted={refreshCryptoBalances}
+                     />
+                   )}
+
+                   {usdtAction === "sell" && (
+                     <UsdtExchangeFlow
+                       direction="SELL_USDT"
+                       fiatCurrencies={currencies || []}
+                       usdtBalance={usdtBalance}
                        onCompleted={refreshCryptoBalances}
                      />
                    )}

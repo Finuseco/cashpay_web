@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,6 +12,8 @@ interface UsdtBalanceCardProps {
   usdtBalance: number | null;
   onReceive?: () => void;
   onSend?: () => void;
+  onBuy?: () => void;
+  onSell?: () => void;
   onActivate?: () => void | Promise<void>;
   isActivated?: boolean;
   className?: string;
@@ -19,12 +21,14 @@ interface UsdtBalanceCardProps {
 
 /**
  * Carte de solde USDT (réseau TRC-20), sur le modèle de la carte Bitcoin.
- * Mêmes dimensions, mêmes boutons raccourcis (Recevoir / Envoyer).
+ * Boutons : Recevoir / Envoyer / Acheter / Vendre.
  */
 export function UsdtBalanceCard({
   usdtBalance,
   onReceive,
   onSend,
+  onBuy,
+  onSell,
   onActivate,
   isActivated = false,
   className,
@@ -35,7 +39,7 @@ export function UsdtBalanceCard({
   return (
     <Card
       className={cn(
-        'w-[19.2rem] h-40 flex-shrink-0 transition-shadow duration-300 hover:shadow-xl text-primary-foreground rounded-2xl shadow-lg relative overflow-hidden',
+        'w-[19.2rem] h-48 flex-shrink-0 transition-shadow duration-300 hover:shadow-xl text-primary-foreground rounded-2xl shadow-lg relative overflow-hidden',
         'bg-gradient-to-br from-[#0b3d2e] via-[#0a2a21] to-[#050505]',
         className
       )}
@@ -81,7 +85,8 @@ export function UsdtBalanceCard({
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-1">
+        {/* Ligne 1 : Recevoir / Envoyer */}
+        <div className="grid grid-cols-2 gap-1 mb-1">
           <Button
             type="button"
             size="sm"
@@ -104,6 +109,33 @@ export function UsdtBalanceCard({
           >
             <ArrowUpFromLine className="mr-0.5 h-3 w-3" />
             Envoyer
+          </Button>
+        </div>
+
+        {/* Ligne 2 : Acheter / Vendre */}
+        <div className="grid grid-cols-2 gap-1">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-1 text-[9px] border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
+            disabled={!isActivated}
+            onClick={onBuy}
+          >
+            <TrendingUp className="mr-0.5 h-3 w-3" />
+            Acheter
+          </Button>
+
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-1 text-[9px] border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300"
+            disabled={!isActivated}
+            onClick={onSell}
+          >
+            <TrendingDown className="mr-0.5 h-3 w-3" />
+            Vendre
           </Button>
         </div>
       </CardContent>
