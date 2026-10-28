@@ -184,10 +184,8 @@ export async function POST(
     }
     if (fileUrl) Object.assign(metadata, { fileUrl, fileName: fileName || 'Pièce jointe' });
     const attachmentMetadata = Object.keys(metadata).length ? metadata : undefined;
-    const connection = await db.getConnection();
-
-    try {
-      const { rows: participantRows } = await connection.query(
+    // No transaction spans this lookup; release the pool slot before postMessage opens its transaction.
+      const { rows: participantRows } = await db.query(
         `
         SELECT user_id
         FROM conversation_participants
@@ -263,9 +261,6 @@ export async function POST(
         },
         { status: 201 }
       );
-    } finally {
-      connection.release();
-    }
   } catch (error) {
     console.error('[API V1 CHAT MESSAGE POST]', error);
 

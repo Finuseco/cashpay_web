@@ -38,7 +38,7 @@ test('message endpoint forwards owned attachments and returns object metadata', 
     const route = loadRoute('src/app/api/v1/chat/conversations/[conversationId]/route.ts', {
         '@/lib/chat-attachments': attachments,
         '@/lib/actions/user.actions': { getAuthenticatedUser: async () => ({ id: 7 }) },
-        '@/lib/db': { db: { getConnection: async () => ({ query: async () => ({ rows: [{ user_id: 7 }, { user_id: 8 }] }), release() {} }) } },
+        '@/lib/db': { db: { query: async () => ({ rows: [{ user_id: 7 }, { user_id: 8 }] }) } },
         '@/lib/actions/message.actions': { postMessage: async (...args: any[]) => { captured.push(args); return { id: 'msg', status: 'sent', metadata: JSON.stringify(args[7]) }; } },
     });
     const send = (body: unknown) => route.POST(new Request('https://example.test', { method: 'POST', body: JSON.stringify(body) }), { params: { conversationId: 'conv' } });
