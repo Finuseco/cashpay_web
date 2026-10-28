@@ -21,7 +21,7 @@ Base: `main`, branche `codex/fix-onchat-backend`.
 ## Validation de cette phase
 
 - `npm ci --no-audit --no-fund`: réussi.
-- `npx tsx --test tests/*.test.ts`: 6 tests réussis (propriétaire, type/taille, URI, authentification appels, création message, téléchargement privé).
+- `npx tsx --test tests/*.test.ts`: 7 tests réussis (propriétaire, type/taille, URI, authentification appels, création message, téléchargement privé).
 - `node --check server/onchat/ws-server.js`: réussi.
 - `npm run build`: réussi, mais la configuration existante désactive types/lint et produit des avertissements d'exports manquants.
 - `npx tsc --noEmit --pretty false`: échec préexistant de syntaxe dans `paypal.ts`, `src/components/crypto/bitcoin-balance-card.tsx`, `src/components/events/layout.tsx`.
@@ -30,4 +30,10 @@ Base: `main`, branche `codex/fix-onchat-backend`.
 
 ## Travail restant
 
-L'audit complet des dépendances indirectes et des 17 fonctionnalités n'est pas terminé. Notamment: admission des réunions et paiement, diffusion des nouveaux messages du processus HTTP vers le WebSocket, présence limitée aux contacts, notification push native, contrats profils/groupes/statuts et tests réels multi-comptes. Les changements ne constituent pas une validation de production. Les données de stockage doivent être conservées et partagées entre instances; le dépôt n'ajoute pas de migration de schéma.
+L'audit complet des dépendances indirectes et des 17 fonctionnalités n'est pas terminé. Notamment: admission des réunions et paiement, présence limitée aux contacts, notification push native, contrats profils/groupes/statuts et tests réels multi-comptes. Les changements ne constituent pas une validation de production. Les données de stockage doivent être conservées et partagées entre instances; le dépôt n'ajoute pas de migration de schéma.
+
+## Synchronisation HTTP / WebSocket
+
+Ajout de PostgreSQL LISTEN/NOTIFY sans colonne ni migration: postMessage notifie un identifiant dans sa transaction; le processus WebSocket recharge le message et ses destinataires après commit. Reconnexion du listener en cas de panne. Le test isolé vérifie le relais et la destination, mais une validation avec PostgreSQL reste nécessaire.
+
+Publication GitHub refusée: push HTTPS HTTP 403; création de branche via connecteur GitHub HTTP 403 `Resource not accessible by integration`. Aucun push ni PR réussi.

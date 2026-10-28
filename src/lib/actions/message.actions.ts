@@ -341,6 +341,8 @@ export async function postMessage(
 
         const insertedMessage = rows[0];
 
+        // PostgreSQL delivers NOTIFY only after COMMIT; no uncommitted message is broadcast.
+        await connection.query("SELECT pg_notify('onchat_messages', $1)", [JSON.stringify({ id: messageId })]);
         await connection.query('COMMIT');
 
         // Le message est déjà enregistré : une panne de notification/e-mail ne doit pas le faire échouer.

@@ -553,6 +553,57 @@ async function handleEvent(socket, user, message) {
     });
 }
 
+// A dedicated PostgreSQL LISTEN connection bridges HTTP writes to this process.
+// Notifications contain only an ID; recipients and content are loaded from committed rows.
+let messageListener = null;
+let listenerRetry = null;
+let shuttingDown = false;
+async function listenForMessages() {
+    let client;
+    try {
+        client = await pool.connect();
+        messageListener = client;
+        const retry = () => {
+            if (messageListener !== client) return;
+            messageListener = null;
+            client.release(true);
+            if (!shuttingDown) listenerRetry = setTimeout(listenForMessages, 3000);
+        };
+        client.on('error', retry);
+        client.on('notification', async (notification) => {
+            if (notification.channel !== 'onchat_messages') return;
+            try {
+                const { id } = JSON.parse(notification.payload);
+                if (typeof id !== 'string') return;
+                const { rows } = await pool.query(`
+                    SELECT m.*, cp.user_id AS recipient_id
+                    FROM messages m
+                    JOIN conversation_participants cp ON cp.conversation_id = m.conversation_id
+                    WHERE m.id = $1`, [id]);
+                for (const row of rows) {
+                    sendToUser(row.recipient_id, 'chat.message.created', {
+                        conversationId: row.conversation_id,
+                        message: {
+                            id: String(row.id), conversationId: row.conversation_id,
+                            senderId: row.sender_id, content: row.content, type: row.type,
+                            metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
+                            status: row.status, isRead: row.is_read, imageId: row.image_id,
+                            timestamp: new Date(row.created_at).toISOString(),
+                        },
+                    });
+                }
+            } catch (error) { console.error('[ONCHAT WS NOTIFICATION]', error.message); }
+        });
+        await client.query('LISTEN onchat_messages');
+    } catch (error) {
+        if (messageListener === client) messageListener = null;
+        if (client) client.release(true);
+        console.error('[ONCHAT WS LISTEN]', error.message);
+        if (!shuttingDown) listenerRetry = setTimeout(listenForMessages, 3000);
+    }
+}
+listenForMessages();
+
 wss.on('connection', (socket, request, user) => {
     addConnection(user.id, socket);
 
@@ -670,6 +721,9 @@ process.on('SIGTERM', async () => {
         '[ONCHAT WS] shutting down'
     );
 
+    shuttingDown = true;
+    clearTimeout(listenerRetry);
+    if (messageListener) { messageListener.release(true); messageListener = null; }
     wss.close();
     server.close();
 
@@ -683,6 +737,9 @@ process.on('SIGINT', async () => {
         '[ONCHAT WS] shutting down'
     );
 
+    shuttingDown = true;
+    clearTimeout(listenerRetry);
+    if (messageListener) { messageListener.release(true); messageListener = null; }
     wss.close();
     server.close();
 
