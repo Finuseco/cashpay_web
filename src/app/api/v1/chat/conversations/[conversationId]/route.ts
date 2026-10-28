@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { db } from '@/lib/db';
+import type { Message } from '@/lib/types';
 import { ownedAttachmentPath, parseChatDataUri } from '@/lib/chat-attachments';
 import { postMessage } from '@/lib/actions/message.actions';
 
@@ -152,7 +153,7 @@ export async function POST(
       : '';
 
     const type = typeof body.type === 'string'
-      ? body.type
+      ? body.type as Message['type']
       : 'text';
 
     const fileDataUri =
