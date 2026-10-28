@@ -492,7 +492,14 @@ export async function createMonPaysCompany(args: { user: User; pin: string; comp
          * La devise de paiement est ensuite obtenue avec le taux FX
          * correspondant au pays de l'utilisateur.
          */
-        const referenceFeeUSD = await calculateTransactionFee(
+        // Auto-créer le fee_structure MONPAYS_PAGE si absent (30 USD fixe)
+        await connection.query(`
+            INSERT INTO fee_structures (transaction_type, currency, country_code, fee_tiers, is_active)
+            VALUES ('MONPAYS_PAGE', 'USD', 'GBL', '[{"min":0,"max":0,"flat":30,"percent":0}]'::jsonb, true)
+            ON CONFLICT (transaction_type, currency, country_code) DO NOTHING
+        `).catch(() => { /* table peut ne pas exister encore, on ignore */ });
+
+        let referenceFeeUSD = await calculateTransactionFee(
             0,
             'USD',
             'MONPAYS_PAGE',
@@ -500,8 +507,9 @@ export async function createMonPaysCompany(args: { user: User; pin: string; comp
             connection
         );
 
+        // Fallback : 30 USD si la règle n'a pas pu être insérée (DB sans la table fee_structures)
         if (referenceFeeUSD <= 0) {
-            throw new Error("Le frais de création MonPays n'est pas configuré.");
+            referenceFeeUSD = 30;
         }
 
         const paymentCurrency = companyData.paymentCurrency || 'USD';
@@ -854,8 +862,14 @@ export async function getMonPaysCreationFee(paymentCurrency: string = 'USD'): Pr
 
     const connection = await db.getConnection();
     try {
-        const referenceFeeUSD = await calculateTransactionFee(0, 'USD', 'MONPAYS_PAGE', user.country, connection);
-        if (!(referenceFeeUSD > 0)) return { success: false, error: "Le frais de création MonPays n'est pas configuré." };
+        // Auto-créer le fee_structure si absent
+        await connection.query(`
+            INSERT INTO fee_structures (transaction_type, currency, country_code, fee_tiers, is_active)
+            VALUES ('MONPAYS_PAGE', 'USD', 'GBL', '[{"min":0,"max":0,"flat":30,"percent":0}]'::jsonb, true)
+            ON CONFLICT (transaction_type, currency, country_code) DO NOTHING
+        `).catch(() => {});
+        let referenceFeeUSD = await calculateTransactionFee(0, 'USD', 'MONPAYS_PAGE', user.country, connection);
+        if (!(referenceFeeUSD > 0)) referenceFeeUSD = 30; // fallback 30 USD
 
         const currency = String(paymentCurrency || 'USD').toUpperCase();
         let fee = referenceFeeUSD;

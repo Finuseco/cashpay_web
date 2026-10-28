@@ -88,6 +88,173 @@
   }
 }
 
+/* ============================================================
+   ONCHAT THEME — dark navy/violet/cyan (identique au splash Android)
+   Couleurs : fond #080c1e, violet #8b5cf6, cyan #06b6d4
+   ============================================================ */
+
+/* Variables globales OnChat utilisables partout */
+:root {
+  --oc-bg-deep:    8 14% 8%;         /* #080c1e — nuit profonde */
+  --oc-bg-mid:     255 46% 14%;      /* #130b3b — violet sombre */
+  --oc-violet:     262 83% 64%;      /* #8b5cf6 */
+  --oc-violet-dark:265 75% 48%;      /* #7c3aed */
+  --oc-cyan:       189 96% 43%;      /* #06b6d4 */
+  --oc-cyan-light: 188 94% 58%;      /* #22d3ee */
+  --oc-purple-ring:270 70% 60%;      /* #9333ea */
+  --oc-surface:    250 40% 13%;      /* carte/surface sombre */
+  --oc-border:     255 30% 22%;      /* bordure subtile */
+  --oc-text-muted: 240 20% 60%;      /* texte secondaire */
+}
+
+/* Scoped : toutes les pages /feedback utilisent le thème OnChat */
+.onchat-theme,
+[data-theme="onchat"] {
+  --background: 230 45% 7%;          /* #080c1e */
+  --foreground: 0 0% 97%;
+  --card: 250 40% 11%;
+  --card-foreground: 0 0% 95%;
+  --popover: 250 40% 10%;
+  --popover-foreground: 0 0% 95%;
+  --primary: 262 83% 64%;            /* #8b5cf6 violet */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 189 96% 43%;          /* #06b6d4 cyan */
+  --secondary-foreground: 0 0% 100%;
+  --muted: 250 30% 18%;
+  --muted-foreground: 240 20% 60%;
+  --accent: 265 75% 48%;             /* #7c3aed */
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 255 30% 22%;
+  --input: 250 30% 18%;
+  --ring: 262 83% 64%;
+}
+
+/* Dégradé de fond OnChat (radial depuis le centre) */
+.onchat-bg {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 40%, rgba(139,92,246,0.18) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(6,182,212,0.10) 0%, transparent 60%),
+    linear-gradient(160deg, #080c1e 0%, #13072e 50%, #080c1e 100%);
+  background-attachment: fixed;
+}
+
+/* Texte dégradé violet→cyan (style "OnChat" du splash) */
+.onchat-gradient-text {
+  background: linear-gradient(90deg, #8b5cf6 0%, #06b6d4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Bouton principal violet avec glow */
+.onchat-btn-primary {
+  background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+  box-shadow: 0 0 20px rgba(139,92,246,0.4);
+  color: white;
+  border: none;
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+.onchat-btn-primary:hover {
+  box-shadow: 0 0 32px rgba(139,92,246,0.65);
+  transform: translateY(-1px);
+}
+
+/* Bouton secondary cyan */
+.onchat-btn-secondary {
+  background: linear-gradient(135deg, #0891b2, #06b6d4);
+  box-shadow: 0 0 16px rgba(6,182,212,0.35);
+  color: white;
+  border: none;
+}
+
+/* Card glassmorphism style OnChat */
+.onchat-card {
+  background: rgba(19,7,62,0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(139,92,246,0.25);
+  border-radius: 1rem;
+}
+
+/* Pill badge (style "Écosystème CashPay...") */
+.onchat-pill {
+  background: linear-gradient(90deg, #7c3aed, #8b5cf6, #06b6d4);
+  border-radius: 999px;
+  color: white;
+  font-weight: 600;
+  padding: 0.35rem 1.2rem;
+  font-size: 0.85rem;
+}
+
+/* Cercle icône style splash (bordure colorée) */
+.onchat-icon-ring-cyan {
+  border: 2px solid #06b6d4;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6,182,212,0.08);
+  color: #06b6d4;
+}
+.onchat-icon-ring-violet {
+  border: 2px solid #9333ea;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(147,51,234,0.08);
+  color: #9333ea;
+}
+
+/* Particule scintillante (petits points) */
+@keyframes oc-twinkle {
+  0%, 100% { opacity: 0.2; transform: scale(1); }
+  50%       { opacity: 1;   transform: scale(1.5); }
+}
+.onchat-particle {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  animation: oc-twinkle 2.5s ease-in-out infinite;
+}
+
+/* Input style sombre OnChat */
+.onchat-input {
+  background: rgba(139,92,246,0.08);
+  border: 1px solid rgba(139,92,246,0.3);
+  color: white;
+  border-radius: 0.75rem;
+}
+.onchat-input:focus {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139,92,246,0.2);
+  outline: none;
+}
+
+/* Séparateur dégradé */
+.onchat-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(139,92,246,0.4), rgba(6,182,212,0.4), transparent);
+}
+
+/* Animation flottante pour les avatars salle d'attente */
+@keyframes oc-float {
+  0%, 100% { transform: translateY(0px) translateX(0px); }
+  33%       { transform: translateY(-8px) translateX(3px); }
+  66%       { transform: translateY(4px) translateX(-3px); }
+}
+
+/* Glow pulsé pour éléments actifs */
+@keyframes oc-pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(139,92,246,0.3); }
+  50%       { box-shadow: 0 0 24px rgba(139,92,246,0.7), 0 0 48px rgba(6,182,212,0.2); }
+}
+.onchat-pulse {
+  animation: oc-pulse-glow 2.5s ease-in-out infinite;
+}
+
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {
     display: none;

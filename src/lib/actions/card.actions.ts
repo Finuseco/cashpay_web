@@ -496,3 +496,154 @@ export async function activatePhysicalCard(cardId: string, userId: number): Prom
         return { success: false, error: error.message };
     }
 }
+
+/**
+ * Sauvegarde les données d'une carte de paiement externe (Visa/Mastercard)
+ * pour de futurs dépôts. Les données sont chiffrées en AES-256-GCM.
+ * La colonne card_token contient le numéro chiffré (pas le vrai PAN).
+ *
+ * Règle : jamais le PAN complet en clair dans la base — uniquement last4 + token chiffré.
+ */
+export async function saveCardForUser(args: {
+    cardHolderName: string;
+    cardNumber: string;          // PAN complet — sera chiffré, jamais stocké en clair
+    expiryMonth: string;
+    expiryYear: string;
+    brand?: 'visa' | 'mastercard' | 'card';
+    setPrimary?: boolean;
+}): Promise<{ success: boolean; card?: SavedCard; error?: string }> {
+    const { getAuthenticatedUser } = await import('./user.actions');
+    const user = await getAuthenticatedUser();
+    if (!user) return { success: false, error: 'Session expirée.' };
+
+    const { cardHolderName, cardNumber, expiryMonth, expiryYear, brand = 'card', setPrimary = false } = args;
+
+    const rawPan = String(cardNumber).replace(/\s/g, '');
+    if (!/^\d{13,19}$/.test(rawPan)) {
+        return { success: false, error: 'Numéro de carte invalide.' };
+    }
+    const last4 = rawPan.slice(-4);
+
+    // Détection automatique de la marque si non fournie
+    let detectedBrand: 'visa' | 'mastercard' | 'card' = brand;
+    if (brand === 'card') {
+        if (rawPan.startsWith('4')) detectedBrand = 'visa';
+        else if (/^5[1-5]|^2[2-7]/.test(rawPan)) detectedBrand = 'mastercard';
+    }
+
+    // Chiffrement AES-256-GCM du PAN
+    const encKey = process.env.CARD_ENCRYPTION_KEY || process.env.NEXTAUTH_SECRET || 'cashpay_default_key_32chars_here!';
+    const keyBuf = Buffer.from(encKey.padEnd(32, '0').slice(0, 32));
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', keyBuf, iv);
+    let encrypted = cipher.update(rawPan, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag().toString('hex');
+    const cardToken = `${iv.toString('hex')}:${authTag}:${encrypted}`;
+
+    try {
+        // Auto-création de la table si absente
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS saved_cards (
+                id              SERIAL PRIMARY KEY,
+                user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                card_brand      VARCHAR(20) NOT NULL DEFAULT 'card',
+                card_holder_name VARCHAR(120) NOT NULL,
+                last4           CHAR(4) NOT NULL,
+                expiry_month    VARCHAR(2) NOT NULL,
+                expiry_year     VARCHAR(4) NOT NULL,
+                card_token      TEXT NOT NULL,
+                is_primary      BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        `);
+
+        // Si on veut la marquer principale, on retire l'ancien statut
+        if (setPrimary) {
+            await db.query('UPDATE saved_cards SET is_primary = FALSE WHERE user_id = $1', [user.id]);
+        }
+
+        // Vérifier si une carte identique existe déjà (même last4 + même mois/année)
+        const { rows: existing } = await db.query(
+            `SELECT id FROM saved_cards WHERE user_id = $1 AND last4 = $2 AND expiry_month = $3 AND expiry_year = $4`,
+            [user.id, last4, expiryMonth, expiryYear]
+        );
+
+        let row: SavedCard;
+        if (existing.length > 0) {
+            // Mettre à jour le token chiffré (la carte existait déjà)
+            const { rows } = await db.query(
+                `UPDATE saved_cards
+                 SET card_token = $1, card_holder_name = $2, card_brand = $3, is_primary = $4
+                 WHERE id = $5
+                 RETURNING *`,
+                [cardToken, cardHolderName, detectedBrand, setPrimary, existing[0].id]
+            );
+            row = rows[0] as SavedCard;
+        } else {
+            const { rows } = await db.query(
+                `INSERT INTO saved_cards (user_id, card_brand, card_holder_name, last4, expiry_month, expiry_year, card_token, is_primary)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 RETURNING *`,
+                [user.id, detectedBrand, cardHolderName, last4, expiryMonth, expiryYear, cardToken, setPrimary]
+            );
+            row = rows[0] as SavedCard;
+        }
+
+        return { success: true, card: row };
+    } catch (error: any) {
+        console.error('[saveCardForUser]', error);
+        return { success: false, error: 'Impossible de sauvegarder la carte.' };
+    }
+}
+
+/**
+ * Récupère les cartes sauvegardées de l'utilisateur connecté (session serveur).
+ */
+export async function getSavedCardsForCurrentUser(): Promise<SavedCard[]> {
+    const { getAuthenticatedUser } = await import('./user.actions');
+    const user = await getAuthenticatedUser();
+    if (!user) return [];
+    try {
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS saved_cards (
+                id              SERIAL PRIMARY KEY,
+                user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                card_brand      VARCHAR(20) NOT NULL DEFAULT 'card',
+                card_holder_name VARCHAR(120) NOT NULL,
+                last4           CHAR(4) NOT NULL,
+                expiry_month    VARCHAR(2) NOT NULL,
+                expiry_year     VARCHAR(4) NOT NULL,
+                card_token      TEXT NOT NULL,
+                is_primary      BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        `);
+        const { rows } = await db.query(
+            'SELECT id, user_id, card_brand, card_holder_name, last4, expiry_month, expiry_year, is_primary, created_at FROM saved_cards WHERE user_id = $1 ORDER BY is_primary DESC, created_at DESC',
+            [user.id]
+        );
+        return rows as SavedCard[];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Supprime une carte sauvegardée (identité toujours issue de la session).
+ */
+export async function deleteSavedCardForCurrentUser(cardId: number): Promise<{ success: boolean; error?: string }> {
+    const { getAuthenticatedUser } = await import('./user.actions');
+    const user = await getAuthenticatedUser();
+    if (!user) return { success: false, error: 'Session expirée.' };
+    try {
+        const { rowCount } = await db.query(
+            'DELETE FROM saved_cards WHERE id = $1 AND user_id = $2',
+            [cardId, user.id]
+        );
+        if (!rowCount || rowCount === 0) return { success: false, error: 'Carte introuvable.' };
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}

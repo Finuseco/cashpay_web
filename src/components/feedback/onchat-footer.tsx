@@ -21,7 +21,7 @@ const NavItem = ({ href, icon: Icon, label, onClick, isActive }: { href: string;
             onClick={handleClick}
             className={cn(
                 "flex flex-col items-center justify-center w-full h-full text-xs font-medium transition-colors",
-                isActive ? "text-white font-bold" : "text-zinc-400 hover:text-white"
+                isActive ? "text-[#8b5cf6] font-bold" : "text-white/40 hover:text-white/80"
             )}
         >
             <Icon className="h-6 w-6 mb-0.5" />
@@ -34,7 +34,7 @@ export function OnChatFooter({ activeView, onNavigate }: { activeView: string, o
     const { t } = useTranslation();
     
     return (
-        <footer className="absolute bottom-0 left-0 right-0 z-10 border-t bg-[#1f2c33] border-zinc-700/50">
+        <footer className="absolute bottom-0 left-0 right-0 z-10 border-t" style={{ background: 'rgba(8,12,30,0.92)', backdropFilter: 'blur(16px)', borderColor: 'rgba(139,92,246,0.2)' }}>
             <nav className="grid grid-cols-4 items-center h-16">
                <NavItem href="#" onClick={() => onNavigate('list')} label="Discussions" icon={MessageSquare} isActive={activeView === 'list'}/>
                <NavItem href="#" onClick={() => onNavigate('calls')} label="Appels" icon={Phone} isActive={activeView === 'calls'} />

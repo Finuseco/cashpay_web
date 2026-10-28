@@ -1,4 +1,3 @@
-
 import type { Metadata } from 'next';
 import { PortalPinLock } from '@/components/auth/portal-pin-lock';
 
@@ -14,7 +13,8 @@ export default function OnChatLayout({
 }>) {
   return (
     <PortalPinLock portalName="OnChat">
-        <div className="h-[100dvh] w-screen overflow-hidden">
+        {/* onchat-theme applique les variables CSS du thème violet/cyan sur tout /feedback */}
+        <div className="onchat-theme onchat-bg h-[100dvh] w-screen overflow-hidden">
             {children}
         </div>
     </PortalPinLock>

@@ -38,16 +38,39 @@ export async function initiateDeposit(data: {
 /**
  * Initie un dépôt par Carte Bancaire Prépayée via MaxiCash.
  */
-export async function initiateCardDeposit(data: { amount: number, user: any, cardDetails?: any }) {
-    console.log(`[MaxiCash] Initiation dépôt Carte Prépayée:`, data);
-    
+export async function initiateCardDeposit(data: {
+    amount: number;
+    user: any;
+    cardNumber?: string;
+    cardHolderName?: string;
+    expiryMonth?: string;
+    expiryYear?: string;
+    cvv?: string;
+    currency?: string;
+    saveCard?: boolean;
+}) {
     const transactionId = `CRD-${uuidv4().substring(0,8).toUpperCase()}`;
-    
-    // Simulation du portail de paiement sécurisé MaxiCash
-    return { 
-        success: true, 
-        transactionId, 
-        message: "Redirection vers le portail sécurisé carte MaxiCash..." 
+
+    // Sauvegarder la carte si l'utilisateur le demande
+    if (data.saveCard && data.cardNumber && data.cardHolderName && data.expiryMonth && data.expiryYear) {
+        try {
+            const { saveCardForUser } = await import('./card.actions');
+            await saveCardForUser({
+                cardHolderName: data.cardHolderName,
+                cardNumber: data.cardNumber,
+                expiryMonth: data.expiryMonth,
+                expiryYear: data.expiryYear,
+            });
+        } catch (e) {
+            // Non bloquant : la sauvegarde de carte ne doit pas bloquer le dépôt
+            console.error('[initiateCardDeposit] saveCard error:', e);
+        }
+    }
+
+    return {
+        success: true,
+        transactionId,
+        message: "Redirection vers le portail sécurisé carte MaxiCash..."
     };
 }
 
