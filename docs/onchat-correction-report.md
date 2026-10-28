@@ -36,6 +36,6 @@ L'audit complet des dépendances indirectes et des 17 fonctionnalités n'est pas
 
 Ajout de PostgreSQL LISTEN/NOTIFY sans colonne ni migration: postMessage notifie un identifiant dans sa transaction; le processus WebSocket recharge le message et ses destinataires après commit. Reconnexion du listener en cas de panne. Le test isolé vérifie le relais et la destination, mais une validation avec PostgreSQL reste nécessaire.
 
-Publication GitHub refusée: push HTTPS HTTP 403; création de branche via connecteur GitHub HTTP 403 `Resource not accessible by integration`. Aucun push ni PR réussi.
+Publication GitHub confirmée le 28 octobre 2026 après mise à jour des permissions. Branche `codex/fix-onchat-backend` poussée. PR en brouillon : https://github.com/Finuseco/cashpay_web/pull/1. Les refus HTTP 403 précédents sont résolus. Aucune fusion ni mise en production.
 
 La recherche de contacts exige désormais une session authentifiée et une liste bornée à 1000 numéros texte (32 caractères maximum). Contrat de réponse conservé.
