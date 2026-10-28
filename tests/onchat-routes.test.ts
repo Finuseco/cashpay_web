@@ -42,9 +42,11 @@ test('message endpoint forwards owned attachments and returns object metadata', 
         '@/lib/actions/message.actions': { postMessage: async (...args: any[]) => { captured.push(args); return { id: 'msg', status: 'sent', metadata: JSON.stringify(args[7]) }; } },
     });
     const send = (body: unknown) => route.POST(new Request('https://example.test', { method: 'POST', body: JSON.stringify(body) }), { params: { conversationId: 'conv' } });
-    const response = await send({ content: '', type: 'doc', fileUrl, fileName: 'report.pdf' });
+    const response = await send({ content: '', type: 'doc', fileUrl, fileName: 'report.pdf', metadata: { durationSeconds: '12', senderId: '999' } });
     assert.equal(response.status, 201);
     assert.equal(captured[0][7].fileUrl, fileUrl);
+    assert.equal(captured[0][7].durationSeconds, '12');
+    assert.equal(captured[0][7].senderId, undefined);
     assert.equal((await response.json()).message.metadata.fileName, 'report.pdf');
     assert.equal((await send({ type: 'doc', fileUrl: fileUrl.replace('/7/', '/8/') })).status, 400);
     assert.equal((await send({ content: '   ' })).status, 400);

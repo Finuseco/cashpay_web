@@ -247,7 +247,7 @@ export async function postMessage(
     receiverId: number,
     fileDataUri?: string,
     fileName?: string,
-    attachmentMetadata?: { fileUrl: string; fileName: string }
+    attachmentMetadata?: Record<string, string>
 ): Promise<Message> {
     const connection = await db.getConnection();
 
@@ -291,7 +291,7 @@ export async function postMessage(
         let imageId: string | null = null;
         let metadata: Record<string, unknown> | null = attachmentMetadata || null;
 
-        if (attachmentMetadata && !ownedAttachmentPath(attachmentMetadata.fileUrl, senderId)) {
+        if (attachmentMetadata?.fileUrl && !ownedAttachmentPath(attachmentMetadata.fileUrl, senderId)) {
             throw new Error('Fichier non autorisé.');
         }
         if (fileDataUri) {
@@ -302,6 +302,7 @@ export async function postMessage(
             await fs.writeFile(target, attachment.buffer);
             if (type === 'image') imageId = `IMG_${crypto.randomBytes(16).toString('hex')}`;
             metadata = {
+                ...metadata,
                 fileUrl: `/api/uploads/onchat/${senderId}/${name}`,
                 fileName: fileName || name,
                 ...(imageId ? { imageId } : {}),

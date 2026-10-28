@@ -172,8 +172,17 @@ export async function POST(
     }
     const fileUrl = typeof body.fileUrl === 'string' ? ownedAttachmentPath(body.fileUrl, user.id) : null;
     if (body.fileUrl && !fileUrl) return NextResponse.json({ success: false, error: 'Fichier non autorisé.' }, { status: 400 });
-    if (!['text', 'image', 'audio', 'video', 'doc'].includes(type)) return NextResponse.json({ success: false, error: 'Type de message invalide.' }, { status: 400 });
-    const attachmentMetadata = fileUrl ? { fileUrl, fileName: fileName || 'Pièce jointe' } : undefined;
+    if (!['text', 'image', 'audio', 'video', 'doc', 'sticker', 'location', 'contact', 'poll', 'meeting', 'product'].includes(type)) return NextResponse.json({ success: false, error: 'Type de message invalide.' }, { status: 400 });
+    const metadata: Record<string, string> = {};
+    const metadataKeys = ['duration', 'durationSeconds', 'mimeType', 'fileSize', 'width', 'height', 'meetCode'];
+    if (body.metadata && typeof body.metadata === 'object') {
+      for (const key of metadataKeys) {
+        const value = body.metadata[key];
+        if (typeof value === 'string' && value.length <= 512) metadata[key] = value;
+      }
+    }
+    if (fileUrl) Object.assign(metadata, { fileUrl, fileName: fileName || 'Pièce jointe' });
+    const attachmentMetadata = Object.keys(metadata).length ? metadata : undefined;
     const connection = await db.getConnection();
 
     try {
