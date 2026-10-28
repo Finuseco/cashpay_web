@@ -82,3 +82,23 @@ test('private downloads deny strangers and allow a conversation participant', as
     assert.equal(invalid.status, 416);
     assert.equal(invalid.headers.get('content-range'), 'bytes */3');
 });
+
+
+test('contact discovery is authenticated and bounded', async () => {
+    let user: any = null;
+    let lookups = 0;
+    const route = loadRoute('src/app/api/onchat/contacts/check/route.ts', {
+        '@/lib/actions/user.actions': {
+            getAuthenticatedUser: async () => user,
+            checkContacts: async () => { lookups++; return []; },
+        },
+    });
+    const request = (phoneNumbers: unknown) => new Request('https://example.test', { method: 'POST', body: JSON.stringify({ phoneNumbers }) });
+    assert.equal((await route.POST(request(['+243123456789']))).status, 401);
+    user = { id: 7 };
+    assert.equal((await route.POST(request([123]))).status, 400);
+    assert.equal((await route.POST(request(Array(1001).fill('+243123456789')))).status, 400);
+    assert.equal(lookups, 0);
+    assert.equal((await route.POST(request(['+243123456789']))).status, 200);
+    assert.equal(lookups, 1);
+});

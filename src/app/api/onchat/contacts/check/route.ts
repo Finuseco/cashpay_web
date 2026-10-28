@@ -1,13 +1,15 @@
 'use server';
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { checkContacts } from '@/lib/actions/user.actions';
+import { checkContacts, getAuthenticatedUser } from '@/lib/actions/user.actions';
 
 export async function POST(request: NextRequest) {
     try {
+        const user = await getAuthenticatedUser();
+        if (!user) return NextResponse.json({ success: false, error: 'Authentification requise.' }, { status: 401 });
         const { phoneNumbers } = await request.json();
 
-        if (!Array.isArray(phoneNumbers)) {
+        if (!Array.isArray(phoneNumbers) || phoneNumbers.length > 1000 || phoneNumbers.some(phone => typeof phone !== 'string' || phone.length > 32)) {
             return NextResponse.json({ success: false, error: 'phoneNumbers must be an array.' }, { status: 400 });
         }
 
