@@ -59,6 +59,7 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({
     noServer: true,
+    maxPayload: 256 * 1024,
 });
 
 const users = new Map();
@@ -565,13 +566,17 @@ let listenerRetry = null;
 let shuttingDown = false;
 async function listenForMessages() {
     let client;
+    let released = false;
+    const release = () => {
+        if (client && !released) { released = true; client.release(true); }
+    };
     try {
         client = await pool.connect();
         messageListener = client;
         const retry = () => {
             if (messageListener !== client) return;
             messageListener = null;
-            client.release(true);
+            release();
             if (!shuttingDown) listenerRetry = setTimeout(listenForMessages, 3000);
         };
         client.on('error', retry);
@@ -602,7 +607,7 @@ async function listenForMessages() {
         await client.query('LISTEN onchat_messages');
     } catch (error) {
         if (messageListener === client) messageListener = null;
-        if (client) client.release(true);
+        release();
         console.error('[ONCHAT WS LISTEN]', error.message);
         if (!shuttingDown) listenerRetry = setTimeout(listenForMessages, 3000);
     }
