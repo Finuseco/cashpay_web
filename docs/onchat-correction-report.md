@@ -13,7 +13,7 @@ Base: `main`, branche `codex/fix-onchat-backend`.
 - `POST /api/v1/media/videos`: publication vidéo multipart existante. `GET`: vidéos publiques non expirées, interactions et pagination.
 - Profil: médias personnels, sélection photo/couverture limitée au propriétaire; recherche publique par téléphone existante.
 - Appels: initiate/respond/end/history conservent leurs contrats de statut et utilisent désormais le portefeuille de la session authentifiée. Les identifiants client ne permettent plus d'agir comme un autre compte.
-- Réunions: create/list/status/join/participants/leave/end et extensions facturation/parole existantes. Audit complémentaire nécessaire sur paiement concurrent et admission WebSocket: le serveur vérifie une réunion active mais pas la participation HTTP.
+- Réunions: create/list/status/join/participants/leave/end et extensions facturation/parole existantes. Admission WebSocket limitée à l’hôte ou à un participant HTTP actif. Audit complémentaire nécessaire sur paiement concurrent et fermeture des salles déjà connectées.
 - WebSocket: `/ws`, hôte local configurable, port 3101 par défaut; événements `chat.typing`, `chat.read`, `call.*`, `meet.*` dans `{event,data}`. L'URL publique doit être confirmée côté déploiement; aucune adresse locale n'est fournie à Android.
 - Notifications REST: authentification utilisateur et marquage lu limité à son compte.
 - Groupes: routes existantes appellent les actions de contrôle des membres/administrateurs.

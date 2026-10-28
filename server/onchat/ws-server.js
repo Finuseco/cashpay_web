@@ -302,11 +302,16 @@ async function handleMeetEvent(socket, user, event, data) {
 
     if (event === 'meet.join') {
         const { rows } = await pool.query(
-            "SELECT 1 FROM meetings WHERE meeting_provider_id = $1 AND status = 'active' LIMIT 1",
-            [code]
+            `SELECT 1 FROM meetings m
+             WHERE m.meeting_provider_id = $1 AND m.status = 'active'
+               AND (m.host_user_id = $2 OR EXISTS (
+                 SELECT 1 FROM meeting_participants mp
+                 WHERE mp.meeting_id = m.id AND mp.user_id = $2 AND mp.left_at IS NULL
+               )) LIMIT 1`,
+            [code, user.id]
         );
         if (rows.length === 0) {
-            send(socket, 'error', { code: 'MEET_NOT_FOUND', message: 'Réunion introuvable ou terminée.' });
+            send(socket, 'error', { code: 'MEET_NOT_FOUND', message: 'Réunion inaccessible. Rejoignez-la via l’API avant la connexion temps réel.' });
             return;
         }
         let room = meetRooms.get(code);
