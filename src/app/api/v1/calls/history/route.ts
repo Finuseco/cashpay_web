@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getAuthenticatedUser } from "@/lib/actions/user.actions";
 
 export async function GET(request: NextRequest) {
   try {
-    const walletId =
-      request.nextUrl.searchParams.get("walletId") ??
-      request.headers.get("x-wallet-id");
+    const authenticatedUser = await getAuthenticatedUser();
+    if (!authenticatedUser) return NextResponse.json({ success: false, error: "Authentification requise." }, { status: 401 });
+    const walletId = authenticatedUser.id_wallet;
 
     if (!walletId) {
       return NextResponse.json(

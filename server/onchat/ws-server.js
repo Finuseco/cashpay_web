@@ -80,7 +80,7 @@ function parseCookies(header) {
         const key = part.slice(0, index).trim();
         const value = part.slice(index + 1).trim();
 
-        cookies[key] = decodeURIComponent(value);
+        try { cookies[key] = decodeURIComponent(value); } catch { /* Invalid cookie is ignored. */ }
     }
 
     return cookies;
@@ -91,7 +91,10 @@ function authenticate(request) {
         request.headers.cookie
     );
 
-    const token = cookies['cashpay-token'];
+    const authorization = request.headers.authorization;
+    const token = authorization && authorization.startsWith('Bearer ')
+        ? authorization.slice(7).trim()
+        : cookies['cashpay-token'];
 
     if (!token) {
         return null;
@@ -106,7 +109,7 @@ function authenticate(request) {
         if (
             !payload ||
             typeof payload !== 'object' ||
-            !payload.id
+            !Number.isSafeInteger(Number(payload.id)) || Number(payload.id) <= 0
         ) {
             return null;
         }
@@ -362,7 +365,7 @@ async function handleMeetEvent(socket, user, event, data) {
 
 async function handleEvent(socket, user, message) {
     const event = message?.event;
-    const data = message?.data || {};
+    const data = message?.data || message || {};
 
     if (!event) {
         return;

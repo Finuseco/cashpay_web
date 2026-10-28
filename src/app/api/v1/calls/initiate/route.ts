@@ -1,14 +1,15 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getAuthenticatedUser } from "@/lib/actions/user.actions";
 
 export async function POST(request: NextRequest) {
   try {
+    const authenticatedUser = await getAuthenticatedUser();
+    if (!authenticatedUser) return NextResponse.json({ success: false, error: "Authentification requise." }, { status: 401 });
     const body = await request.json();
 
-    const callerWalletId =
-      body.callerWalletId ??
-      request.headers.get("x-wallet-id");
+    const callerWalletId = authenticatedUser.id_wallet;
 
     const receiverWalletId = body.receiverWalletId;
 

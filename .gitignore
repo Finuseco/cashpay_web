@@ -64,3 +64,6 @@ public/images/chat_files/
 public/images/documents/
 public/images/payment_links/
 public/images/signatures/
+
+# Private conversation attachments
+storage/onchat/

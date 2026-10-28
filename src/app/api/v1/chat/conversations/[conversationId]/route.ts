@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { db } from '@/lib/db';
+import { ownedAttachmentPath, parseChatDataUri } from '@/lib/chat-attachments';
 import { postMessage } from '@/lib/actions/message.actions';
 
 export async function GET(
@@ -101,7 +102,7 @@ export async function GET(
           senderId: message.senderId,
           content: message.content,
           type: message.type,
-          metadata: message.metadata,
+          metadata: typeof message.metadata === 'string' ? JSON.parse(message.metadata) : message.metadata,
           status: message.status,
           isRead: message.isRead,
           imageId: message.imageId,
@@ -164,6 +165,15 @@ export async function POST(
         ? body.fileName
         : undefined;
 
+    if (fileDataUri) {
+      try { parseChatDataUri(fileDataUri); } catch (error) {
+        return NextResponse.json({ success: false, error: (error as Error).message }, { status: 400 });
+      }
+    }
+    const fileUrl = typeof body.fileUrl === 'string' ? ownedAttachmentPath(body.fileUrl, user.id) : null;
+    if (body.fileUrl && !fileUrl) return NextResponse.json({ success: false, error: 'Fichier non autorisé.' }, { status: 400 });
+    if (!['text', 'image', 'audio', 'video', 'doc'].includes(type)) return NextResponse.json({ success: false, error: 'Type de message invalide.' }, { status: 400 });
+    const attachmentMetadata = fileUrl ? { fileUrl, fileName: fileName || 'Pièce jointe' } : undefined;
     const connection = await db.getConnection();
 
     try {
@@ -215,7 +225,7 @@ export async function POST(
         );
       }
 
-      if (!content && !fileDataUri) {
+      if (!content.trim() && !fileDataUri && !fileUrl) {
         return NextResponse.json(
           {
             success: false,
@@ -232,13 +242,14 @@ export async function POST(
         user.id,
         receiverId,
         fileDataUri,
-        fileName
+        fileName,
+        attachmentMetadata
       );
 
       return NextResponse.json(
         {
           success: true,
-          message,
+          message: { ...message, metadata: message.metadata ? JSON.parse(message.metadata) : null },
         },
         { status: 201 }
       );

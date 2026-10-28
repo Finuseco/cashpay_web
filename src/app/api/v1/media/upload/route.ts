@@ -5,6 +5,8 @@ import crypto from "crypto";
 import { db } from "@/lib/db";
 import { getAuthenticatedUser } from "@/lib/actions/user.actions";
 
+import { CHAT_MIME_EXTENSIONS, attachmentLimit, attachmentDiskPath } from '@/lib/chat-attachments';
+
 const BASE_URL = "https://app.cashpay-all.com";
 const MAX_VIDEO_SIZE = 200 * 1024 * 1024;
 
@@ -16,11 +18,6 @@ const ALLOWED_MIME_TYPES = new Set([
 ]);
 
 function getExtension(fileName: string, mimeType: string) {
-  const ext = path.extname(fileName).toLowerCase();
-
-  if (ext) {
-    return ext;
-  }
 
   const map: Record<string, string> = {
     "video/mp4": ".mp4",
@@ -139,6 +136,22 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    // The video field retains the existing public reel publication contract.
+    // The file field stores a conversation attachment outside the public directory.
+    if (!formData.has("video")) {
+      const mimeType = file.type.toLowerCase();
+      const extension = CHAT_MIME_EXTENSIONS[mimeType];
+      if (!extension) return NextResponse.json({ success: false, error: "Format de fichier non autorisé" }, { status: 415 });
+      if (file.size <= 0 || file.size > attachmentLimit(mimeType)) {
+        return NextResponse.json({ success: false, error: "Taille de fichier invalide" }, { status: file.size > 0 ? 413 : 400 });
+      }
+      const name = `${crypto.randomUUID()}${extension}`;
+      const target = attachmentDiskPath(String(user.id), name);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, Buffer.from(await file.arrayBuffer()));
+      return NextResponse.json({ success: true, url: `/api/uploads/onchat/${user.id}/${name}`, fileName: file.name, mimeType, fileSize: file.size }, { status: 201 });
     }
 
     if (!ALLOWED_MIME_TYPES.has(file.type)) {

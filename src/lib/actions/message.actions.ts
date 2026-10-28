@@ -15,6 +15,9 @@ import { verifyCurrentUserPin } from '@/lib/actions/auth.actions';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
+import { parseChatDataUri, attachmentDiskPath, ownedAttachmentPath } from '@/lib/chat-attachments';
 
 export async function getConversationsForUser(userId: number): Promise<Conversation[]> {
     try {
@@ -243,7 +246,8 @@ export async function postMessage(
     senderId: number,
     receiverId: number,
     fileDataUri?: string,
-    fileName?: string
+    fileName?: string,
+    attachmentMetadata?: { fileUrl: string; fileName: string }
 ): Promise<Message> {
     const connection = await db.getConnection();
 
@@ -285,38 +289,22 @@ export async function postMessage(
         }
 
         let imageId: string | null = null;
-        let metadata: Record<string, unknown> | null = null;
+        let metadata: Record<string, unknown> | null = attachmentMetadata || null;
 
-        if (type === 'image' && fileDataUri) {
-            imageId = `IMG_${crypto.randomBytes(16).toString('hex')}`;
-
-            const finalFileUrl = await saveBase64Image(
-                fileDataUri,
-                `chat-files/sender_${senderId}`,
-                imageId
-            );
-
-            if (!finalFileUrl) throw new Error("Impossible d'enregistrer l'image.");
-
+        if (attachmentMetadata && !ownedAttachmentPath(attachmentMetadata.fileUrl, senderId)) {
+            throw new Error('Fichier non autorisé.');
+        }
+        if (fileDataUri) {
+            const attachment = parseChatDataUri(fileDataUri);
+            const name = `${crypto.randomUUID()}${attachment.extension}`;
+            const target = attachmentDiskPath(String(senderId), name);
+            await fs.mkdir(path.dirname(target), { recursive: true });
+            await fs.writeFile(target, attachment.buffer);
+            if (type === 'image') imageId = `IMG_${crypto.randomBytes(16).toString('hex')}`;
             metadata = {
-                fileUrl: finalFileUrl,
-                fileName: fileName || `${imageId}.jpg`,
-                imageId,
-            };
-        } else if (fileDataUri) {
-            const fileId = `${type}_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
-
-            const finalFileUrl = await saveBase64Image(
-                fileDataUri,
-                `chat-files/sender_${senderId}`,
-                fileId
-            );
-
-            if (!finalFileUrl) throw new Error("Impossible d'enregistrer le fichier joint.");
-
-            metadata = {
-                fileUrl: finalFileUrl,
-                fileName: fileName || fileId,
+                fileUrl: `/api/uploads/onchat/${senderId}/${name}`,
+                fileName: fileName || name,
+                ...(imageId ? { imageId } : {}),
             };
         }
 

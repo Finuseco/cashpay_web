@@ -498,7 +498,10 @@ export async function verifyUserPin(userId: number, pin: string): Promise<{ succ
 
 export async function verifyCurrentUserPin(pin: string): Promise<{ success: boolean; error?: string }> {
     const cookieStore = cookies();
-    const token = cookieStore.get('cashpay-token')?.value;
+    const authorization = headers().get('authorization');
+    const token = authorization?.startsWith('Bearer ')
+        ? authorization.slice(7).trim()
+        : cookieStore.get('cashpay-token')?.value;
 
     if (!token) {
         return { success: false, error: "Session non valide. Veuillez vous reconnecter." };
@@ -834,7 +837,10 @@ export async function getAuthenticatedDeveloper(): Promise<User | null> {
 
 export async function getAuthenticatedUser(): Promise<User | null> {
     const cookieStore = cookies();
-    const token = cookieStore.get('cashpay-token')?.value;
+    const authorization = headers().get('authorization');
+    const token = authorization?.startsWith('Bearer ')
+        ? authorization.slice(7).trim()
+        : cookieStore.get('cashpay-token')?.value;
 
     if (!token) {
         console.log("getAuthenticatedUser: No token found in cookies.");
@@ -843,7 +849,7 @@ export async function getAuthenticatedUser(): Promise<User | null> {
 
     const decodedPayload = verifyToken(token);
     if (!decodedPayload || !decodedPayload.id) {
-        console.log("getAuthenticatedUser: Invalid or decoded token payload.", decodedPayload);
+        console.log("getAuthenticatedUser: Invalid token.");
         return null;
     }
 
