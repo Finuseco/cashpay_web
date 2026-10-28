@@ -26,3 +26,7 @@ Android opens the authenticated shared meeting interface for admission and organ
 No authenticated multi-device, camera/microphone, push notification, real currency-provider or end-to-end production payment tests were performed. Meetings retain the existing peer-to-peer architecture (default server limit: eight peers), rather than an SFU conference infrastructure. UI media permissions are not an SFU-grade security boundary against modified clients. Refunds and organizer settlements are not newly automated.
 
 The repository has existing unrelated TypeScript parse failures in paypal.ts, bitcoin-balance-card.tsx and events/layout.tsx, and a missing processMaxiCashPayout export used by group.actions.ts. Next.js is configured to skip type/lint validation; a successful build does not imply a clean whole-project typecheck. Lint setup is interactive. These pre-existing issues are outside this phase.
+
+## Production checkout cleanup
+
+At the owner’s request, test suites and their isolated fixtures were removed from the delivery branch after validation. The prior test results above describe checks performed before removal, not tests available in the current checkout. Removed the unused simulated CallView and its dead render path; web calling continues through real meetings. No database records were deleted. Other existing provider simulations outside OnChat remain subject to a separate integration audit.
