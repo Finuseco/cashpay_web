@@ -7,12 +7,13 @@ import jwt from 'jsonwebtoken';
 
 test('WebSocket verifies JWTs and forwards only to conversation participants', async () => {
     const queries: string[] = [];
+    let admitted = false;
     const listener = new EventEmitter() as any;
     listener.query = async () => ({});
     listener.release = () => {};
     class Pool {
         connect = async () => listener;
-        query = async (sql: string) => { queries.push(sql); return { rows: sql.includes('SELECT m.*') ? [{ id: 'msg7', conversation_id: 'conv', recipient_id: 8, sender_id: 7, content: 'Bonjour', type: 'text', status: 'sent', created_at: '2026-10-28T00:00:00Z' }] : sql.includes('SELECT cp.user_id') ? [{ user_id: 8 }] : [{}] }; };
+        query = async (sql: string) => { queries.push(sql); return { rows: sql.includes('FROM meetings m') ? (admitted ? [{}] : []) : sql.includes('SELECT m.*') ? [{ id: 'msg7', conversation_id: 'conv', recipient_id: 8, sender_id: 7, content: 'Bonjour', type: 'text', status: 'sent', created_at: '2026-10-28T00:00:00Z' }] : sql.includes('SELECT cp.user_id') ? [{ user_id: 8 }] : [{}] }; };
     }
     class Server extends EventEmitter { handleUpgrade() {} }
     const context = vm.createContext({ require: (name: string) => ({
@@ -39,4 +40,12 @@ test('WebSocket verifies JWTs and forwards only to conversation participants', a
     assert.equal(sent[1].event, 'chat.message.created');
     assert.equal(sent[1].data.message.id, 'msg7');
     assert.equal(sent[1].data.conversationId, 'conv');
+    const handleMeet = vm.runInContext('handleMeetEvent', context);
+    await handleMeet(socket, { id: 7 }, 'meet.join', { meetCode: 'room123' });
+    assert.equal(sent[2].event, 'error');
+    assert.equal(sent[2].data.code, 'MEET_NOT_FOUND');
+    admitted = true;
+    await handleMeet(socket, { id: 7 }, 'meet.join', { meetCode: 'room123' });
+    assert.equal(sent[3].event, 'meet.peers');
+    assert.ok(queries.some(sql => sql.includes('mp.user_id = $2 AND mp.left_at IS NULL')));
 });
