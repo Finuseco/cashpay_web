@@ -72,7 +72,7 @@ export default function EventsLayout({
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="onchat-theme onchat-bg text-foreground flex min-h-screen flex-col">
       <DashboardHeader
         user={user}
         currencies={[]}

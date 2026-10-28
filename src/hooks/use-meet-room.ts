@@ -39,6 +39,12 @@ function wsUrl() {
 }
 
 export function useMeetRoom(meetCode: string, withVideo: boolean) {
+    const [canSpeak, setCanSpeak] = useState(false);
+    const permissionsRef = useRef<Map<number, boolean>>(new Map());
+    const selfIdRef = useRef<number | null>(null);
+    const canSpeakRef = useRef(false);
+    const desiredMicRef = useRef(true);
+    const desiredCameraRef = useRef(withVideo);
     const [status, setStatus] = useState<RoomStatus>('idle');
     const [error, setError] = useState<string | null>(null);
     const [peers, setPeers] = useState<RemotePeer[]>([]);
@@ -89,7 +95,11 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             pc.onicecandidate = (e) => {
                 if (e.candidate) signal(userId, { type: 'ice', candidate: e.candidate.toJSON() });
             };
-            pc.ontrack = (e) => updatePeer(userId, { stream: e.streams[0] ?? new MediaStream([e.track]) });
+            pc.ontrack = (e) => {
+                const stream = e.streams[0] ?? new MediaStream([e.track]);
+                stream.getTracks().forEach(track => { track.enabled = permissionsRef.current.get(userId) === true; });
+                updatePeer(userId, { stream });
+            };
             pc.onconnectionstatechange = () => updatePeer(userId, { state: pc.connectionState });
             updatePeer(userId, {});
             return pc;
@@ -151,6 +161,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
     const leave = useCallback(() => {
         closedRef.current = true;
         sendWs('meet.leave', { meetCode });
+        fetch(`/api/v1/meetings/${encodeURIComponent(meetCode)}/leave`, { method: 'POST', keepalive: true }).catch(() => undefined);
         socketRef.current?.close();
         socketRef.current = null;
         pcs.current.forEach((pc) => pc.close());
@@ -191,6 +202,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
                 return;
             }
         }
+        stream.getTracks().forEach(track => { track.enabled = false; });
         localRef.current = stream;
         setLocalStream(stream);
         setStatus('connecting');
@@ -203,7 +215,27 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             let msg: any;
             try { msg = JSON.parse(ev.data); } catch { return; }
             const { event, data } = msg || {};
-            if (event === 'meet.peers') {
+            if (event === 'meet.updated') {
+                window.dispatchEvent(new CustomEvent('onchat-meeting-updated', { detail: data }));
+            } else if (event === 'meet.ended') {
+                leave(); setError('L’organisateur a terminé la réunion.');
+            } else if (event === 'meet.permissions') {
+                const userId = Number(data.userId);
+                permissionsRef.current.set(userId, Boolean(data.canSpeak));
+                const selfId = selfIdRef.current;
+                if (userId === selfId) {
+                    canSpeakRef.current = Boolean(data.canSpeak);
+                    setCanSpeak(Boolean(data.canSpeak));
+                    localRef.current?.getAudioTracks().forEach(track => { track.enabled = Boolean(data.canSpeak) && desiredMicRef.current; });
+                    localRef.current?.getVideoTracks().forEach(track => { track.enabled = Boolean(data.canSpeak) && desiredCameraRef.current; });
+                    if (!data.canSpeak) {
+                        localRef.current?.getVideoTracks().forEach(track => { track.enabled = false; });
+                        screenRef.current?.getTracks().forEach(track => track.stop());
+                    }
+                }
+                pcs.current.get(userId)?.getReceivers().forEach(receiver => { if (receiver.track) receiver.track.enabled = Boolean(data.canSpeak); });
+            } else if (event === 'meet.peers') {
+                selfIdRef.current = Number(data.selfId);
                 setStatus('joined');
                 for (const id of data.peers as number[]) {
                     updatePeer(Number(id), { name: data.names?.[id] });
@@ -233,13 +265,15 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
                 setStatus((s) => (s === 'ended' ? s : 'error'));
             }
         };
-    }, [callPeer, handleSignal, meetCode, removePeer, sendWs, updatePeer, withVideo]);
+    }, [callPeer, handleSignal, meetCode, removePeer, sendWs, updatePeer, withVideo, leave]);
 
     const setMicEnabled = useCallback((enabled: boolean) => {
-        localRef.current?.getAudioTracks().forEach((t) => (t.enabled = enabled));
+        desiredMicRef.current = enabled;
+        localRef.current?.getAudioTracks().forEach((t) => (t.enabled = enabled && canSpeakRef.current));
     }, []);
     const setCameraEnabled = useCallback((enabled: boolean) => {
-        localRef.current?.getVideoTracks().forEach((t) => (t.enabled = enabled));
+        desiredCameraRef.current = enabled;
+        localRef.current?.getVideoTracks().forEach((t) => (t.enabled = enabled && canSpeakRef.current));
     }, []);
 
     const replaceVideoTrack = useCallback((track: MediaStreamTrack | null) => {
@@ -250,6 +284,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
     }, []);
 
     const toggleScreenShare = useCallback(async () => {
+        if (!canSpeakRef.current) return;
         if (screenRef.current) {
             screenRef.current.getTracks().forEach((t) => t.stop());
             screenRef.current = null;
@@ -273,5 +308,5 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
 
     useEffect(() => () => { if (!closedRef.current) leave(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return { status, error, peers, localStream, isScreenSharing, join, leave, setMicEnabled, setCameraEnabled, toggleScreenShare };
+    return { status, error, canSpeak, peers, localStream, isScreenSharing, join, leave, setMicEnabled, setCameraEnabled, toggleScreenShare };
 }

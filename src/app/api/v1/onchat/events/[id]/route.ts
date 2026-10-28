@@ -62,7 +62,7 @@ export async function GET(
                 time: event.event_time || null,
                 location: event.location || null,
                 currency: event.currency || 'USD',
-                eventType: event.event_type || 'live',
+                eventType: event.onchat_meeting_id ? 'onchat' : event.event_type || 'live',
                 organizerName: event.organizerName || null,
                 organizerPhoto: event.organizerPhoto || null,
                 ticketTypes: ticketTypes.map(tt => ({

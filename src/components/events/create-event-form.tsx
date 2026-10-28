@@ -8,8 +8,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { 
-    CalendarIcon, Loader2, PlusCircle, QrCode, ShieldCheck, Trash2, UploadCloud, Video, X, Banknote 
+import {
+    CalendarIcon, Loader2, PlusCircle, QrCode, ShieldCheck, Trash2, UploadCloud, Video, X, Banknote
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -44,7 +44,7 @@ const formSchema = z.object({
     currency: z.string({ required_error: "La devise est requise." }),
     imageUrl: z.string().optional(),
     ticketTypes: z.array(ticketTypeSchema).min(1, "Au moins un type de billet est requis."),
-    eventType: z.enum(['live', 'zoom'], { required_error: "Sélectionnez un type d'événement." }),
+    eventType: z.enum(['live', 'onchat'], { required_error: "Sélectionnez un type d'événement." }),
 });
 
 export function CreateEventForm() {
@@ -88,9 +88,9 @@ export function CreateEventForm() {
         };
         loadInitialData();
     }, []);
-    
+
     const eventType = form.watch('eventType');
-    
+
     const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
@@ -103,7 +103,7 @@ export function CreateEventForm() {
             reader.readAsDataURL(file);
         }
     };
-    
+
     async function onSubmit(values: z.infer<typeof formSchema>) {
         setIsSubmitting(true);
         const result = await createEvent(values as any);
@@ -131,17 +131,17 @@ export function CreateEventForm() {
             <CardContent className="pt-8 px-6 sm:px-10">
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-10">
-                        
+
                         <div className="space-y-4">
                             <Label className="text-xs font-black uppercase tracking-widest text-zinc-500 pl-1">Image de l'affiche</Label>
                             <div className="relative group">
                                 {imagePreview ? (
                                     <div className="relative aspect-video w-full rounded-lg overflow-hidden border border-border shadow-md">
                                         <Image src={imagePreview} alt="Aperçu" fill className="object-cover" />
-                                        <Button 
-                                            type="button" 
-                                            variant="destructive" 
-                                            size="icon" 
+                                        <Button
+                                            type="button"
+                                            variant="destructive"
+                                            size="icon"
                                             className="absolute top-2 right-2 h-8 w-8 rounded-full shadow-lg"
                                             onClick={() => { setImagePreview(null); form.setValue('imageUrl', ''); }}
                                         >
@@ -175,10 +175,10 @@ export function CreateEventForm() {
                                                 </Label>
                                             </div>
                                             <div className="relative">
-                                                <RadioGroupItem value="zoom" id="zoom" className="sr-only peer" />
-                                                <Label htmlFor="zoom" className={cn("flex flex-col items-center justify-center rounded-lg border border-border bg-card px-4 py-3 hover:bg-muted/40 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 cursor-pointer transition-all min-h-[76px] shadow-sm")}>
+                                                <RadioGroupItem value="onchat" id="onchat" className="sr-only peer" />
+                                                <Label htmlFor="onchat" className={cn("flex flex-col items-center justify-center rounded-lg border border-border bg-card px-4 py-3 hover:bg-muted/40 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 cursor-pointer transition-all min-h-[76px] shadow-sm")}>
                                                     <Video className="mb-1.5 h-5 w-5 text-muted-foreground peer-data-[state=checked]:text-primary"/>
-                                                    <span className="font-semibold text-sm">Webinaire Zoom</span>
+                                                    <span className="font-semibold text-sm">Conférence OnChat Meet</span>
                                                 </Label>
                                             </div>
                                         </RadioGroup>
@@ -214,7 +214,7 @@ export function CreateEventForm() {
                                     <FormMessage />
                                 </FormItem>
                             )} />
-                            
+
                             <div className="grid md:grid-cols-2 gap-4">
                                 <FormField control={form.control} name="date" render={({ field }) => (
                                     <FormItem className="flex flex-col">
@@ -247,7 +247,7 @@ export function CreateEventForm() {
 
                         <div className="space-y-5">
                             <h3 className="text-xs font-semibold uppercase tracking-wide text-primary border-l-2 border-primary pl-2">Billetterie & Prix</h3>
-                            
+
                             <div className="space-y-4">
                                 <Label className="text-xs font-bold text-zinc-500">Devise des Billets</Label>
                                 <FormField control={form.control} name="currency" render={({ field }) => (
@@ -300,7 +300,7 @@ export function CreateEventForm() {
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div className="pt-2">
                             <Button type="submit" variant="gradient" className="w-full h-12 text-base font-semibold shadow-lg rounded-lg uppercase tracking-wide" disabled={isSubmitting}>
                                 {isSubmitting ? <Loader2 className="animate-spin mr-2 h-5 w-5"/> : <ShieldCheck className="mr-2 h-5 w-5"/>}

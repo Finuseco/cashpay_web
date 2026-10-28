@@ -30,7 +30,7 @@ export function NewChatView({ currentUser, onBack, onNewConversation }: NewChatV
     const router = useRouter();
     const [isLoading, setIsLoading] = useState(false);
     const { openAlert } = useAlertDialog();
-    
+
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
         defaultValues: {
@@ -43,7 +43,7 @@ export function NewChatView({ currentUser, onBack, onNewConversation }: NewChatV
         setIsLoading(true);
 
         const result = await createConversationByWalletId(currentUser.id, values.walletId);
-        
+
         setIsLoading(false);
 
         if (result.success && result.conversation?.contact) {
@@ -55,7 +55,7 @@ export function NewChatView({ currentUser, onBack, onNewConversation }: NewChatV
 
     return (
         <div className="flex flex-col h-full min-h-0 bg-[#0b141a] text-white">
-            <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#1f2c33]">
+            <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#141C38]">
                 <Button variant="ghost" size="icon" onClick={onBack}>
                     <ArrowLeft />
                 </Button>
@@ -80,7 +80,7 @@ export function NewChatView({ currentUser, onBack, onNewConversation }: NewChatV
                                 </FormItem>
                             )}
                         />
-                         <Button 
+                         <Button
                             type="submit"
                             className="w-full"
                             disabled={isLoading}
@@ -90,7 +90,7 @@ export function NewChatView({ currentUser, onBack, onNewConversation }: NewChatV
                         </Button>
                     </form>
                 </Form>
-                 <Button 
+                 <Button
                     variant="outline"
                     className="w-full bg-transparent border-zinc-700 hover:bg-zinc-800"
                     onClick={() => router.push('/feedback/groups/create')}

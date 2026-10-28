@@ -35,11 +35,12 @@ export interface Event {
   currency: string;
   organizerName: string;
   ticketTypes: TicketType[];
-  ownerUserId: number; 
-  ownerCountryCode: string; 
+  ownerUserId: number;
+  ownerCountryCode: string;
   validatedCount: number;
-  eventType: 'live' | 'zoom';
+  eventType: 'live' | 'onchat' | 'zoom';
   zoomEventId?: string;
+  onchatJoinUrl?: string;
 }
 
 export interface Ticket {

@@ -63,7 +63,7 @@ export async function POST(request: Request) {
         time: String(time),
         currency: String(currency).toUpperCase(),
         imageUrl: imageUrl || undefined,
-        eventType: eventType === 'zoom' ? 'zoom' : 'live',
+        eventType: eventType === 'onchat' ? 'onchat' : eventType === 'zoom' ? 'zoom' : 'live',
         ticketTypes: ticketTypes.map((tt: any) => ({
             type: String(tt.type || 'Standard'),
             price: Number(tt.price || 0),

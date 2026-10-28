@@ -26,21 +26,22 @@ const E_Ticket = ({ ticket, event }: { ticket: EventTicket['tickets'][0], event:
         getReceiptLogoBase64().then(setLogoBase64);
     }, []);
 
-    const isZoomEvent = event.eventType === 'zoom';
+    const isZoomEvent = event.eventType === 'zoom' || event.eventType === 'onchat';
+    const onlineLabel = event.eventType === 'onchat' ? 'OnChat Meet' : 'Zoom (billet existant)';
 
     const handleSharePdf = async () => {
         const element = pdfRef.current;
         if (!element) return;
-        
+
         const html2canvas = (await import('html2canvas')).default;
         const canvas = await html2canvas(element, { scale: 3, useCORS: true });
         const imgData = canvas.toDataURL('image/png');
-        
+
         const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
         const pdfWidth = pdf.internal.pageSize.getWidth();
         const pdfHeight = pdf.internal.pageSize.getHeight();
         const canvasAspectRatio = canvas.width / canvas.height;
-        
+
         let finalWidth = pdfWidth - 20;
         let finalHeight = finalWidth / canvasAspectRatio;
 
@@ -81,7 +82,7 @@ const E_Ticket = ({ ticket, event }: { ticket: EventTicket['tickets'][0], event:
                         <div className="text-sm space-y-2 border-l border-black pl-4">
                             <h4 className="font-bold text-xl mb-4 uppercase">{isZoomEvent ? 'Accès Webinaire' : 'Billet Entrée'}</h4>
                             <p><strong>Événement:</strong> {event.eventName}</p>
-                            <p><strong>Lieu:</strong> {isZoomEvent ? 'Conférence en ligne (Zoom)' : event.location}</p>
+                            <p><strong>Lieu:</strong> {isZoomEvent ? onlineLabel : event.location}</p>
                             <p><strong>Type:</strong> {ticket.ticketType}</p>
                             <p><strong>Détenteur:</strong> {ticket.ownerName}</p>
                             <p><strong>Statut:</strong> <span className="font-bold">{ticket.status}</span></p>
@@ -100,7 +101,7 @@ const E_Ticket = ({ ticket, event }: { ticket: EventTicket['tickets'][0], event:
             <div className="p-4 bg-background rounded-lg border">
                 <div className="text-center pb-4 border-b">
                     <h3 className="font-bold text-lg">{event.eventName}</h3>
-                    <p className="text-sm text-muted-foreground">{isZoomEvent ? 'Visioconférence Zoom' : event.location}</p>
+                    <p className="text-sm text-muted-foreground">{isZoomEvent ? onlineLabel : event.location}</p>
                     <p className="text-sm text-muted-foreground">{format(new Date(event.date), "EEEE d MMMM yyyy 'à' HH:mm", { locale: fr })}</p>
                 </div>
                 <div className="py-4 text-center">
@@ -109,7 +110,7 @@ const E_Ticket = ({ ticket, event }: { ticket: EventTicket['tickets'][0], event:
                             <div className="h-16 w-16 bg-blue-500/10 rounded-full flex items-center justify-center">
                                 <Video className="h-8 w-8 text-blue-600"/>
                             </div>
-                            <p className="text-sm font-semibold">Le lien d'accès a été généré via Zoom API</p>
+                            <p className="text-sm font-semibold">Votre code personnel de participation : {ticket.ticketCode}</p>
                          </div>
                      ) : (
                         <>
@@ -127,9 +128,9 @@ const E_Ticket = ({ ticket, event }: { ticket: EventTicket['tickets'][0], event:
             </div>
 
              <DialogFooter className="flex-col sm:flex-row gap-2 mt-4">
-                {ticket.zoomJoinUrl ? (
+                {(ticket.onchatJoinUrl || ticket.zoomJoinUrl) ? (
                     <Button asChild className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-lg font-bold shadow-lg">
-                        <a href={ticket.zoomJoinUrl} target="_blank" rel="noopener noreferrer">
+                        <a href={ticket.onchatJoinUrl || ticket.zoomJoinUrl || undefined} target={ticket.onchatJoinUrl ? undefined : "_blank"} rel="noopener noreferrer">
                             <Video className="mr-2"/> Rejoindre maintenant
                         </a>
                     </Button>
@@ -150,7 +151,7 @@ export function MyTicketsClient({ ticketsByEvent }: { ticketsByEvent: EventTicke
                     <h1 className="text-3xl font-bold">Mes Billets & Accès</h1>
                     <p className="text-muted-foreground">Retrouvez ici vos accès pour les événements physiques et webinaires.</p>
                 </div>
-                
+
                 {ticketsByEvent.length > 0 ? (
                     <Accordion type="single" collapsible className="w-full" defaultValue={`item-${ticketsByEvent[0].eventId}`}>
                         {ticketsByEvent.map((event) => (
@@ -159,7 +160,7 @@ export function MyTicketsClient({ ticketsByEvent }: { ticketsByEvent: EventTicke
                                     <div className="flex items-center gap-4 text-left">
                                         <div className="relative h-16 w-16 shrink-0">
                                             <Image src={event.imageUrl || 'https://placehold.co/100x100.png'} alt={event.eventName} fill className="rounded-lg object-cover aspect-square"/>
-                                            {event.eventType === 'zoom' && (
+                                            {(event.eventType === 'zoom' || event.eventType === 'onchat') && (
                                                 <div className="absolute -top-1 -right-1 bg-blue-600 rounded-full p-1 border-2 border-white shadow-sm">
                                                     <Video className="h-3 w-3 text-white"/>
                                                 </div>
@@ -183,7 +184,7 @@ export function MyTicketsClient({ ticketsByEvent }: { ticketsByEvent: EventTicke
                                                             </div>
                                                             <div>
                                                                 <p className="font-semibold text-sm">{ticket.ticketType}</p>
-                                                                <p className="text-[10px] text-muted-foreground uppercase font-bold">{event.eventType === 'zoom' ? 'Accès Digital' : 'Entrée Physique'}</p>
+                                                                <p className="text-[10px] text-muted-foreground uppercase font-bold">{(event.eventType === 'zoom' || event.eventType === 'onchat') ? 'Accès Digital' : 'Entrée Physique'}</p>
                                                             </div>
                                                         </div>
                                                         <Button variant="outline" size="sm" className="h-8 text-xs">Détails</Button>

@@ -31,7 +31,23 @@ export async function GET(
             return NextResponse.json({ success: false, error: 'Réunion introuvable.' }, { status: 404 });
         }
 
-        // meeting_participants peut ne pas avoir les colonnes raise_hand/can_speak/role
+        const isHost = Number(meetRows[0].host_user_id) === Number(user.id);
+        if (!isHost) {
+            const access = await db.query('SELECT 1 FROM meeting_participants WHERE meeting_id = $1 AND user_id = $2 AND left_at IS NULL', [meetRows[0].id, user.id]);
+            if (!access.rows.length) return NextResponse.json({ success: false, error: 'Accès réservé aux participants.' }, { status: 403 });
+        }
+        let revenue = [];
+        if (isHost) {
+            const receipts = await db.query(`SELECT
+              COALESCE(NULLIF(metadata->>'original_currency', ''), currency) AS currency,
+              SUM(CASE WHEN (metadata->>'original_amount') ~ '^[0-9]+([.][0-9]+)?$' THEN (metadata->>'original_amount')::numeric ELSE amount END) AS amount,
+              COUNT(*) AS payments
+              FROM transactions WHERE receiver_id = $1 AND status = 'Completed'
+                AND (metadata->>'meetingId' = $2 OR metadata->>'eventId' IN (SELECT id::text FROM events WHERE onchat_meeting_id = $3))
+              GROUP BY COALESCE(NULLIF(metadata->>'original_currency', ''), currency)`, [user.id, String(meetRows[0].id), meetRows[0].id]);
+            revenue = receipts.rows.map(row => ({ currency: row.currency, amount: Number(row.amount), payments: Number(row.payments) }));
+        }
+
         const { rows } = await db.query(
             `SELECT
                 mp.user_id,
@@ -47,13 +63,12 @@ export async function GET(
              WHERE mp.meeting_id = $1 AND mp.left_at IS NULL
              ORDER BY mp.is_host DESC, mp.joined_at ASC`,
             [meetRows[0].id]
-        ).catch(async () => {
-            // Table ou colonnes inexistantes — retourner liste vide
-            return { rows: [] };
-        });
+        );
 
         return NextResponse.json({
             success: true,
+            isHost,
+            revenue: isHost ? revenue : undefined,
             meetingStatus: meetRows[0].status,
             hostUserId: meetRows[0].host_user_id,
             participants: rows.map((r: any) => ({

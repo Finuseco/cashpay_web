@@ -44,7 +44,7 @@ export async function createGroup(
 
         // 2. Generate the unique Group Wallet ID
         const groupWalletId = generateGroupWalletId(groupId);
-        
+
         // 3. Create the corresponding wallet in the wallets table FIRST
         const walletData = {
             id_wallet: groupWalletId,
@@ -52,7 +52,7 @@ export async function createGroup(
             is_group_wallet: true
         };
         await connection.query('INSERT INTO wallets (id_wallet, balances, is_group_wallet) VALUES ($1, $2, $3)', [walletData.id_wallet, walletData.balances, walletData.is_group_wallet]);
-        
+
         // 4. NOW, assign the Group Wallet ID to the group
         await connection.query('UPDATE groups SET group_wallet_id = $1 WHERE id = $2', [groupWalletId, groupId]);
 
@@ -66,7 +66,7 @@ export async function createGroup(
         await connection.query('INSERT INTO group_members (group_id, user_id, role, status) VALUES ($1, $2, $3, $4)', [memberData.group_id, memberData.user_id, memberData.role, memberData.status]);
 
         await connection.query('COMMIT');
-        
+
         const newGroup: Group = {
             id: groupId,
             name,
@@ -97,7 +97,7 @@ export async function createGroup(
 export async function getUserGroups(userId: number): Promise<Group[]> {
     try {
         const { rows } = await db.query(`
-            SELECT 
+            SELECT
                 g.id, g.name, g.description, g.photo_url, g.currency, g.group_wallet_id, g.owner_user_id, g.created_at,
                 (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id AND gm.status = 'active') as member_count,
                 (w.balances->>g.currency)::numeric as balance
@@ -126,9 +126,12 @@ export async function getUserGroups(userId: number): Promise<Group[]> {
 }
 
 export async function getGroupById(groupId: number, userId: number): Promise<Group | null> {
+    const { getAuthenticatedUser } = await import('./user.actions');
+    const user = await getAuthenticatedUser();
+    if (!user || Number(user.id) !== Number(userId)) return null;
     try {
         const { rows: groupRows } = await db.query(`
-             SELECT 
+             SELECT
                 g.id, g.name, g.description, g.photo_url, g.currency, g.group_wallet_id, g.owner_user_id, g.created_at,
                 (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id AND gm.status = 'active') as member_count,
                 (w.balances->>g.currency)::numeric as balance,
@@ -141,7 +144,7 @@ export async function getGroupById(groupId: number, userId: number): Promise<Gro
         if (groupRows.length === 0) {
             return null; // Not found or user is not a member
         }
-        
+
         const groupData = groupRows[0];
 
         const { rows: memberRows } = await db.query(`
@@ -185,6 +188,8 @@ export async function getGroupWithMessages(groupId: number, userId: number): Pro
             type: m.type,
             status: 'sent',
             groupId: m.group_id,
+            metadata: m.metadata,
+            image_id: m.image_id,
         }));
     } catch(e) {
         console.error("Failed to fetch group messages", e);
@@ -199,12 +204,12 @@ export async function addMemberToGroup(groupId: number, currentUserId: number, n
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
-        
+
         const { rows: adminCheck } = await connection.query("SELECT role FROM group_members WHERE group_id = $1 AND user_id = $2 AND status = 'active'", [groupId, currentUserId]);
         if (adminCheck.length === 0 || adminCheck[0].role !== 'admin') {
             throw new Error("Vous n'avez pas la permission d'ajouter des membres à ce groupe.");
         }
-        
+
         const userToAdd = await getUserFromDb({ walletId: newMemberWalletId });
         if (!userToAdd) {
             throw new Error("L'utilisateur avec cet ID de portefeuille n'a pas été trouvé.");
@@ -215,9 +220,9 @@ export async function addMemberToGroup(groupId: number, currentUserId: number, n
         if (existingMember.length > 0) {
             throw new Error("Cet utilisateur est déjà membre du groupe.");
         }
-        
+
         await connection.query("INSERT INTO group_members (group_id, user_id, role, status) VALUES ($1, $2, 'member', 'active')", [groupId, newMemberUserId]);
-        
+
         await connection.query('COMMIT');
         return { success: true };
     } catch (error: any) {
@@ -235,9 +240,9 @@ export async function removeMemberFromGroup(groupId: number, currentUserId: numb
         if (adminCheck.length === 0 || adminCheck[0].role !== 'admin') {
             return { success: false, error: "Vous n'avez pas la permission de supprimer des membres de ce groupe." };
         }
-        
+
         await db.query("DELETE FROM group_members WHERE group_id = $1 AND user_id = $2", [groupId, memberToRemoveId]);
-        
+
         return { success: true };
     } catch (error) {
         const dbError = await handleDbError(error, 'removing member from group');
@@ -248,7 +253,7 @@ export async function removeMemberFromGroup(groupId: number, currentUserId: numb
 export async function getGroupMembers(groupId: number): Promise<GroupMemberInfo[]> {
     try {
         const { rows } = await db.query(`
-            SELECT u.id, u.full_name, u.profile_photo, gm.role 
+            SELECT u.id, u.full_name, u.profile_photo, gm.role
             FROM users u
             JOIN group_members gm ON u.id = gm.user_id
             WHERE gm.group_id = $1 AND gm.status = 'active'
@@ -300,7 +305,7 @@ export async function contributeToGroup(args: {
 
         const { rows: groupRows } = await connection.query('SELECT name, group_wallet_id FROM groups WHERE id = $1', [groupId]);
         if (groupRows.length === 0) throw new Error("Groupe introuvable.");
-        
+
         const transactionResult = await createTransaction({
             user: userRows[0] as User,
             typeCode: 'GROUP_CONTRIBUTION',
@@ -311,7 +316,7 @@ export async function contributeToGroup(args: {
             metadata: { groupId },
             connection,
         });
-        
+
         if (!transactionResult.success || !transactionResult.transactionId) {
             throw new Error(transactionResult.error);
         }
@@ -325,7 +330,7 @@ export async function contributeToGroup(args: {
             source_transaction_id: transactionResult.transactionId,
         };
         await connection.query('INSERT INTO group_transactions (group_id, user_id, type, amount, currency, description, source_transaction_id) VALUES ($1, $2, $3, $4, $5, $6, $7)', Object.values(txData));
-        
+
         await connection.query('COMMIT');
         return { success: true };
     } catch (error: any) {
@@ -362,7 +367,7 @@ export async function payoutFromGroup(args: {
         if (adminCheck.length === 0 || adminCheck[0].role !== 'admin') {
             throw new Error("Action non autorisée. Seul un admin peut effectuer un paiement.");
         }
-        
+
         const { rows: groupRows } = await connection.query('SELECT group_wallet_id, name, currency FROM groups WHERE id = $1', [groupId]);
         if (groupRows.length === 0) throw new Error("Groupe introuvable.");
         const groupWalletId = groupRows[0].group_wallet_id;
@@ -370,7 +375,7 @@ export async function payoutFromGroup(args: {
 
         const { rows: groupBalanceRows } = await connection.query('SELECT balances FROM wallets WHERE id_wallet = $1 FOR UPDATE', [groupWalletId]);
         if (groupBalanceRows.length === 0) throw new Error("Portefeuille du groupe introuvable.");
-        
+
         const groupBalances = groupBalanceRows[0].balances;
         if ((groupBalances[groupCurrency] || 0) < amount) {
             throw new Error(`Solde du portefeuille de groupe insuffisant.`);
@@ -388,13 +393,13 @@ export async function payoutFromGroup(args: {
 
             await connection.query(`
                 UPDATE wallets SET balances = jsonb_set(
-                    COALESCE(balances, '{}'::jsonb), '{${groupCurrency}}', (COALESCE((balances->>'${groupCurrency}')::numeric, 0) + $1)::text::jsonb) 
+                    COALESCE(balances, '{}'::jsonb), '{${groupCurrency}}', (COALESCE((balances->>'${groupCurrency}')::numeric, 0) + $1)::text::jsonb)
                 WHERE user_id = $2`, [amount, recipientUserId]);
         } else if (destinationMobile) {
             // Payout vers Mobile Money via MaxiCash
             const { rows: adminUserRows } = await connection.query('SELECT * FROM users WHERE id = $1', [adminUserId]);
             const adminUser = formatUser(adminUserRows[0]);
-            
+
             const payoutResult = await processMaxiCashPayout({
                 amount,
                 currency: groupCurrency,
@@ -407,14 +412,14 @@ export async function payoutFromGroup(args: {
             });
 
             if (!payoutResult.success) throw new Error(payoutResult.message || "Échec du virement Mobile Money.");
-            
+
             // Débiter le groupe
             groupBalances[groupCurrency] -= amount;
             await connection.query('UPDATE wallets SET balances = $1 WHERE id_wallet = $2', [JSON.stringify(groupBalances), groupWalletId]);
         } else {
             throw new Error("Aucune destination de paiement fournie.");
         }
-        
+
         const txData = {
             group_id: groupId,
             user_id: adminUserId,
@@ -424,7 +429,7 @@ export async function payoutFromGroup(args: {
             destination: destinationWalletId || destinationMobile?.phone,
         };
         await connection.query('INSERT INTO group_transactions (group_id, user_id, type, amount, currency, description, destination) VALUES ($1, $2, $3, $4, $5, $6, $7)', Object.values(txData));
-        
+
         await connection.query('COMMIT');
         return { success: true };
     } catch (error: any) {

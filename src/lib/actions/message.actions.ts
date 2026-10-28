@@ -805,26 +805,33 @@ export async function postGroupMessage(
     content: string,
     type: Message['type'] = 'text',
     fileDataUri?: string,
-    fileName?: string
+    fileName?: string,
+    attachmentMetadata?: Record<string, string>
 ): Promise<Message> {
-    let finalFileUrl = null;
-    let metadata = null;
+    const { getAuthenticatedUser } = await import('./user.actions');
+    const user = await getAuthenticatedUser();
+    if (!user || Number(user.id) !== Number(senderId)) throw new Error('Authentification requise.');
+    const membership = await db.query("SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2 AND status = 'active'", [groupId, user.id]);
+    if (!membership.rows.length) throw new Error('Groupe inaccessible.');
+    if (attachmentMetadata?.fileUrl && !ownedAttachmentPath(attachmentMetadata.fileUrl, user.id)) throw new Error('Fichier non autorisé.');
+    let metadata = attachmentMetadata ? JSON.stringify(attachmentMetadata) : null;
     let imageId = null;
-
-    if (type === 'image' && fileDataUri) {
-        imageId = `IMG_G_${crypto.randomBytes(16).toString('hex')}`;
-        finalFileUrl = await saveBase64Image(fileDataUri, `chat-files/sender_${senderId}`, imageId);
-        metadata = JSON.stringify({ fileUrl: finalFileUrl, fileName: fileName || `${imageId}.jpg`, image_id: imageId });
-    } else if (fileDataUri) {
-        const fileId = `${type}_G_${Date.now()}`;
-        finalFileUrl = await saveBase64Image(fileDataUri, `chat-files/sender_${senderId}`, fileId);
-        metadata = JSON.stringify({ fileUrl: finalFileUrl, fileName: fileName || fileId });
+    if (fileDataUri) {
+        const attachment = parseChatDataUri(fileDataUri);
+        const name = `${crypto.randomUUID()}${attachment.extension}`;
+        const target = attachmentDiskPath(String(user.id), name);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, attachment.buffer);
+        if (type === 'image') imageId = `IMG_${crypto.randomBytes(16).toString('hex')}`;
+        metadata = JSON.stringify({ fileUrl: `/api/uploads/onchat/${user.id}/${name}`, fileName: fileName || name, imageId });
     }
 
     const { rows } = await db.query('INSERT INTO group_messages (group_id, sender_id, content, type, metadata, image_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *', 
         [groupId, senderId, content, type, metadata, imageId]);
     
     const insertedMessage = rows[0];
+    await db.query("SELECT pg_notify('onchat_group_messages', $1)", [JSON.stringify({ id: String(insertedMessage.id) })]);
+
 
     const { rows: memberRows } = await db.query('SELECT user_id FROM group_members WHERE group_id = $1 AND user_id != $2', [groupId, senderId]);
     const memberIds = memberRows.map(r => r.user_id);

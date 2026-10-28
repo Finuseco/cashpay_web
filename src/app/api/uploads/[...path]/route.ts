@@ -41,7 +41,11 @@ export async function GET(request: NextRequest, { params }: { params: { path: st
             const { rows } = await db.query(`SELECT 1 FROM messages m
                 JOIN conversation_participants cp ON cp.conversation_id = m.conversation_id
                 WHERE cp.user_id = $1 AND m.metadata::jsonb->>'fileUrl' = $2 LIMIT 1`, [user.id, fileUrl]);
-            if (!rows.length) return new NextResponse('Introuvable', { status: 404 });
+            if (!rows.length) {
+                const group = await db.query(`SELECT 1 FROM group_messages gm JOIN group_members member ON member.group_id = gm.group_id
+                    WHERE member.user_id = $1 AND member.status = 'active' AND gm.metadata::jsonb->>'fileUrl' = $2 LIMIT 1`, [user.id, fileUrl]);
+                if (!group.rows.length) return new NextResponse('Introuvable', { status: 404 });
+            }
         }
         privateAttachment = true;
     }
@@ -84,7 +88,7 @@ export async function GET(request: NextRequest, { params }: { params: { path: st
                 'Cache-Control': privateAttachment ? 'private, no-store' : 'public, max-age=3600',
             } });
         }
-        return new NextResponse(data.subarray(start, end + 1), {
+        return new NextResponse(new Uint8Array(data.subarray(start, end + 1)), {
             status: 206,
             headers: {
                 'Content-Type': type,
@@ -97,7 +101,7 @@ export async function GET(request: NextRequest, { params }: { params: { path: st
         });
     }
 
-    return new NextResponse(data, {
+    return new NextResponse(new Uint8Array(data), {
         headers: {
             'Content-Type': type,
             'Content-Length': String(data.length),

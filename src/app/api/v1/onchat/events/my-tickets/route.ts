@@ -30,7 +30,7 @@ export async function GET() {
                 e.location AS "eventLocation",
                 e.image_url AS "eventImageUrl",
                 e.currency AS "eventCurrency",
-                e.event_type AS "eventType",
+                e.event_type AS "eventType", e.onchat_meeting_id, m.join_url AS "onchatJoinUrl",
                 ett.type_name AS "ticketType",
                 ett.price AS "ticketPrice",
                 u.full_name AS "organizerName"
@@ -38,6 +38,7 @@ export async function GET() {
              JOIN events e ON t.event_id = e.id
              JOIN event_ticket_types ett ON t.ticket_type_id = ett.id
              JOIN users u ON e.owner_user_id = u.id
+             LEFT JOIN meetings m ON m.id = e.onchat_meeting_id
              WHERE t.user_id = $1::int
              ORDER BY t.created_at DESC`,
             [user.id]
@@ -50,6 +51,7 @@ export async function GET() {
                 ticketCode: r.ticketCode,
                 status: r.status,
                 zoomJoinUrl: r.zoomJoinUrl || null,
+                onchatJoinUrl: r.onchatJoinUrl ? `${r.onchatJoinUrl}?ticket=${encodeURIComponent(r.ticketCode)}` : null,
                 purchasedAt: r.purchasedAt,
                 event: {
                     id: String(r.eventId),
@@ -59,7 +61,7 @@ export async function GET() {
                     location: r.eventLocation || null,
                     imageUrl: r.eventImageUrl || null,
                     currency: r.eventCurrency || 'USD',
-                    type: r.eventType || 'live',
+                    type: r.onchat_meeting_id ? 'onchat' : r.eventType || 'live',
                     organizerName: r.organizerName || null,
                 },
                 ticketType: r.ticketType,

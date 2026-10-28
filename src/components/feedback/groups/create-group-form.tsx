@@ -30,7 +30,7 @@ export function CreateGroupForm({ onBack, onCreated }: { onBack?: () => void; on
         resolver: zodResolver(groupFormSchema),
         defaultValues: { name: '', description: '', currency: 'USD' },
     });
-    
+
     async function onSubmit(values: z.infer<typeof groupFormSchema>) {
         setIsSubmitting(true);
         const user = await getAuthenticatedUser();
@@ -41,20 +41,20 @@ export function CreateGroupForm({ onBack, onCreated }: { onBack?: () => void; on
         }
 
         const result = await createGroup(user, values.name, values.currency, values.description);
-        
+
         if (result.success) {
             openAlert({ title: "Groupe créé", description: `Le groupe "${values.name}" a été créé avec succès.`, variant: 'success' });
             if (onCreated) onCreated(); else router.back();
         } else {
             openAlert({ title: "Erreur", description: result.error, variant: 'error' });
         }
-        
+
         setIsSubmitting(false);
     }
-    
+
     return (
         <div className="bg-[#0b141a] h-full min-h-0 flex flex-col">
-            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#1f2c33] text-white">
+            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#141C38] text-white">
                 <Button variant="ghost" size="icon" onClick={() => (onBack ? onBack() : router.back())}>
                     <ArrowLeft />
                 </Button>
