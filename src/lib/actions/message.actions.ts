@@ -243,7 +243,8 @@ export async function postMessage(
     senderId: number,
     receiverId: number,
     fileDataUri?: string,
-    fileName?: string
+    fileName?: string,
+    extraMetadata?: Record<string, unknown>
 ): Promise<Message> {
     const connection = await db.getConnection();
 
@@ -285,7 +286,7 @@ export async function postMessage(
         }
 
         let imageId: string | null = null;
-        let metadata: Record<string, unknown> | null = null;
+        let metadata: Record<string, unknown> | null = extraMetadata || null;
 
         if (type === 'image' && fileDataUri) {
             imageId = `IMG_${crypto.randomBytes(16).toString('hex')}`;

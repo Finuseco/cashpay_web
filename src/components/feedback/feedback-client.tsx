@@ -275,9 +275,26 @@ export function FeedbackClient() {
             : conversations.find(c => c.contact.id === contact.id);
         if (conv) {
             try {
-                await postMessage(conv.id, `${type === 'audio' ? '📞 Appel audio' : '🎥 Appel vidéo'} — rejoignez : ${link}`, 'text', currentUser.id, contact.id);
+                // Envoyer une carte visuelle (meeting_link) plutôt qu’une URL brute
+                await postMessage(
+                    conv.id,
+                    type === ‘audio’ ? ‘📞 Appel audio OnChat’ : ‘🎥 Réunion vidéo OnChat’,
+                    ‘meeting_link’,
+                    currentUser.id,
+                    contact.id,
+                    undefined,
+                    undefined,
+                    {
+                        meetCode: meeting.meetCode,
+                        joinUrl: link,
+                        topic: `${type === ‘audio’ ? ‘Appel audio’ : ‘Appel vidéo’} avec ${contact.first_name || contact.full_name}`,
+                        type: type === ‘audio’ ? ‘audio’ : ‘video’,
+                        status: ‘active’,
+                        startedAt: new Date().toISOString(),
+                    }
+                );
             } catch (e) {
-                console.error('[OnChat] envoi du lien d’appel', e);
+                console.error(‘[OnChat] envoi du lien d\’appel’, e);
             }
         }
         window.location.href = link;
