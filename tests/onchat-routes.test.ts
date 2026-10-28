@@ -73,4 +73,10 @@ test('private downloads deny strangers and allow a conversation participant', as
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'private, no-store');
     assert.equal(await response.text(), 'abc');
+    const suffix = await route.GET(new Request('https://example.test', { headers: { range: 'bytes=-2' } }), params);
+    assert.equal(suffix.status, 206);
+    assert.equal(await suffix.text(), 'bc');
+    const invalid = await route.GET(new Request('https://example.test', { headers: { range: 'bytes=9-10' } }), params);
+    assert.equal(invalid.status, 416);
+    assert.equal(invalid.headers.get('content-range'), 'bytes */3');
 });

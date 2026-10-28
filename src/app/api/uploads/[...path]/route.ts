@@ -62,23 +62,39 @@ export async function GET(request: NextRequest, { params }: { params: { path: st
 
     // Support minimal des requêtes Range (lecture audio/vidéo dans le navigateur).
     const range = request.headers.get('range');
-    const m = range ? /bytes=(\d*)-(\d*)/.exec(range) : null;
-    if (m) {
-        const start = m[1] ? parseInt(m[1], 10) : 0;
-        const end = m[2] ? Math.min(parseInt(m[2], 10), data.length - 1) : data.length - 1;
-        if (start <= end && start < data.length) {
-            return new NextResponse(data.subarray(start, end + 1), {
-                status: 206,
-                headers: {
-                    'Content-Type': type,
-                    'Content-Range': `bytes ${start}-${end}/${data.length}`,
-                    'Accept-Ranges': 'bytes',
-                    'Content-Length': String(end - start + 1),
-                    'Cache-Control': privateAttachment ? 'private, no-store' : 'public, max-age=3600',
-                    'X-Content-Type-Options': 'nosniff',
-                },
-            });
+    if (range) {
+        const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+        let start = 0;
+        let end = data.length - 1;
+        let valid = Boolean(match && (match[1] || match[2]));
+        if (valid && match) {
+            if (!match[1]) {
+                const suffix = Number(match[2]);
+                valid = Number.isSafeInteger(suffix) && suffix > 0;
+                start = Math.max(0, data.length - suffix);
+            } else {
+                start = Number(match[1]);
+                end = match[2] ? Math.min(Number(match[2]), end) : end;
+                valid = Number.isSafeInteger(start) && Number.isSafeInteger(end);
+            }
         }
+        if (!valid || start > end || start >= data.length) {
+            return new NextResponse(null, { status: 416, headers: {
+                'Content-Range': `bytes */${data.length}`,
+                'Cache-Control': privateAttachment ? 'private, no-store' : 'public, max-age=3600',
+            } });
+        }
+        return new NextResponse(data.subarray(start, end + 1), {
+            status: 206,
+            headers: {
+                'Content-Type': type,
+                'Content-Range': `bytes ${start}-${end}/${data.length}`,
+                'Accept-Ranges': 'bytes',
+                'Content-Length': String(end - start + 1),
+                'Cache-Control': privateAttachment ? 'private, no-store' : 'public, max-age=3600',
+                'X-Content-Type-Options': 'nosniff',
+            },
+        });
     }
 
     return new NextResponse(data, {
