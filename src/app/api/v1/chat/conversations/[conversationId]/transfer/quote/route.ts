@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { db } from '@/lib/db';
 import { formatUser } from '@/lib/utils';
-import { calculateTransactionFee } from '@/lib/actions/transaction.actions';
+import { calculateTransactionFee } from '@/lib/actions/wallet.actions';
 
 export async function POST(
     request: NextRequest,

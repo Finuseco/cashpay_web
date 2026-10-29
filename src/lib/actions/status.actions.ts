@@ -38,7 +38,7 @@ export async function createStatus(
             content.startsWith('data:')
         ) {
             const match = content.match(
-                /^data:((?:image|video)\/[^;]+);base64,(.+)$/s
+                /^data:((?:image|video)\/[^;]+);base64,([\s\S]+)$/
             );
 
             if (!match) {
@@ -137,6 +137,8 @@ export async function getStatusesForUser(
                 s.background_color,
                 s.created_at,
                 s.expires_at,
+                (SELECT COUNT(*) FROM status_views v WHERE v.status_id = s.id) AS views_count,
+                (SELECT COUNT(*) FROM status_likes l WHERE l.status_id = s.id) AS likes_count,
                 u.full_name,
                 u.profile_photo
             FROM statuses s
@@ -178,6 +180,9 @@ export async function getStatusesForUser(
                     createdAt: new Date(
                         row.created_at
                     ).toISOString(),
+                    expiresAt: new Date(row.expires_at).toISOString(),
+                    viewsCount: Number(row.views_count || 0),
+                    likesCount: Number(row.likes_count || 0),
                 });
 
                 return acc;
