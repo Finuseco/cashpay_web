@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -27,10 +28,12 @@ function getPublicUrl(value: unknown): string | null {
 
 export async function POST(request: NextRequest) {
     try {
+        const viewer = await getAuthenticatedUser();
+        if (!viewer) return NextResponse.json({ success: false, error: "Authentification requise." }, { status: 401 });
         const body = await request.json();
         const { phoneNumbers } = body;
 
-        if (!Array.isArray(phoneNumbers)) {
+        if (!Array.isArray(phoneNumbers) || phoneNumbers.length > 500 || phoneNumbers.some(phone => typeof phone !== "string")) {
             return NextResponse.json(
                 {
                     success: false,
@@ -68,6 +71,7 @@ export async function POST(request: NextRequest) {
             });
         }
 
+        const viewerParameter = `$${normalizedNumbers.length + 1}`;
         const conditions = normalizedNumbers
             .map(
                 (_, index) =>
@@ -92,7 +96,11 @@ export async function POST(request: NextRequest) {
                 s.content AS status_content,
                 s.background_color AS status_background_color,
                 s.created_at AS status_created_at,
-                s.expires_at AS status_expires_at
+                s.expires_at AS status_expires_at,
+                (SELECT COUNT(*) FROM status_views sv WHERE sv.status_id = s.id) AS views_count,
+                (SELECT COUNT(*) FROM status_likes sl WHERE sl.status_id = s.id) AS likes_count,
+                EXISTS(SELECT 1 FROM status_views sv WHERE sv.status_id = s.id AND sv.viewer_user_id = ${viewerParameter}) AS viewed_by_me,
+                EXISTS(SELECT 1 FROM status_likes sl WHERE sl.status_id = s.id AND sl.user_id = ${viewerParameter}) AS is_liked
 
             FROM users u
 
@@ -106,7 +114,7 @@ export async function POST(request: NextRequest) {
                 u.id,
                 s.created_at DESC
             `,
-            normalizedNumbers
+            [...normalizedNumbers, viewer.id]
         );
 
         const usersByPhone = new Map<string, any>();
@@ -147,6 +155,10 @@ export async function POST(request: NextRequest) {
                         : row.status_content,
                     backgroundColor:
                         row.status_background_color || null,
+                    viewsCount: Number(row.views_count || 0),
+                    likesCount: Number(row.likes_count || 0),
+                    viewedByMe: Boolean(row.viewed_by_me),
+                    isLiked: Boolean(row.is_liked),
                     createdAt: row.status_created_at,
                     expiresAt: row.status_expires_at
                 });

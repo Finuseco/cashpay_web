@@ -138,6 +138,9 @@ export interface Country {
 }
 
 export interface Status {
+    expiresAt?: string;
+    viewsCount?: number;
+    likesCount?: number;
     id: number;
     userId: number;
     type: 'text' | 'image' | 'video';
