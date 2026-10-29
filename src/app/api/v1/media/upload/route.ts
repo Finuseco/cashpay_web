@@ -1,3 +1,5 @@
+import { insertPublishedVideo } from '@/lib/video-sounds';
+import { verifiedVideoDuration, VideoPolicyError } from '@/lib/video-policy';
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
@@ -111,6 +113,7 @@ async function resolvePublisher(
 }
 
 export async function POST(request: NextRequest) {
+  let unpublishedFile: string | null = null;
   try {
     const user = await getAuthenticatedUser();
 
@@ -222,7 +225,7 @@ export async function POST(request: NextRequest) {
 
     const durationRaw = formData.get("durationSeconds");
 
-    const durationSeconds = durationRaw
+    let durationSeconds = durationRaw
       ? Number(durationRaw)
       : null;
 
@@ -247,6 +250,7 @@ export async function POST(request: NextRequest) {
         : null;
 
     const buffer = Buffer.from(await file.arrayBuffer());
+    durationSeconds = Math.ceil(await verifiedVideoDuration(buffer));
 
     const extension = getExtension(
       file.name,
@@ -272,6 +276,7 @@ export async function POST(request: NextRequest) {
       fileName
     );
 
+    unpublishedFile = absoluteFilePath;
     await fs.writeFile(
       absoluteFilePath,
       buffer
@@ -280,7 +285,7 @@ export async function POST(request: NextRequest) {
     const fileUrl =
       `${BASE_URL}/${relativeDirectory}/${fileName}`;
 
-    const result = await db.query(
+    const result = await insertPublishedVideo(
       `
       INSERT INTO media (
         owner_type,
@@ -337,10 +342,11 @@ export async function POST(request: NextRequest) {
         fileUrl,
         durationSeconds,
         thumbnailUrl
-      ]
+      ], formData, Number(user.id)
     );
 
     const media = result.rows[0];
+    unpublishedFile = null;
 
     return NextResponse.json(
       {
@@ -368,6 +374,8 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
+    if (unpublishedFile) await fs.unlink(unpublishedFile).catch(() => undefined);
+    if (error instanceof VideoPolicyError) return NextResponse.json({ success: false, error: error.message }, { status: 422 });
     console.error("MEDIA_UPLOAD_ERROR", error);
 
     return NextResponse.json(

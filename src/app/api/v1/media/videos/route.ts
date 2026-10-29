@@ -1,3 +1,5 @@
+import { insertPublishedVideo } from '@/lib/video-sounds';
+import { verifiedVideoDuration, VideoPolicyError } from '@/lib/video-policy';
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
@@ -16,12 +18,6 @@ const ALLOWED_MIME_TYPES = new Set([
 ]);
 
 function getExtension(fileName: string, mimeType: string) {
-  const ext = path.extname(fileName).toLowerCase();
-
-  if (ext) {
-    return ext;
-  }
-
   const map: Record<string, string> = {
     "video/mp4": ".mp4",
     "video/webm": ".webm",
@@ -114,6 +110,7 @@ async function resolvePublisher(
 }
 
 export async function POST(request: NextRequest) {
+  let unpublishedFile: string | null = null;
   try {
     const user = await getAuthenticatedUser();
 
@@ -195,7 +192,7 @@ export async function POST(request: NextRequest) {
     }
 
     const durationRaw = formData.get("durationSeconds");
-    const durationSeconds = durationRaw
+    let durationSeconds = durationRaw
       ? Number(durationRaw)
       : null;
 
@@ -216,6 +213,7 @@ export async function POST(request: NextRequest) {
         : null;
 
     const buffer = Buffer.from(await file.arrayBuffer());
+    durationSeconds = Math.ceil(await verifiedVideoDuration(buffer));
 
     const extension = getExtension(file.name, file.type);
     const fileName = `${crypto.randomUUID()}${extension}`;
@@ -236,11 +234,12 @@ export async function POST(request: NextRequest) {
       fileName
     );
 
+    unpublishedFile = absoluteFilePath;
     await fs.writeFile(absoluteFilePath, buffer);
 
     const fileUrl = `${BASE_URL}/${relativeDirectory}/${fileName}`;
 
-    const result = await db.query(
+    const result = await insertPublishedVideo(
       `
       INSERT INTO media (
         owner_type,
@@ -297,10 +296,11 @@ export async function POST(request: NextRequest) {
         fileUrl,
         durationSeconds,
         thumbnailUrl
-      ]
+      ], formData, Number(user.id)
     );
 
     const media = result.rows[0];
+    unpublishedFile = null;
 
     return NextResponse.json(
       {
@@ -328,6 +328,8 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
+    if (unpublishedFile) await fs.unlink(unpublishedFile).catch(() => undefined);
+    if (error instanceof VideoPolicyError) return NextResponse.json({ success: false, error: error.message }, { status: 422 });
     console.error("VIDEO_PUBLISH_ERROR", error);
 
     return NextResponse.json(
@@ -378,6 +380,9 @@ export async function GET(request: NextRequest) {
         m.file_url,
         m.duration_seconds,
         m.thumbnail_url,
+        COALESCE(publisher_user.full_name, publisher_entity.entity_name) AS publisher_name,
+        COALESCE(publisher_user.profile_photo, publisher_entity.profile_photo) AS publisher_avatar,
+        CASE WHEN $3::integer IS NULL OR m.owner_type <> 'user' THEN FALSE ELSE EXISTS(SELECT 1 FROM user_followers uf WHERE uf.follower_user_id = $3 AND uf.followed_user_id = m.owner_id) END AS is_following,
 
         COALESCE(
           (
@@ -408,6 +413,8 @@ export async function GET(request: NextRequest) {
         END AS is_liked
 
       FROM media m
+      LEFT JOIN users publisher_user ON m.owner_type = 'user' AND publisher_user.id = m.owner_id
+      LEFT JOIN followable_entities publisher_entity ON m.owner_type <> 'user' AND publisher_entity.id = m.owner_id AND publisher_entity.entity_type = m.owner_type
       WHERE m.media_type = 'video'
         AND m.visibility = 'public'
         AND m.expires_at > NOW()
@@ -435,8 +442,11 @@ export async function GET(request: NextRequest) {
       expiresAt: row.expires_at,
       publisher: {
         type: row.owner_type,
-        id: row.owner_id
+        id: row.owner_id,
+        name: row.publisher_name,
+        avatarUrl: typeof row.publisher_avatar === "string" && row.publisher_avatar.startsWith("/") ? `${BASE_URL}${row.publisher_avatar}` : row.publisher_avatar
       },
+      follow: { isFollowing: Boolean(row.is_following) },
       interactions: {
         likes: Number(row.likes_count),
         comments: Number(row.comments_count),
