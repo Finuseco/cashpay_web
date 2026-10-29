@@ -263,7 +263,7 @@ export interface Message {
   sender?: Pick<User, 'first_name'>;
   content: string;
   timestamp: string;
-  type: 'text' | 'image' | 'audio' | 'doc' | 'in_chat_transfer' | 'system' | 'product';
+  type: 'text' | 'image' | 'audio' | 'video' | 'doc' | 'sticker' | 'location' | 'contact' | 'poll' | 'meeting' | 'in_chat_transfer' | 'system' | 'product';
   status?: 'sent' | 'delivered' | 'read' | 'edited';
   metadata?: string; 
   isVoiceMessage?: boolean;

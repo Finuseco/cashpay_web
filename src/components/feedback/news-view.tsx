@@ -73,7 +73,7 @@ export function NewsView({ onBack }: { onBack: () => void }) {
         };
         fetchData();
     }, []);
-    
+
     const companyMap = useMemo(() => new Map(companies.map(c => [c.id, c])), [companies]);
 
     const combinedFeed = useMemo(() => {
@@ -81,17 +81,17 @@ export function NewsView({ onBack }: { onBack: () => void }) {
             ...activities.map(a => ({ ...a, type: 'activity' as const })),
             ...products.map(p => ({ ...p, type: 'product' as const }))
         ];
-        
+
         return feed.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }, [activities, products]);
 
     return (
-        <div className="flex flex-col h-full min-h-0 bg-[#111827] text-white">
-            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#1f2c33] border-b border-zinc-700/50">
+        <div className="flex flex-col h-full min-h-0 bg-[#0D1226] text-white">
+            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#141C38] border-b border-zinc-700/50">
                 <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft /></Button>
                 <h2 className="font-bold text-lg ml-4">Actualités & Tendances</h2>
             </header>
-            
+
             {isLoading ? <NewsLoadingSkeleton /> : (
                 <ScrollArea className="flex-1 min-h-0">
                     <div className="p-2 md:p-4 space-y-4 pb-20">

@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getAuthenticatedUser } from "@/lib/actions/user.actions";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { callId: string } }
 ) {
   try {
+    const authenticatedUser = await getAuthenticatedUser();
+    if (!authenticatedUser) return NextResponse.json({ success: false, error: "Authentification requise." }, { status: 401 });
     const body = await request.json();
 
-    const walletId =
-      body.walletId ??
-      request.headers.get("x-wallet-id");
+    const walletId = authenticatedUser.id_wallet;
 
     if (!walletId) {
       return NextResponse.json(

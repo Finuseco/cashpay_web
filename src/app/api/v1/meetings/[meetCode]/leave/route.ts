@@ -28,7 +28,8 @@ export async function POST(
             `UPDATE meeting_participants SET left_at = NOW()
              WHERE meeting_id = $1 AND user_id = $2`,
             [rows[0].id, user.id]
-        ).catch(() => { /* table peut ne pas exister */ });
+        );
+        await db.query("SELECT pg_notify('onchat_meetings', $1)", [JSON.stringify({ meetCode })]);
 
         return NextResponse.json({ success: true });
     } catch (error: any) {

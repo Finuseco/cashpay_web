@@ -1,6 +1,9 @@
 
 'use client';
+import { invitationCode } from '@/lib/meeting-invitation';
+import { MeetingInvitationCard } from '@/components/feedback/meeting-invitation-card';
 
+import { useRouter } from 'next/navigation';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { Group, User, GroupMessage, Message, Conversation } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -45,8 +48,8 @@ const ProductCardMessage = ({ metadata }: { metadata: string }) => {
                 </CardContent>
             </Card>
         );
-    } catch (e) { 
-        return <div className="p-4 text-destructive bg-red-500/10 rounded font-bold text-xs">Erreur chargement produit</div>; 
+    } catch (e) {
+        return <div className="p-4 text-destructive bg-red-500/10 rounded font-bold text-xs">Erreur chargement produit</div>;
     }
 };
 
@@ -103,15 +106,15 @@ const VoiceMessagePlayer = ({ message, senderAvatar }: { message: GroupMessage; 
 /**
  * Bulle de message spécifique pour le groupe.
  */
-const GroupMessageBubble = ({ 
-    message, 
+const GroupMessageBubble = ({
+    message,
     sender,
     currentUser,
     onDelete,
     onForward,
     onImageClick
-}: { 
-    message: GroupMessage, 
+}: {
+    message: GroupMessage,
     sender: any,
     currentUser: User,
     onDelete: (id: string) => void,
@@ -142,6 +145,9 @@ const GroupMessageBubble = ({
         link.click();
         document.body.removeChild(link);
     };
+
+    const meetingCode = invitationCode(message.content, message.metadata);
+    if (meetingCode) return <MeetingInvitationCard code={meetingCode} />;
 
     return (
         <div className={cn("flex w-full items-end gap-2 group", isSentByCurrentUser ? "justify-end" : "justify-start")}>
@@ -194,7 +200,7 @@ const GroupMessageBubble = ({
                     ) : (
                         <p className="text-sm px-1 leading-relaxed">{message.content}</p>
                     )}
-                    
+
                     <div className="flex items-center justify-end gap-1 mt-1 px-1 pb-1">
                         <span className="text-[9px] text-white/50">{format(new Date(message.timestamp), 'HH:mm')}</span>
                     </div>
@@ -218,7 +224,7 @@ const DateSeparator = ({ date }: { date: string }) => {
 
     return (
         <div className="flex justify-center my-4">
-            <div className="px-3 py-1 text-[10px] text-white font-bold bg-[#1f2c33] rounded-full shadow-md uppercase tracking-wider">
+            <div className="px-3 py-1 text-[10px] text-white font-bold bg-[#141C38] rounded-full shadow-md uppercase tracking-wider">
                 {formattedDate}
             </div>
         </div>
@@ -227,6 +233,17 @@ const DateSeparator = ({ date }: { date: string }) => {
 
 export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpdateGroup, onViewGroupProfile }: { group: Group, currentUser: User, onBack: () => void, onUpdateGroup: (group: Group) => void, onViewGroupProfile: (group: Group) => void }) {
     const { toast } = useToast();
+    const router = useRouter();
+    const [creatingMeet, setCreatingMeet] = useState(false);
+    async function startGroupMeeting(type: 'audio' | 'video') {
+        setCreatingMeet(true);
+        try {
+            const response = await fetch(`/api/onchat/groups/${initialGroup.id}/meetings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type }) });
+            const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Réunion indisponible.');
+            router.push(`/feedback/meet/${data.meetCode}`);
+        } catch (error) { toast({ title: 'Création impossible', description: (error as Error).message, variant: 'destructive' }); }
+        finally { setCreatingMeet(false); }
+    }
     const [newMessage, setNewMessage] = useState("");
     const [isSending, setIsSending] = useState(false);
     const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -254,7 +271,7 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
         setIsSending(true);
         const tempId = `temp-${Date.now()}`;
         const content = type === 'text' ? newMessage : (type === 'image' ? '📷 Photo' : (type === 'doc' ? '📄 Document' : (type === 'audio' ? '🎤 Message vocal' : newMessage)));
-        
+
         const tempMessage: GroupMessage = {
             id: tempId,
             senderId: currentUser.id,
@@ -305,7 +322,7 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
 
     const handleForwardTo = async (targetId: string | number, type: 'conversation' | 'group') => {
         if (!messageToForward) return;
-        
+
         setIsSending(true);
         const result = await forwardMessage(currentUser.id, messageToForward.id, type, targetId);
         setIsSending(false);
@@ -316,10 +333,10 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
             toast({ title: "Message transféré", variant: "success" });
         }
     }
-    
+
     return (
         <div className="flex flex-col h-full min-h-0 bg-[#0b141a] text-white">
-            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#1f2c33] border-b border-zinc-700/50">
+            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#141C38] border-b border-zinc-700/50">
                 <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden"><ArrowLeft /></Button>
                 <div className="ml-2 flex items-center gap-3 cursor-pointer flex-1 min-w-0" onClick={() => onViewGroupProfile(group)}>
                     <Avatar className="h-10 w-10 sm:h-12 sm:w-12">
@@ -332,8 +349,8 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
                     </div>
                 </div>
                  <div className="ml-auto flex items-center gap-1">
-                    <Button variant="ghost" size="icon"><Video /></Button>
-                    <Button variant="ghost" size="icon"><Phone /></Button>
+                    <Button variant="ghost" size="icon" disabled={creatingMeet} onClick={() => startGroupMeeting('video')} aria-label="Inviter le groupe en vidéo"><Video /></Button>
+                    <Button variant="ghost" size="icon" disabled={creatingMeet} onClick={() => startGroupMeeting('audio')} aria-label="Inviter le groupe en audio"><Phone /></Button>
                      <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon"><MoreVertical /></Button>
@@ -365,8 +382,8 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
                     <ScrollArea className="max-h-[60vh] p-2">
                         <div className="space-y-1">
                             {recentConversations.map(c => (
-                                <button 
-                                    key={c.id} 
+                                <button
+                                    key={c.id}
                                     className="w-full flex items-center gap-3 p-3 hover:bg-zinc-800 rounded-lg transition-colors text-left"
                                     onClick={() => handleForwardTo(c.id, 'conversation')}
                                 >
@@ -388,14 +405,14 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
                         const prevMessage = group.messages[index - 1];
                         const showDateSeparator = !prevMessage || format(new Date(prevMessage.timestamp), 'yyyy-MM-dd') !== format(new Date(message.timestamp), 'yyyy-MM-dd');
                         const sender = group.members.find(m => m.id === message.senderId);
-                        
+
                         return (
                             <div key={message.id}>
                                 {showDateSeparator && <DateSeparator date={message.timestamp} />}
-                                <GroupMessageBubble 
-                                    message={message} 
-                                    sender={sender} 
-                                    currentUser={currentUser} 
+                                <GroupMessageBubble
+                                    message={message}
+                                    sender={sender}
+                                    currentUser={currentUser}
                                     onDelete={(id) => deleteMessage(id).then(res => res.success && onUpdateGroup({ ...group, messages: group.messages.filter(m => m.id !== id) }))}
                                     onForward={(msg) => openForwardDialog(msg)}
                                     onImageClick={setLightboxUrl}
@@ -405,7 +422,7 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
                     })}
                 </div>
             </ScrollArea>
-             <footer className="p-2 border-t border-zinc-700/50 bg-[#1f2c33] shrink-0">
+             <footer className="p-2 border-t border-zinc-700/50 bg-[#141C38] shrink-0">
                 <div className="flex items-center gap-2">
                     <Popover>
                         <PopoverTrigger asChild>

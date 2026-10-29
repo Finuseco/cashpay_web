@@ -82,9 +82,9 @@ const ConversationItem = ({ conv, onSelect, currentUserId, isActive }: { conv: C
                     </AvatarFallback>
                 </Avatar>
                 {conv.contact.availabilityStatus === 'available' ? (
-                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#111827]" />
+                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#0D1226]" />
                 ) : (
-                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-zinc-500 ring-2 ring-[#111827]" />
+                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-zinc-500 ring-2 ring-[#0D1226]" />
                 )}
             </div>
             <div className="flex-1 min-w-0 border-t border-zinc-700/50 py-3">
@@ -119,14 +119,14 @@ export function ConversationList({ conversations, onSelectContact, onNewChat, on
       return conversations;
     }
     const lowercasedTerm = searchTerm.toLowerCase();
-    return conversations.filter(c => 
+    return conversations.filter(c =>
       c.contact.full_name.toLowerCase().includes(lowercasedTerm)
     );
   }, [conversations, searchTerm]);
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-[#111827] text-white">
-       <header className="flex flex-col p-2 sm:p-3 shrink-0 bg-[#1f2c33]">
+    <div className="h-full min-h-0 flex flex-col bg-[#0D1226] text-white">
+       <header className="flex flex-col p-2 sm:p-3 shrink-0 bg-[#141C38]">
           <div className="flex items-center justify-between">
              <OnChatLogo />
              <div className="flex items-center gap-1">
@@ -165,7 +165,7 @@ export function ConversationList({ conversations, onSelectContact, onNewChat, on
             <div className="p-2">
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-zinc-400" />
-                    <Input 
+                    <Input
                         placeholder={t('chatSearchContactsPlaceholder')}
                         className="pl-10 bg-zinc-800 border-zinc-700 h-10 rounded-lg focus-visible:ring-1 focus-visible:ring-primary"
                         value={searchTerm}

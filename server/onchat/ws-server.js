@@ -59,6 +59,7 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({
     noServer: true,
+    maxPayload: 256 * 1024,
 });
 
 const users = new Map();
@@ -80,7 +81,7 @@ function parseCookies(header) {
         const key = part.slice(0, index).trim();
         const value = part.slice(index + 1).trim();
 
-        cookies[key] = decodeURIComponent(value);
+        try { cookies[key] = decodeURIComponent(value); } catch { /* Invalid cookie is ignored. */ }
     }
 
     return cookies;
@@ -91,7 +92,10 @@ function authenticate(request) {
         request.headers.cookie
     );
 
-    const token = cookies['cashpay-token'];
+    const authorization = request.headers.authorization;
+    const token = authorization && authorization.startsWith('Bearer ')
+        ? authorization.slice(7).trim()
+        : cookies['cashpay-token'];
 
     if (!token) {
         return null;
@@ -106,7 +110,7 @@ function authenticate(request) {
         if (
             !payload ||
             typeof payload !== 'object' ||
-            !payload.id
+            !Number.isSafeInteger(Number(payload.id)) || Number(payload.id) <= 0
         ) {
             return null;
         }
@@ -290,6 +294,29 @@ function leaveAllMeetRooms(user, socket) {
     }
 }
 
+async function broadcastMeetingState(code) {
+    const { rows } = await pool.query(`SELECT m.status,
+        (SELECT COUNT(*) FROM meeting_participants mp WHERE mp.meeting_id = m.id AND mp.left_at IS NULL) AS participants
+        FROM meetings m WHERE m.meeting_provider_id = $1 LIMIT 1`, [code]);
+    if (!rows[0]) return;
+    const state = { meetCode: code, status: rows[0].status, participants: Number(rows[0].participants) };
+    const room = meetRooms.get(code);
+    for (const connections of users.values()) for (const socket of connections) {
+        if (socket.meetingWatches?.has(code) || Array.from(room?.values() || []).some(sockets => sockets.has(socket))) send(socket, 'meet.updated', state);
+    }
+    if (!room) return;
+    if (state.status !== 'active') {
+        for (const sockets of room.values()) for (const socket of sockets) send(socket, 'meet.ended', { meetCode: code });
+        meetRooms.delete(code);
+        return;
+    }
+    const { rows: permissions } = await pool.query(`SELECT mp.user_id, mp.can_speak, mp.is_host FROM meeting_participants mp
+        JOIN meetings m ON m.id = mp.meeting_id WHERE m.meeting_provider_id = $1 AND mp.left_at IS NULL`, [code]);
+    for (const peerId of room.keys()) for (const permission of permissions) sendToMeetUser(code, peerId, 'meet.permissions', {
+        meetCode: code, userId: Number(permission.user_id), canSpeak: Boolean(permission.can_speak || permission.is_host),
+    });
+}
+
 async function handleMeetEvent(socket, user, event, data) {
     const code = normalizeMeetCode(data.meetCode);
     if (!code) {
@@ -297,13 +324,26 @@ async function handleMeetEvent(socket, user, event, data) {
         return;
     }
 
+    if (event === 'meet.watch') {
+        if (!socket.meetingWatches) socket.meetingWatches = new Set();
+        if (socket.meetingWatches.size >= 30 && !socket.meetingWatches.has(code)) return;
+        socket.meetingWatches.add(code);
+        await broadcastMeetingState(code);
+        return;
+    }
+    if (event === 'meet.unwatch') { socket.meetingWatches?.delete(code); return; }
     if (event === 'meet.join') {
         const { rows } = await pool.query(
-            "SELECT 1 FROM meetings WHERE meeting_provider_id = $1 AND status = 'active' LIMIT 1",
-            [code]
+            `SELECT 1 FROM meetings m
+             WHERE m.meeting_provider_id = $1 AND m.status = 'active'
+               AND (m.host_user_id = $2 OR EXISTS (
+                 SELECT 1 FROM meeting_participants mp
+                 WHERE mp.meeting_id = m.id AND mp.user_id = $2 AND mp.left_at IS NULL
+               )) LIMIT 1`,
+            [code, user.id]
         );
         if (rows.length === 0) {
-            send(socket, 'error', { code: 'MEET_NOT_FOUND', message: 'Réunion introuvable ou terminée.' });
+            send(socket, 'error', { code: 'MEET_NOT_FOUND', message: 'Réunion inaccessible. Rejoignez-la via l’API avant la connexion temps réel.' });
             return;
         }
         let room = meetRooms.get(code);
@@ -333,6 +373,7 @@ async function handleMeetEvent(socket, user, event, data) {
                 sendToMeetUser(code, peerId, 'meet.peer_joined', { meetCode: code, userId: user.id, name: myName });
             }
         }
+        await broadcastMeetingState(code);
         return;
     }
 
@@ -362,7 +403,7 @@ async function handleMeetEvent(socket, user, event, data) {
 
 async function handleEvent(socket, user, message) {
     const event = message?.event;
-    const data = message?.data || {};
+    const data = message?.data || message || {};
 
     if (!event) {
         return;
@@ -373,7 +414,7 @@ async function handleEvent(socket, user, message) {
         return;
     }
 
-    if (event === 'meet.join' || event === 'meet.leave' || event === 'meet.signal') {
+    if (['meet.join', 'meet.leave', 'meet.signal', 'meet.watch', 'meet.unwatch'].includes(event)) {
         await handleMeetEvent(socket, user, event, data);
         return;
     }
@@ -550,6 +591,82 @@ async function handleEvent(socket, user, message) {
     });
 }
 
+// A dedicated PostgreSQL LISTEN connection bridges HTTP writes to this process.
+// Notifications contain only an ID; recipients and content are loaded from committed rows.
+let messageListener = null;
+let listenerRetry = null;
+let shuttingDown = false;
+async function listenForMessages() {
+    let client;
+    let released = false;
+    const release = () => {
+        if (client && !released) { released = true; client.release(true); }
+    };
+    try {
+        client = await pool.connect();
+        messageListener = client;
+        const retry = () => {
+            if (messageListener !== client) return;
+            messageListener = null;
+            release();
+            if (!shuttingDown) listenerRetry = setTimeout(listenForMessages, 3000);
+        };
+        client.on('error', retry);
+        client.on('notification', async (notification) => {
+            if (notification.channel === 'onchat_group_messages') {
+                try {
+                    const { id } = JSON.parse(notification.payload);
+                    const { rows } = await pool.query(`SELECT gm.*, member.user_id AS recipient_id FROM group_messages gm
+                        JOIN group_members member ON member.group_id = gm.group_id AND member.status = 'active' WHERE gm.id = $1`, [id]);
+                    for (const row of rows) sendToUser(row.recipient_id, 'chat.message.created', {
+                        conversationId: `g_${row.group_id}`,
+                        message: { id: String(row.id), senderId: row.sender_id, content: row.content, type: row.type,
+                            metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
+                            status: 'sent', timestamp: new Date(row.created_at).toISOString() },
+                    });
+                } catch (error) { console.error('[ONCHAT GROUP NOTIFICATION]', error.message); }
+                return;
+            }
+            if (notification.channel === 'onchat_meetings') {
+                try { const code = normalizeMeetCode(JSON.parse(notification.payload).meetCode); if (code) await broadcastMeetingState(code); }
+                catch (error) { console.error('[ONCHAT WS MEETING]', error.message); }
+                return;
+            }
+            if (notification.channel !== 'onchat_messages') return;
+            try {
+                const { id } = JSON.parse(notification.payload);
+                if (typeof id !== 'string') return;
+                const { rows } = await pool.query(`
+                    SELECT m.*, cp.user_id AS recipient_id
+                    FROM messages m
+                    JOIN conversation_participants cp ON cp.conversation_id = m.conversation_id
+                    WHERE m.id = $1`, [id]);
+                for (const row of rows) {
+                    sendToUser(row.recipient_id, 'chat.message.created', {
+                        conversationId: row.conversation_id,
+                        message: {
+                            id: String(row.id), conversationId: row.conversation_id,
+                            senderId: row.sender_id, content: row.content, type: row.type,
+                            metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
+                            status: row.status, isRead: row.is_read, imageId: row.image_id,
+                            timestamp: new Date(row.created_at).toISOString(),
+                        },
+                    });
+                }
+            } catch (error) { console.error('[ONCHAT WS NOTIFICATION]', error.message); }
+        });
+        await client.query('LISTEN onchat_messages');
+        await client.query('LISTEN onchat_meetings');
+        await client.query('LISTEN onchat_group_messages');
+    } catch (error) {
+        if (messageListener === client) messageListener = null;
+        release();
+        console.error('[ONCHAT WS LISTEN]', error.message);
+        if (!shuttingDown) listenerRetry = setTimeout(listenForMessages, 3000);
+    }
+}
+listenForMessages();
+
 wss.on('connection', (socket, request, user) => {
     addConnection(user.id, socket);
 
@@ -667,6 +784,9 @@ process.on('SIGTERM', async () => {
         '[ONCHAT WS] shutting down'
     );
 
+    shuttingDown = true;
+    clearTimeout(listenerRetry);
+    if (messageListener) { messageListener.release(true); messageListener = null; }
     wss.close();
     server.close();
 
@@ -680,6 +800,9 @@ process.on('SIGINT', async () => {
         '[ONCHAT WS] shutting down'
     );
 
+    shuttingDown = true;
+    clearTimeout(listenerRetry);
+    if (messageListener) { messageListener.release(true); messageListener = null; }
     wss.close();
     server.close();
 

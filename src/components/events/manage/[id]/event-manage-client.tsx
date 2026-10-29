@@ -51,11 +51,11 @@ export function EventManageClient({ initialEvent, userId }: { initialEvent: Even
     const [isScannerOpen, setIsScannerOpen] = useState(false);
     const [lastValidation, setLastValidation] = useState<ValidationResult | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
-    
+
     const { toast } = useToast();
     const { openAlert } = useAlertDialog();
     const { t } = useTranslation();
-    
+
     const totalTickets = initialEvent.ticketTypes.reduce((sum: number, type: TicketType) => sum + type.quantity, 0);
     const totalSold = initialEvent.ticketTypes.reduce((sum: number, type: TicketType) => sum + type.sold, 0);
     const totalRevenue = initialEvent.ticketTypes.reduce((sum: number, type: TicketType) => sum + (type.sold * type.price), 0);
@@ -64,7 +64,7 @@ export function EventManageClient({ initialEvent, userId }: { initialEvent: Even
     const handleScan = async (ticketCode: string) => {
         setIsScannerOpen(false);
         toast({ title: 'Validation en cours...', description: 'Vérification du billet...' });
-        
+
         const result = await validateTicket(initialEvent.id, ticketCode);
         setLastValidation(result);
 
@@ -72,7 +72,7 @@ export function EventManageClient({ initialEvent, userId }: { initialEvent: Even
             setValidatedCount(prev => prev + 1);
         }
     };
-    
+
     const handleDelete = () => {
         openAlert({
             title: "Supprimer l'événement ?",
@@ -123,6 +123,7 @@ export function EventManageClient({ initialEvent, userId }: { initialEvent: Even
             <Card>
                 <CardHeader>
                     <CardTitle>Statistiques de Vente</CardTitle>
+                    {initialEvent.onchatJoinUrl && <Button onClick={() => router.push(initialEvent.onchatJoinUrl!)} className="onchat-btn-primary mt-3">Ouvrir OnChat Meet et administrer les participants</Button>}
                 </CardHeader>
                 <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-6">
                      <div className="flex flex-col items-center p-4 bg-muted/50 rounded-lg">
@@ -173,7 +174,7 @@ export function EventManageClient({ initialEvent, userId }: { initialEvent: Even
                     </div>
                 </CardContent>
             </Card>
-            
+
             <Card className="border-destructive/20 bg-destructive/5">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-destructive"><AlertTriangle/> Zone de Danger</CardTitle>

@@ -8,6 +8,7 @@ import { verifyCurrentUserPin } from './auth.actions';
 import { formatUser } from '@/lib/utils';
 import { sendEmail } from '@/services/email';
 import crypto from 'crypto';
+import { meetingPrice } from '@/lib/meeting-access';
 
 /**
  * @fileOverview Moteur de réunion OnChat Meet.
@@ -44,7 +45,7 @@ export async function createMeetingSession(args: {
             'SELECT id, full_name, email, first_name FROM users WHERE id IN ($1, $2)',
             [args.hostId, args.contactId]
         );
-        
+
         const host = users.find(u => u.id === args.hostId) || { full_name: 'Un utilisateur', first_name: 'Un utilisateur' };
         const guest = users.find(u => u.id === args.contactId);
 
@@ -99,7 +100,7 @@ export async function getMeetSignals(meetCode: string, userId: number) {
              ORDER BY ms.created_at ASC`,
             [meetCode, userId]
         );
-        
+
         if (rows.length > 0) {
             const ids = rows.map(r => r.id);
             await db.query('UPDATE meeting_signals SET consumed = true WHERE id = ANY($1::int[])', [ids]);
@@ -128,7 +129,7 @@ export async function getMeetingByCode(meetCode: string) {
  * n'importe quel utilisateur OnChat connecté peut la rejoindre.
  * L'hôte est l'utilisateur authentifié (jamais un identifiant venant du client).
  */
-export async function createOpenMeeting(args: { topic?: string; type?: 'audio' | 'video' }) {
+export async function createOpenMeeting(args: { topic?: string; type?: 'audio' | 'video'; priceAmount?: number; priceCurrency?: string; scheduledAt?: string | null; durationMin?: number }) {
     try {
         const { getAuthenticatedUser } = await import('./user.actions');
         const host = await getAuthenticatedUser();
@@ -140,10 +141,14 @@ export async function createOpenMeeting(args: { topic?: string; type?: 'audio' |
         const base = process.env.NEXT_PUBLIC_APP_URL || '';
         const joinUrl = `${base}/feedback/meet/${meetCode}`;
 
+        const price = meetingPrice(args.priceAmount, args.priceCurrency);
+        const scheduledAt = args.scheduledAt ? new Date(args.scheduledAt) : null;
+        const durationMin = args.durationMin ?? 0;
+        if ((scheduledAt && !Number.isFinite(scheduledAt.getTime())) || !Number.isInteger(durationMin) || durationMin < 0 || durationMin > 1440) return { success: false as const, error: 'Date ou durée invalide.' };
         await db.query(
-            `INSERT INTO meetings (host_user_id, topic, meeting_provider_id, join_url, type, status)
-             VALUES ($1, $2, $3, $4, $5, 'active')`,
-            [host.id, topic, meetCode, joinUrl, type]
+            `INSERT INTO meetings (host_user_id, topic, meeting_provider_id, join_url, type, status, price_amount, price_currency, scheduled_at, duration_min)
+             VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8, $9)`,
+            [host.id, topic, meetCode, joinUrl, type, price.amount, price.currency, scheduledAt?.toISOString() || null, durationMin]
         );
         return { success: true as const, meetCode, joinUrl };
     } catch (error: any) {

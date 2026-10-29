@@ -20,16 +20,6 @@ import { createOpenMeeting } from '@/lib/actions/meeting.actions';
 
 export const dynamic = 'force-dynamic';
 
-async function ensureSchedulingColumns() {
-    await db.query(`
-        ALTER TABLE meetings
-            ADD COLUMN IF NOT EXISTS scheduled_at   TIMESTAMPTZ,
-            ADD COLUMN IF NOT EXISTS duration_min   INTEGER DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS price_amount   NUMERIC(18,8) DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS price_currency VARCHAR(10)   DEFAULT 'USD'
-    `).catch(() => {});
-}
-
 export async function POST(request: NextRequest) {
     try {
         const user = await getAuthenticatedUser();
@@ -44,30 +34,12 @@ export async function POST(request: NextRequest) {
         const topic         = String(body.topic || '').trim().slice(0, 120) || undefined;
         const scheduledAt   = body.scheduledAt ? new Date(body.scheduledAt) : null;
         const durationMin   = Math.max(0, parseInt(body.durationMin ?? '0', 10) || 0);
-        const priceAmount   = Math.max(0, Number(body.priceAmount || 0));
+        const priceAmount   = Number(body.priceAmount ?? 0);
         const priceCurrency = String(body.priceCurrency || 'USD').toUpperCase().slice(0, 10);
 
-        const result = await createOpenMeeting({ topic, type });
+        const result = await createOpenMeeting({ topic, type, priceAmount, priceCurrency, scheduledAt: body.scheduledAt || null, durationMin });
         if (!result.success) {
             return NextResponse.json({ success: false, error: result.error }, { status: 500 });
-        }
-
-        // Persist optional scheduling + billing
-        if (scheduledAt || durationMin > 0 || priceAmount > 0) {
-            await ensureSchedulingColumns();
-            await db.query(
-                `UPDATE meetings
-                 SET scheduled_at = $1, duration_min = $2,
-                     price_amount = $3, price_currency = $4
-                 WHERE meeting_provider_id = $5`,
-                [
-                    scheduledAt && !isNaN(scheduledAt.getTime()) ? scheduledAt.toISOString() : null,
-                    durationMin,
-                    priceAmount,
-                    priceCurrency,
-                    result.meetCode,
-                ]
-            ).catch(() => {});
         }
 
         return NextResponse.json({

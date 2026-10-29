@@ -1,196 +1,38 @@
-
 'use client';
-
-import { useState, useEffect, useMemo } from 'react';
-import { Button } from '@/components/ui/button';
-import { useAlertDialog } from '@/hooks/use-alert-dialog';
-import type { User, Currency } from '@/lib/types';
-import type { Event, TicketType } from '@/lib/actions/types';
-import { purchaseTicket } from '@/lib/actions/event.actions';
-import { Loader2, Minus, Plus, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Input } from '../ui/input';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Label } from '../ui/label';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../ui/form';
-import { useForm } from 'react-hook-form';
-import { z } from 'zod';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { InputOTP, InputOTPGroup, InputOTPSlot } from '../ui/input-otp';
-import { verifyCurrentUserPin } from '@/lib/actions/auth.actions';
-import { getUserCurrencies } from '@/lib/actions/currency.actions';
-import { useTranslation } from 'react-i18next';
-
-interface PurchaseTicketButtonProps {
-    event: Event;
-    ticketType: TicketType;
-    user: User | null;
-}
-
-const pinSchema = z.object({
-  pin: z.string().length(4, "Le PIN doit contenir 4 chiffres."),
-});
-
-export function PurchaseTicketButton({ event, ticketType, user }: PurchaseTicketButtonProps) {
-    const { t } = useTranslation();
-    const [isLoading, setIsLoading] = useState(false);
-    const [quantity, setQuantity] = useState(1);
-    const [isDialogOpen, setIsDialogOpen] = useState(false);
-    const [showPinDialog, setShowPinDialog] = useState(false);
-    const [userCurrencies, setUserCurrencies] = useState<Currency[]>([]);
-
-    const { openAlert } = useAlertDialog();
-    const router = useRouter();
-
-    useEffect(() => {
-        if (user) {
-            getUserCurrencies(user.id).then(setUserCurrencies);
-        }
-    }, [user]);
-
-    const pinForm = useForm<z.infer<typeof pinSchema>>({
-        resolver: zodResolver(pinSchema),
-    });
-
-    const hasRequiredCurrency = useMemo(() => {
-        if (!user) return true; // Let the login redirect handle it
-        return userCurrencies.some(c => c.code === event.currency);
-    }, [user, userCurrencies, event.currency]);
-
-    const isEventPast = useMemo(() => new Date(event.date) < new Date(), [event.date]);
-    
-
-    const handleOpenDialog = () => {
-        if (!user) {
-            router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`);
-            return;
-        }
-        setIsDialogOpen(true);
-    };
-
-    const handlePurchase = async (pinValue: string) => {
-        if (!user) return;
-        setIsLoading(true);
-
-        const pinVerification = await verifyCurrentUserPin(pinValue);
-        if (!pinVerification.success) {
-            openAlert({ variant: "error", title: "PIN Incorrect", description: pinVerification.error || "Le code PIN est incorrect." });
-            setIsLoading(false);
-            pinForm.reset();
-            return;
-        }
-
-        const result = await purchaseTicket(user.id, event.id, ticketType.id, quantity, event.currency);
-        
-        setShowPinDialog(false);
-        setIsDialogOpen(false);
-        setIsLoading(false);
-        pinForm.reset();
-
-        if (result.success) {
-            openAlert({
-                title: t('eventDetailsPurchaseSuccessTitle'),
-                description: t('eventDetailsPurchaseSuccessDesc', {quantity: quantity, ticketType: ticketType.type, eventName: event.name}),
-                variant: 'success'
-            });
-            router.refresh(); 
-        } else {
-            openAlert({
-                title: t('eventDetailsPurchaseErrorTitle'),
-                description: result.error || "Une erreur inconnue est survenue.",
-                variant: 'error'
-            });
-        }
-    };
-    
-    const isDisabled =
-        isEventPast ||
-        (ticketType.quantity - ticketType.sold) < quantity ||
-        Boolean(user && (quantity <= 0 || !hasRequiredCurrency));
-    const totalAmount = ticketType.price * quantity;
-    
-    const buttonTooltip = !hasRequiredCurrency ? t('eventDetailsCurrencyError', {currency: event.currency}) : isEventPast ? "Cet événement est déjà terminé." : '';
-
-    return (
-        <>
-            <div title={buttonTooltip}>
-                <Button size="sm" variant="gradient" onClick={handleOpenDialog} className="h-8" disabled={isDisabled}>
-                     {isEventPast ? "Événement terminé" : t('eventDetailsBuyButton')}
-                </Button>
-            </div>
-             <Dialog open={isDialogOpen} onOpenChange={(isOpen) => { if (!isOpen) { setIsDialogOpen(false); setShowPinDialog(false); } else { setIsDialogOpen(true); } }}>
-                <DialogContent>
-                   {!showPinDialog ? (
-                       <>
-                        <DialogHeader>
-                            <DialogTitle>{t('eventDetailsConfirmPurchaseTitle')}</DialogTitle>
-                            <DialogDescription>
-                                {t('eventDetailsConfirmPurchaseDesc', {quantity: quantity, eventName: event.name})}
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4 py-4">
-                            <div className="flex items-center justify-between">
-                                <Label>{t('eventDetailsTicketTypeLabel')}</Label>
-                                <span className="font-semibold">{ticketType.type}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <Label>{t('eventDetailsQuantityLabel')}</Label>
-                                <div className="flex items-center border rounded-md">
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setQuantity(q => Math.max(1, q - 1))}><Minus className="h-4 w-4" /></Button>
-                                    <Input type="text" value={quantity} readOnly className="w-10 text-center border-0 focus-visible:ring-0 h-8 p-0"/>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setQuantity(q => Math.min(q + 1, ticketType.quantity - ticketType.sold))}><Plus className="h-4 w-4" /></Button>
-                                </div>
-                            </div>
-                            <div className="flex justify-between items-baseline font-bold text-xl pt-2 border-t mt-2">
-                                <Label>{t('eventDetailsTotalLabel')}</Label>
-                                <span>{totalAmount.toLocaleString('fr-FR')} {event.currency}</span>
-                            </div>
-                        </div>
-                        <DialogFooter>
-                            <Button variant="ghost" onClick={() => setIsDialogOpen(false)}>{t('cancel')}</Button>
-                            <Button onClick={() => setShowPinDialog(true)} disabled={isDisabled || isLoading}>
-                                {t('confirm')}
-                            </Button>
-                        </DialogFooter>
-                       </>
-                   ) : (
-                       <>
-                        <DialogHeader>
-                            <DialogTitle className="flex items-center gap-2"><ShieldCheck/> {t('eventDetailsConfirmPinTitle')}</DialogTitle>
-                            <DialogDescription>
-                                {t('eventDetailsConfirmPinDesc', {total: totalAmount.toLocaleString('fr-FR'), currency: event.currency})}
-                            </DialogDescription>
-                        </DialogHeader>
-                        <Form {...pinForm}>
-                            <form onSubmit={pinForm.handleSubmit(data => handlePurchase(data.pin))} className="space-y-6 pt-4">
-                                <FormField
-                                    control={pinForm.control}
-                                    name="pin"
-                                    render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>{t('securityPinLabel')}</FormLabel>
-                                        <FormControl>
-                                            <div className="flex justify-center">
-                                            <InputOTP maxLength={4} {...field}><InputOTPGroup><InputOTPSlot index={0} /><InputOTPSlot index={1} /><InputOTPSlot index={2} /><InputOTPSlot index={3} /></InputOTPGroup></InputOTP>
-                                            </div>
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                    )}
-                                />
-                                <DialogFooter>
-                                    <Button type="button" variant="ghost" onClick={() => setShowPinDialog(false)}>{t('backButton')}</Button>
-                                    <Button type="submit" variant="gradient" disabled={isLoading}>
-                                        {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        {t('eventDetailsConfirmAndPay')}
-                                    </Button>
-                                </DialogFooter>
-                            </form>
-                        </Form>
-                       </>
-                   )}
-                </DialogContent>
-            </Dialog>
-        </>
-    );
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import type { User } from '@/lib/types';
+import type { Event, TicketType } from '@/lib/actions/types';
+type Quote = { totalDebit: number; fee: number; balance: number; currency: string; sufficientBalance: boolean };
+export function PurchaseTicketButton({ event, ticketType, user }: { event: Event; ticketType: TicketType; user: User | null }) {
+    const router = useRouter(); const [open, setOpen] = useState(false); const [quantity, setQuantity] = useState(1);
+    const [currency, setCurrency] = useState(event.currency); const [quote, setQuote] = useState<Quote | null>(null);
+    const [pin, setPin] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [success, setSuccess] = useState(false);
+    useEffect(() => { if (!open || !user) return; let active = true; setQuote(null); setError('');
+        fetch(`/api/v1/onchat/events/${event.id}/buy-ticket?ticketTypeId=${ticketType.id}&quantity=${quantity}&currency=${encodeURIComponent(currency)}`, { cache: 'no-store' })
+            .then(async res => { const data = await res.json(); if (!res.ok || !data.success) throw new Error(data.error || 'Tarif indisponible.'); if (active) setQuote(data.quote); })
+            .catch(e => { if (active) setError(e.message); }); return () => { active = false; };
+    }, [open, user, quantity, currency, event.id, ticketType.id]);
+    async function purchase() {
+        if (!quote) return; setBusy(true); setError('');
+        try {
+            const response = await fetch(`/api/v1/onchat/events/${event.id}/buy-ticket`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ticketTypeId: ticketType.id, quantity, paymentCurrency: quote.currency, pin, maxDebit: quote.totalDebit, consent: true }) });
+            const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Achat refusé.');
+            setPin(''); setSuccess(true); router.refresh();
+        } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+    }
+    const soldOut = ticketType.quantity <= ticketType.sold;
+    return <><Button disabled={soldOut || event.eventType === 'zoom'} onClick={() => user ? setOpen(true) : router.push('/login')}>{soldOut ? 'Épuisé' : event.eventType === 'onchat' ? 'Acheter un code de participation' : 'Acheter un billet'}</Button>
+        <Dialog open={open} onOpenChange={value => { if (!busy) { setOpen(value); setPin(''); } }}><DialogContent className="onchat-theme bg-card text-foreground"><DialogHeader><DialogTitle>{success ? 'Vos billets sont prêts' : event.name}</DialogTitle><DialogDescription>{success ? 'Retrouvez vos codes personnels dans Mes billets.' : 'Vérifiez le montant total avant de confirmer avec votre PIN.'}</DialogDescription></DialogHeader>
+            {success ? <Button onClick={() => router.push('/events/my-tickets')}>Voir mes billets</Button> : <div className="space-y-4"><Label htmlFor={`qty-${ticketType.id}`}>Quantité (1 à 10)</Label><Input id={`qty-${ticketType.id}`} type="number" min={1} max={10} value={quantity} onChange={e => setQuantity(Number(e.target.value))} disabled={busy} /><Label htmlFor={`currency-${ticketType.id}`}>Devise de paiement</Label><Input id={`currency-${ticketType.id}`} value={currency} onChange={e => setCurrency(e.target.value.toUpperCase())} maxLength={10} disabled={busy} />
+                {quote && <dl className="rounded-xl bg-background p-4 text-sm space-y-2"><div className="flex justify-between"><dt>Frais</dt><dd>{quote.fee} {quote.currency}</dd></div><div className="flex justify-between font-bold"><dt>Total</dt><dd>{quote.totalDebit} {quote.currency}</dd></div><div className="flex justify-between"><dt>Solde</dt><dd>{quote.balance} {quote.currency}</dd></div></dl>}
+                {quote && !quote.sufficientBalance && <p className="text-red-400" role="alert">Solde insuffisant. Rechargez le portefeuille ou changez de devise.</p>}{quote && quote.totalDebit > 0 && <><Label htmlFor={`pin-${ticketType.id}`}>PIN CashPay</Label><Input id={`pin-${ticketType.id}`} type="password" inputMode="numeric" autoComplete="off" value={pin} onChange={e => setPin(e.target.value)} disabled={busy} /></>}
+                <Button className="w-full onchat-btn-primary" onClick={purchase} disabled={busy || !quote || !quote.sufficientBalance || (quote.totalDebit > 0 && !pin)}>{busy ? 'Traitement…' : 'Autoriser et obtenir mes billets'}</Button>
+            </div>}{error && <p className="text-red-400 text-sm" role="alert">{error}</p>}
+        </DialogContent></Dialog></>;
 }

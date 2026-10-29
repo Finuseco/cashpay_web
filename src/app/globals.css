@@ -18,7 +18,7 @@
 
     --secondary: 220 14.3% 95.9%;
     --secondary-foreground: 222.2 47.4% 11.2%;
-    
+
     --muted: 220 14.3% 95.9%;
     --muted-foreground: 220 8.9% 43.1%;
 
@@ -31,12 +31,12 @@
     --border: 220 13% 91%;
     --input: 220 13% 91%;
     --ring: 222 83% 11%;
-    
+
     --radius: 0.75rem;
 
     --gradient-start: 222 83% 11%; /* 000E38 */
     --gradient-end: 28 98% 55%; /* Lighter Orange: ff8c3b */
-    
+
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
@@ -72,7 +72,7 @@
     --border: 222 84.2% 12.9%;
     --input: 222 84.2% 12.9%;
     --ring: 24 98% 52%;
-    
+
     --gradient-start: 222 83% 11%; /* 000E38 */
     --gradient-end: 28 98% 55%; /* Lighter Orange: ff8c3b */
   }
@@ -90,16 +90,16 @@
 
 /* ============================================================
    ONCHAT THEME — dark navy/violet/cyan (identique au splash Android)
-   Couleurs : fond #080c1e, violet #8b5cf6, cyan #06b6d4
+   Couleurs : fond #070A16, violet #7F46D3, cyan #44BBF5
    ============================================================ */
 
 /* Variables globales OnChat utilisables partout */
 :root {
-  --oc-bg-deep:    8 14% 8%;         /* #080c1e — nuit profonde */
+  --oc-bg-deep:    8 14% 8%;         /* #070A16 — nuit profonde */
   --oc-bg-mid:     255 46% 14%;      /* #130b3b — violet sombre */
-  --oc-violet:     262 83% 64%;      /* #8b5cf6 */
-  --oc-violet-dark:265 75% 48%;      /* #7c3aed */
-  --oc-cyan:       189 96% 43%;      /* #06b6d4 */
+  --oc-violet:     262 83% 64%;      /* #7F46D3 */
+  --oc-violet-dark:265 75% 48%;      /* #562EBF */
+  --oc-cyan:       189 96% 43%;      /* #44BBF5 */
   --oc-cyan-light: 188 94% 58%;      /* #22d3ee */
   --oc-purple-ring:270 70% 60%;      /* #9333ea */
   --oc-surface:    250 40% 13%;      /* carte/surface sombre */
@@ -110,25 +110,25 @@
 /* Scoped : toutes les pages /feedback utilisent le thème OnChat */
 .onchat-theme,
 [data-theme="onchat"] {
-  --background: 230 45% 7%;          /* #080c1e */
-  --foreground: 0 0% 97%;
-  --card: 250 40% 11%;
-  --card-foreground: 0 0% 95%;
-  --popover: 250 40% 10%;
-  --popover-foreground: 0 0% 95%;
-  --primary: 262 83% 64%;            /* #8b5cf6 violet */
-  --primary-foreground: 0 0% 100%;
-  --secondary: 189 96% 43%;          /* #06b6d4 cyan */
-  --secondary-foreground: 0 0% 100%;
-  --muted: 250 30% 18%;
-  --muted-foreground: 240 20% 60%;
-  --accent: 265 75% 48%;             /* #7c3aed */
-  --accent-foreground: 0 0% 100%;
+  --background: 228.00 51.72% 5.69%; /* Android #070A16 */
+  --foreground: 0.00 0.00% 100.00%; /* Android #FFFFFF */
+  --card: 226.67 47.37% 14.90%; /* Android #141C38 */
+  --card-foreground: 0.00 0.00% 100.00%; /* Android #FFFFFF */
+  --popover: 226.67 47.37% 14.90%; /* Android #141C38 */
+  --popover-foreground: 0.00 0.00% 100.00%; /* Android #FFFFFF */
+  --primary: 264.26 61.57% 55.10%; /* Android #7F46D3 */
+  --primary-foreground: 0.00 0.00% 100.00%; /* Android #FFFFFF */
+  --secondary: 199.66 89.85% 61.37%; /* Android #44BBF5 */
+  --secondary-foreground: 228.00 51.72% 5.69%; /* Android #070A16 */
+  --muted: 226.96 51.11% 17.65%; /* Android #162044 */
+  --muted-foreground: 215.00 20.22% 65.10%; /* Android #94A3B8 */
+  --accent: 207.14 78.66% 50.39%; /* Android #1D8AE4 */
+  --accent-foreground: 0.00 0.00% 100.00%; /* Android #FFFFFF */
+  --border: 227.21 46.56% 25.69%; /* Android #233060 */
+  --input: 227.21 46.56% 25.69%; /* Android #233060 */
+  --ring: 199.66 89.85% 61.37%; /* Android #44BBF5 */
   --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 255 30% 22%;
-  --input: 250 30% 18%;
-  --ring: 262 83% 64%;
+  --destructive-foreground: 0 0% 100%;
 }
 
 /* Dégradé de fond OnChat (radial depuis le centre) */
@@ -136,13 +136,13 @@
   background:
     radial-gradient(ellipse 80% 60% at 50% 40%, rgba(139,92,246,0.18) 0%, transparent 70%),
     radial-gradient(ellipse 60% 40% at 80% 80%, rgba(6,182,212,0.10) 0%, transparent 60%),
-    linear-gradient(160deg, #080c1e 0%, #13072e 50%, #080c1e 100%);
+    linear-gradient(160deg, #070A16 0%, #0D1226 50%, #070A16 100%);
   background-attachment: fixed;
 }
 
 /* Texte dégradé violet→cyan (style "OnChat" du splash) */
 .onchat-gradient-text {
-  background: linear-gradient(90deg, #8b5cf6 0%, #06b6d4 100%);
+  background: linear-gradient(90deg, #7F46D3 0%, #44BBF5 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -150,7 +150,7 @@
 
 /* Bouton principal violet avec glow */
 .onchat-btn-primary {
-  background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+  background: linear-gradient(135deg, #562EBF, #7F46D3);
   box-shadow: 0 0 20px rgba(139,92,246,0.4);
   color: white;
   border: none;
@@ -163,7 +163,7 @@
 
 /* Bouton secondary cyan */
 .onchat-btn-secondary {
-  background: linear-gradient(135deg, #0891b2, #06b6d4);
+  background: linear-gradient(135deg, #0891b2, #44BBF5);
   box-shadow: 0 0 16px rgba(6,182,212,0.35);
   color: white;
   border: none;
@@ -180,7 +180,7 @@
 
 /* Pill badge (style "Écosystème CashPay...") */
 .onchat-pill {
-  background: linear-gradient(90deg, #7c3aed, #8b5cf6, #06b6d4);
+  background: linear-gradient(90deg, #562EBF, #7F46D3, #44BBF5);
   border-radius: 999px;
   color: white;
   font-weight: 600;
@@ -190,13 +190,13 @@
 
 /* Cercle icône style splash (bordure colorée) */
 .onchat-icon-ring-cyan {
-  border: 2px solid #06b6d4;
+  border: 2px solid #44BBF5;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(6,182,212,0.08);
-  color: #06b6d4;
+  color: #44BBF5;
 }
 .onchat-icon-ring-violet {
   border: 2px solid #9333ea;
@@ -228,7 +228,7 @@
   border-radius: 0.75rem;
 }
 .onchat-input:focus {
-  border-color: #8b5cf6;
+  border-color: #7F46D3;
   box-shadow: 0 0 0 3px rgba(139,92,246,0.2);
   outline: none;
 }
@@ -263,7 +263,7 @@
     -ms-overflow-style: none; /* IE and Edge */
     scrollbar-width: none; /* Firefox */
   }
-  
+
   @keyframes scan-line {
     0% {
       top: 0;
@@ -310,3 +310,6 @@
     animation: animated-gradient-border 4s linear infinite;
   }
 }
+
+.onchat-theme .bg-zinc-900 { background-color: #141C38; }
+.onchat-theme .bg-zinc-800 { background-color: #162044; }

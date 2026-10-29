@@ -27,10 +27,10 @@ const StatusListItem = ({ group, onClick }: { group: StatusGroup, onClick: () =>
 export function StatusView({ onBack, onViewStatus, currentUser, statusGroups }: { onBack: () => void; onViewStatus: (groupIndex: number) => void; currentUser: User | null, statusGroups: StatusGroup[] }) {
     const myStatusGroup = statusGroups.find(g => g.contact.id === currentUser?.id);
     const contactStatusGroups = statusGroups.filter(g => g.contact.id !== currentUser?.id);
-    
+
     return (
-        <div className="flex flex-col h-full min-h-0 bg-[#111827]">
-            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#1f2c33] text-white">
+        <div className="flex flex-col h-full min-h-0 bg-[#0D1226]">
+            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#141C38] text-white">
                 <Button variant="ghost" size="icon" onClick={onBack}>
                     <ArrowLeft />
                 </Button>
@@ -48,21 +48,21 @@ export function StatusView({ onBack, onViewStatus, currentUser, statusGroups }: 
                         <p className="text-sm text-zinc-400">Appuyez pour ajouter une mise à jour</p>
                     </div>
                      <Link href="/status/create" className="absolute -bottom-1 left-12" onClick={e => e.stopPropagation()}>
-                        <div className="h-6 w-6 rounded-full bg-green-500 flex items-center justify-center border-2 border-[#111827]">
+                        <div className="h-6 w-6 rounded-full bg-green-500 flex items-center justify-center border-2 border-[#0D1226]">
                             <Camera className="h-3 w-3 text-white" />
                         </div>
                     </Link>
                 </div>
-                
+
                 <p className="text-sm font-semibold text-zinc-400 px-3 py-4">Récentes</p>
-                
+
                 <div className="space-y-1">
                     {contactStatusGroups.map((group, index) => (
                         <StatusListItem key={group.contact.id} group={group} onClick={() => onViewStatus(statusGroups.indexOf(group))} />
                     ))}
                 </div>
             </div>
-            
+
              <Link href="/status/create?type=text" className="absolute bottom-24 right-4">
                 <div className="h-14 w-14 rounded-2xl bg-zinc-700 flex items-center justify-center shadow-lg">
                     <Pencil className="h-6 w-6 text-white"/>

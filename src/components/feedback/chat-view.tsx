@@ -1,4 +1,6 @@
 'use client';
+import { invitationCode } from '@/lib/meeting-invitation';
+import { MeetingInvitationCard } from '@/components/feedback/meeting-invitation-card';
 
 import * as React from 'react';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -277,17 +279,17 @@ const ProductCardMessage = ({ metadata }: { metadata: string }) => {
     } catch (e) { return <div className="p-4 text-destructive bg-red-500/10 rounded">Erreur chargement produit</div>; }
 };
 
-const MessageBubble = ({ 
-    message, 
-    currentUser, 
-    sender, 
+const MessageBubble = ({
+    message,
+    currentUser,
+    sender,
     onDeleteMessage,
     onForward,
     onImageClick
-}: { 
-    message: Message, 
-    currentUser: User, 
-    sender?: User, 
+}: {
+    message: Message,
+    currentUser: User,
+    sender?: User,
     onDeleteMessage: (messageId: string) => void,
     onForward: (message: Message) => void,
     onImageClick: (url: string) => void
@@ -296,10 +298,10 @@ const MessageBubble = ({
   const { toast } = useToast();
   const isSentByCurrentUser =
   Number(message.senderId) === Number(currentUser.id);
-  
+
   let transferData = null;
   let fileData: { fileUrl: string, fileName?: string, imageId?: string } | null = null;
-  
+
   const isAudio = message.type === 'audio';
   const isDocument = message.type === 'doc';
   const isImage = message.type === 'image';
@@ -313,7 +315,7 @@ const MessageBubble = ({
           }
       } catch (e) {}
   }
-  
+
   if (message.metadata) {
     try {
       fileData = typeof message.metadata === 'string' ? JSON.parse(message.metadata) : message.metadata;
@@ -342,6 +344,9 @@ const MessageBubble = ({
       document.body.removeChild(link);
   }
 
+    const meetingCode = invitationCode(message.content, message.metadata);
+    if (meetingCode) return <MeetingInvitationCard code={meetingCode} />;
+
   return (
     <div className={cn("flex w-full items-end gap-2 group", isSentByCurrentUser ? "justify-end" : "justify-start")}>
        <div className={cn("flex items-center", isSentByCurrentUser && "order-1")}>
@@ -361,9 +366,9 @@ const MessageBubble = ({
         </div>
 
       <div className={cn(
-        "rounded-lg shadow-sm relative", 
-        isSentByCurrentUser 
-          ? "bg-[#005c4b] text-white rounded-br-none" 
+        "rounded-lg shadow-sm relative",
+        isSentByCurrentUser
+          ? "bg-[#005c4b] text-white rounded-br-none"
           : "bg-[#2a3942] text-white rounded-bl-none",
         isProduct ? "p-1" : "p-2 min-w-[100px] max-w-[75%]",
         (isImage || isAudio) && "p-1",
@@ -432,7 +437,7 @@ const DateSeparator = ({ date }: { date: string }) => {
 
     return (
         <div className="flex justify-center my-4">
-            <div className="px-3 py-1 text-xs text-white bg-[#1f2c33] rounded-full shadow-md">
+            <div className="px-3 py-1 text-xs text-white bg-[#141C38] rounded-full shadow-md">
                 {formattedDate}
             </div>
         </div>
@@ -448,9 +453,9 @@ const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: (
         { href: "/monpays", label: "MonPays", icon: Map },
         { href: "/b2b", label: "B2B", icon: Briefcase },
     ];
-    
+
     return (
-        <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#1f2c33] text-white">
+        <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#141C38] text-white">
             <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden">
                 <ArrowLeft />
             </Button>
@@ -460,7 +465,7 @@ const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: (
                       <AvatarImage src={contact.profile_photo || ''} alt={contact.full_name} data-ai-hint="person portrait" />
                       <AvatarFallback>{contact.first_name?.[0]}</AvatarFallback>
                   </Avatar>
-                  {contact.availabilityStatus === 'available' && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#1f2c33]" />}
+                  {contact.availabilityStatus === 'available' && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#141C38]" />}
               </div>
               <div className="min-w-0">
                   <h2 className="font-bold text-base truncate">{contact.full_name}</h2>
@@ -521,7 +526,7 @@ const ImageEditor = ({ imageData, onCancel, onSend }: { imageData: string, onCan
 
             ctx.filter = selectedFilter.filter;
             ctx.drawImage(img, 0, 0);
-            
+
             const finalData = canvas.toDataURL('image/jpeg', 0.8);
             onSend(finalData);
         };
@@ -534,7 +539,7 @@ const ImageEditor = ({ imageData, onCancel, onSend }: { imageData: string, onCan
                 <h3 className="font-bold flex items-center gap-2 text-primary"><Wand className="h-5 w-5"/> Baket Magic</h3>
                 <Button variant="ghost" size="icon" className="text-green-500" onClick={handleSend}><CheckCircle2 /></Button>
             </header>
-            
+
             <div className="flex-1 relative flex items-center justify-center p-4">
                 <canvas ref={canvasRef} className="hidden" />
                 <div className="relative max-w-full max-h-full transition-all duration-300" style={{ filter: selectedFilter.filter }}>
@@ -546,7 +551,7 @@ const ImageEditor = ({ imageData, onCancel, onSend }: { imageData: string, onCan
                 <p className="text-xs text-center text-zinc-400 mb-4 uppercase tracking-widest font-semibold">Choisissez un effet</p>
                 <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2 px-2">
                     {magicBucketFilters.map(f => (
-                        <button 
+                        <button
                             key={f.name}
                             onClick={() => setSelectedFilter(f)}
                             className="flex flex-col items-center gap-2 shrink-0 group"
@@ -594,10 +599,10 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
   const [isTransferDialogOpen, setIsTransferDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [userCurrencies, setUserCurrencies] = useState<Currency[]>([]);
-  
+
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [pendingFileName, setPendingFileName] = useState('');
-  
+
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const [isForwardDialogOpen, setIsForwardDialogOpen] = useState(false);
@@ -607,7 +612,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
   const { toast } = useToast();
   const { openAlert } = useAlertDialog();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  
+
   useEffect(() => {
     const fetchCurrencies = async () => {
         const currencies = await getUserCurrencies(currentUser.id);
@@ -624,7 +629,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
         setAssistantSettings(userProfile.assistantSettings || null);
     }
   }, [conversation]);
-  
+
   const scrollToBottom = useCallback(() => {
     setTimeout(() => {
       if (scrollAreaRef.current) {
@@ -671,14 +676,14 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
   const handleCall = (type: 'audio' | 'video' | 'meeting') => {
       onStartCall(conversation.contact, type);
   };
-  
+
   const handleTyping = (e: React.ChangeEvent<HTMLInputElement>) => {
     setNewMessage(e.target.value);
     if (assistantSettings?.isEnabled && !isUserOverride) {
       setIsUserOverride(true);
     }
   };
-  
+
   const handleInChatTransfer = async (values: z.infer<typeof transferSchema>) => {
     setIsSending(true);
 
@@ -697,7 +702,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
     } else {
       openAlert({ variant: "error", title: t('transferErrorTitle'), description: result.error });
     }
-    
+
     setIsSending(false);
     setIsTransferDialogOpen(false);
   };
@@ -708,7 +713,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
       const reader = new FileReader();
       reader.onloadend = async () => {
         const dataUrl = reader.result as string;
-        
+
         if (file.type.startsWith('image')) {
             setPendingImage(dataUrl);
             setPendingFileName(file.name);
@@ -750,7 +755,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
       lastMessageTimestamp: tempMessage.timestamp,
     };
     onUpdateConversation(nextConversationState);
-    
+
     try {
         const sentMessageData = await sendChatMessage(conversation.id, { content, type, fileDataUri, fileName });
         const finalConversation = {
@@ -766,7 +771,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
         if (type === 'text') setNewMessage(content);
         toast({ variant: 'destructive', title: "Message non envoyé", description: error?.message || "Vérifiez votre connexion et réessayez." });
     }
-    
+
     setIsSending(false);
   }, [conversation, currentUser, onUpdateConversation]);
 
@@ -777,11 +782,11 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
             .find((m) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported?.(m));
         mediaRecorderRef.current = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
         audioChunksRef.current = [];
-        
+
         mediaRecorderRef.current.ondataavailable = (event) => {
             audioChunksRef.current.push(event.data);
         };
-        
+
         mediaRecorderRef.current.onstop = async () => {
             const audioBlob = new Blob(audioChunksRef.current, { type: (mediaRecorderRef.current?.mimeType || 'audio/webm').split(';')[0] });
             if (audioBlob.size === 0) { stream.getTracks().forEach(track => track.stop()); return; }
@@ -793,7 +798,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
             };
             stream.getTracks().forEach(track => track.stop());
         };
-        
+
         mediaRecorderRef.current.start();
         setIsRecording(true);
     } catch (err) {
@@ -808,7 +813,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
     }
     setIsRecording(false);
   };
-  
+
   const handleMicClick = () => {
       isRecording ? stopRecording() : startRecording();
   };
@@ -822,7 +827,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
 
   const handleForwardTo = async (targetId: string | number, type: 'conversation' | 'group') => {
       if (!messageToForward) return;
-      
+
       setIsSending(true);
       const result = await forwardMessage(currentUser.id, messageToForward.id, type, targetId);
       setIsSending(false);
@@ -841,7 +846,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
   return (
     <div className="flex flex-col h-full min-h-0 bg-[#0b141a]">
       <ChatHeader onBack={onBack} contact={conversation.contact} onViewProfile={() => onViewProfile(conversation.contact)} onStartCall={handleCall}/>
-      
+
       {pendingImage && (
           <ImageEditor imageData={pendingImage} onCancel={() => setPendingImage(null)} onSend={handleSendEditedImage} />
       )}
@@ -876,8 +881,8 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
               <ScrollArea className="max-h-[60vh] p-2">
                   <div className="space-y-1">
                       {recentConversations.map(c => (
-                          <button 
-                            key={c.id} 
+                          <button
+                            key={c.id}
                             className="w-full flex items-center gap-3 p-3 hover:bg-zinc-800 rounded-lg transition-colors text-left"
                             onClick={() => handleForwardTo(c.id, 'conversation')}
                           >
@@ -892,7 +897,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
               </ScrollArea>
           </DialogContent>
       </Dialog>
-      
+
       <ScrollArea
       className="flex-1 min-h-0"
       viewportRef={scrollAreaRef}
@@ -913,11 +918,11 @@ const sender = isCurrentUserMessage
                   return (
                       <React.Fragment key={`${message.id}-${index}`}>
                           {showDateSeparator && <DateSeparator date={message.timestamp} />}
-                          <MessageBubble 
-                            message={message} 
-                            currentUser={currentUser} 
-                            sender={sender} 
-                            onDeleteMessage={onDeleteMessage} 
+                          <MessageBubble
+                            message={message}
+                            currentUser={currentUser}
+                            sender={sender}
+                            onDeleteMessage={onDeleteMessage}
                             onForward={openForwardDialog}
                             onImageClick={setLightboxUrl}
                           />
@@ -926,8 +931,8 @@ const sender = isCurrentUserMessage
               })}
           </div>
       </ScrollArea>
-      
-      <footer className="shrink-0 border-t border-zinc-700/50 bg-[#1f2c33] p-2">
+
+      <footer className="shrink-0 border-t border-zinc-700/50 bg-[#141C38] p-2">
         <div className="flex items-center gap-2">
             <Popover>
                 <PopoverTrigger asChild>

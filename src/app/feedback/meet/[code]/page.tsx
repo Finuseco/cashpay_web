@@ -1,170 +1,50 @@
 'use client';
-
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { Loader2, Crown, Video as VideoIcon, Mic, MicOff, VideoOff } from 'lucide-react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { Loader2, Video, ShieldCheck, Ticket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { MeetInterface } from '@/components/feedback/meet-interface';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
-import { checkMeetingCode } from '@/lib/actions/meeting.actions';
 import type { User } from '@/lib/types';
-
+type Quote = { totalDebit: number; fee: number; balance: number; currency: string; priceAmount: number; priceCurrency: string; sufficientBalance: boolean; isHost: boolean; alreadyPaid: boolean; requiresTicket: boolean; eventId: number | null };
 export default function MeetPage() {
-    const params = useParams<{ code: string }>();
-    const router = useRouter();
-    const code = decodeURIComponent(String(params?.code || ''));
-    const [user, setUser] = useState<User | null>(null);
-    const [state, setState] = useState<'loading' | 'lobby' | 'in' | 'missing' | 'anon'>('loading');
-    const [topic, setTopic] = useState('');
-    const [withVideo, setWithVideo] = useState(true);
-    const [isHost, setIsHost] = useState(false);
-    const [participantCount, setParticipantCount] = useState(0);
-
-    useEffect(() => {
+    const params = useParams<{ code: string }>(); const search = useSearchParams(); const router = useRouter();
+    const code = String(params?.code || '');
+    const [user, setUser] = useState<User | null>(null); const [entered, setEntered] = useState(false);
+    const [topic, setTopic] = useState(''); const [quote, setQuote] = useState<Quote | null>(null);
+    const [withVideo, setWithVideo] = useState(true); const [currency, setCurrency] = useState('');
+    const [pin, setPin] = useState(''); const [ticketCode, setTicketCode] = useState(search.get('ticket') || '');
+    const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [loading, setLoading] = useState(true);
+    useEffect(() => { let active = true; setLoading(true); setError(''); setQuote(null);
         (async () => {
-            const [u, m] = await Promise.all([getAuthenticatedUser(), checkMeetingCode(code)]);
-            if (!u) return setState('anon');
-            setUser(u);
-            if (!m.exists) return setState('missing');
-            setTopic(m.topic || 'Réunion OnChat');
-            setWithVideo(m.type !== 'audio');
-            // Détermine si l'utilisateur est le créateur/hôte
-            const hostFlag = Number(u.id) === Number(m.hostUserId);
-            setIsHost(hostFlag);
-            setState('lobby');
-        })();
-    }, [code]);
-
-    // Charger le nb de participants en attente dans le lobby
-    useEffect(() => {
-        if (state !== 'lobby') return;
-        const load = async () => {
-            try {
-                const res = await fetch(`/api/v1/meetings/${code}/participants`, { credentials: 'same-origin' });
-                const data = await res.json().catch(() => null);
-                if (data?.success) setParticipantCount(data.participants?.length || 0);
-            } catch { /* ignoré */ }
-        };
-        load();
-        const id = setInterval(load, 5000);
-        return () => clearInterval(id);
-    }, [state, code]);
-
-    if (state === 'in' && user) {
-        return (
-            <MeetInterface
-                meetCode={code}
-                user={user}
-                withVideo={withVideo}
-                isHost={isHost}
-            />
-        );
+            const me = await getAuthenticatedUser(); if (!active) return;
+            setUser(me); if (!me) return;
+            const response = await fetch(`/api/v1/meetings/${encodeURIComponent(code)}/billing?currency=${encodeURIComponent(currency)}`, { cache: 'no-store' });
+            const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Réunion indisponible.');
+            if (active) { setQuote(result.quote); setTopic(result.topic); }
+        })().catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
+    }, [code, currency]);
+    async function join() {
+        if (!quote) return; setBusy(true); setError('');
+        try {
+            const response = await fetch(`/api/v1/meetings/${encodeURIComponent(code)}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, currency: quote.currency, maxDebit: quote.totalDebit, consent: true, ticketCode }) });
+            const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Admission refusée.');
+            setPin(''); setEntered(true);
+        } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
     }
-
-    return (
-        <div className="h-[100dvh] flex items-center justify-center bg-[#080c1e] text-white p-6"
-            style={{ background: 'radial-gradient(ellipse at 60% 20%, rgba(139,92,246,0.15) 0%, transparent 60%), radial-gradient(ellipse at 20% 80%, rgba(6,182,212,0.10) 0%, transparent 60%), linear-gradient(160deg, #080c1e 0%, #13072e 50%, #080c1e 100%)' }}>
-            <div className="max-w-sm w-full space-y-5">
-                {state === 'loading' && (
-                    <div className="flex flex-col items-center gap-3">
-                        <Loader2 className="h-8 w-8 animate-spin text-[#8b5cf6]" />
-                        <p className="text-zinc-400 text-sm">Vérification de la réunion…</p>
-                    </div>
-                )}
-
-                {state === 'anon' && (
-                    <div className="onchat-card rounded-2xl p-6 text-center space-y-4">
-                        <p className="text-zinc-300">Connectez-vous à OnChat pour rejoindre cette réunion.</p>
-                        <Button className="w-full onchat-btn-primary" onClick={() => router.push('/feedback/login')}>
-                            Se connecter
-                        </Button>
-                    </div>
-                )}
-
-                {state === 'missing' && (
-                    <div className="onchat-card rounded-2xl p-6 text-center space-y-4">
-                        <p className="text-zinc-300">Réunion introuvable ou déjà terminée.</p>
-                        <Button variant="outline" className="w-full" onClick={() => router.push('/feedback')}>
-                            Retour à OnChat
-                        </Button>
-                    </div>
-                )}
-
-                {state === 'lobby' && (
-                    <div className="onchat-card rounded-2xl p-6 space-y-5">
-                        {/* Badge hôte ou participant */}
-                        <div className="flex items-center justify-between">
-                            <div>
-                                {isHost ? (
-                                    <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-[#8b5cf6] bg-[#8b5cf6]/10 border border-[#8b5cf6]/30 rounded-full px-3 py-1">
-                                        <Crown className="h-3 w-3" /> Organisateur
-                                    </span>
-                                ) : (
-                                    <span className="inline-flex items-center gap-1 text-xs text-zinc-400 bg-zinc-800/60 border border-zinc-700/40 rounded-full px-3 py-1">
-                                        Participant
-                                    </span>
-                                )}
-                            </div>
-                            {participantCount > 0 && (
-                                <span className="text-xs text-[#06b6d4] bg-[#06b6d4]/10 border border-[#06b6d4]/20 rounded-full px-2.5 py-1">
-                                    {participantCount} connecté{participantCount > 1 ? 's' : ''}
-                                </span>
-                            )}
-                        </div>
-
-                        {/* Titre */}
-                        <div>
-                            <h1 className="text-lg font-bold onchat-gradient-text">{topic}</h1>
-                            <p className="text-xs text-zinc-500 mt-1 font-mono">Code : {code}</p>
-                        </div>
-
-                        <div className="onchat-divider" />
-
-                        {/* Prévisualisation caméra */}
-                        <div>
-                            <p className="text-xs text-zinc-400 mb-2">Mode d'entrée :</p>
-                            <div className="grid grid-cols-2 gap-2">
-                                <button
-                                    onClick={() => setWithVideo(true)}
-                                    className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${
-                                        withVideo
-                                            ? 'bg-[#8b5cf6]/20 border-[#8b5cf6]/50 text-[#8b5cf6]'
-                                            : 'bg-zinc-800/40 border-zinc-700/40 text-zinc-400'
-                                    }`}
-                                >
-                                    <VideoIcon className="h-5 w-5" />
-                                    <span className="text-xs font-medium">Avec caméra</span>
-                                </button>
-                                <button
-                                    onClick={() => setWithVideo(false)}
-                                    className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${
-                                        !withVideo
-                                            ? 'bg-[#06b6d4]/20 border-[#06b6d4]/50 text-[#06b6d4]'
-                                            : 'bg-zinc-800/40 border-zinc-700/40 text-zinc-400'
-                                    }`}
-                                >
-                                    <Mic className="h-5 w-5" />
-                                    <span className="text-xs font-medium">Audio seul</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* CTA */}
-                        <Button
-                            className="w-full onchat-btn-primary h-11"
-                            onClick={() => setState('in')}
-                        >
-                            {isHost ? '🎙 Démarrer la réunion' : 'Rejoindre'}
-                        </Button>
-
-                        {isHost && (
-                            <p className="text-[10px] text-zinc-500 text-center">
-                                En tant qu&apos;organisateur, vous contrôlez la parole, les participants et pouvez terminer la réunion.
-                            </p>
-                        )}
-                    </div>
-                )}
-            </div>
-        </div>
-    );
+    if (entered && user && quote) return <MeetInterface meetCode={code} user={user} withVideo={withVideo} isHost={quote.isHost} />;
+    return <main className="h-[100dvh] overflow-y-auto bg-background text-foreground p-4 md:p-10 flex items-center justify-center"><div className="w-full max-w-3xl rounded-3xl border border-border bg-card shadow-2xl overflow-hidden grid md:grid-cols-2"><div className="p-8 text-white flex flex-col justify-between gap-8" style={{ background: 'linear-gradient(145deg,#562EBF,#1F62D5)' }}><div><Video className="h-10 w-10 text-[#44BBF5]" /><p className="text-sm mt-6 text-white/70">OnChat Meet</p><h1 className="font-bold text-3xl mt-2">{topic || 'Bienvenue dans votre réunion'}</h1></div><p className="text-sm text-white/70">Échangez, apprenez et partagez la scène. Vous gardez le contrôle de votre participation.</p></div><section className="p-6 md:p-8 space-y-4">
+        {loading ? <Loader2 className="animate-spin" aria-label="Chargement" /> : !user ? <><p>Connectez-vous pour rejoindre cette réunion.</p><Button onClick={() => router.push('/feedback/login')}>Se connecter</Button></> : quote ? <>
+            <h2 className="font-semibold text-xl">{quote.isHost ? 'Espace organisateur' : 'Votre participation'}</h2><div className="flex gap-2"><Button variant={withVideo ? 'default' : 'outline'} onClick={() => setWithVideo(true)}>Vidéo</Button><Button variant={!withVideo ? 'default' : 'outline'} onClick={() => setWithVideo(false)}>Audio</Button></div>
+            {quote.requiresTicket ? <div className="space-y-3"><p className="text-sm flex gap-2"><Ticket className="h-5 w-5 text-secondary" />Un billet personnel est nécessaire pour entrer.</p><Label htmlFor="ticket-code">Code de participation</Label><Input id="ticket-code" value={ticketCode} onChange={e => setTicketCode(e.target.value)} autoComplete="off" /><Button variant="outline" onClick={() => router.push(`/events/${quote.eventId}`)}>Acheter un billet</Button></div> : quote.totalDebit > 0 ? <>
+                <p className="text-sm">Tarif : {quote.priceAmount} {quote.priceCurrency}</p><Label htmlFor="debit-currency">Devise de paiement</Label><Input id="debit-currency" placeholder={quote.priceCurrency} defaultValue={quote.currency} maxLength={10} onBlur={e => setCurrency(e.target.value.toUpperCase())} />
+                <dl className="rounded-xl bg-background p-4 text-sm space-y-2"><div className="flex justify-between"><dt>Frais CashPay</dt><dd>{quote.fee} {quote.currency}</dd></div><div className="flex justify-between font-bold"><dt>Total à débiter</dt><dd>{quote.totalDebit} {quote.currency}</dd></div><div className="flex justify-between"><dt>Solde disponible</dt><dd>{quote.balance} {quote.currency}</dd></div></dl>
+                {!quote.sufficientBalance && <p role="alert" className="text-red-400 text-sm">Solde insuffisant. Rechargez votre portefeuille ou choisissez une autre devise.</p>}<Label htmlFor="payment-pin">PIN CashPay pour autoriser le débit</Label><Input id="payment-pin" type="password" inputMode="numeric" autoComplete="off" value={pin} onChange={e => setPin(e.target.value)} maxLength={12} /><p className="text-xs text-muted-foreground">En confirmant, vous autorisez ce débit pour créditer l’organisateur. Une reconnexion ne déclenche pas de second paiement.</p>
+            </> : <p className="text-sm text-muted-foreground">{quote.isHost ? 'Gérez les participants, les demandes de parole et vos revenus depuis le panneau organisateur.' : quote.alreadyPaid ? 'Votre participation a déjà été réglée.' : 'Participation gratuite.'}</p>}
+            <Button className="w-full onchat-btn-primary" onClick={join} disabled={busy || (!quote.requiresTicket && quote.totalDebit > 0 && (!quote.sufficientBalance || !pin)) || (quote.requiresTicket && !ticketCode.trim())}>{busy ? <Loader2 className="mr-2 animate-spin h-4 w-4" /> : <ShieldCheck className="mr-2 h-4 w-4" />}{quote.totalDebit > 0 ? 'Autoriser et rejoindre' : quote.isHost ? 'Ouvrir la réunion et gérer' : 'Rejoindre la réunion'}</Button>
+        </> : null}{error && <p role="alert" className="text-red-400 text-sm">{error}</p>}<Button variant="ghost" onClick={() => router.push('/feedback')}>Retour à OnChat</Button>
+    </section></div></main>;
 }

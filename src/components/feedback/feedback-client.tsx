@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { User, Message, Conversation, AssistantSettings, Currency, Group, GroupMessage, Call, StatusGroup } from '@/lib/types';
+import type { User, Message, Conversation, AssistantSettings, Currency, Group, GroupMessage, StatusGroup } from '@/lib/types';
 import { ArrowLeft, Send, Check, CheckCheck, Paperclip, Phone, Video, Smile, Loader2, Mic, StopCircle, MoreVertical, LayoutDashboard, ShoppingCart, Clapperboard, Map, Gamepad2, Trash2, Copy, Edit2, Plus, Banknote, Undo2, FileText, Briefcase, PlayCircle, Users as UsersIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { 
@@ -47,7 +47,6 @@ import { ChatView } from './chat-view';
 import { NewChatView } from './new-chat-view';
 import { getStatusesForUser } from '@/lib/actions/status.actions';
 import { Skeleton } from '@/components/ui/skeleton';
-import { CallView } from './call-view';
 import { useAudioFeedback } from '@/hooks/use-audio-feedback';
 import { useSearchParams } from 'next/navigation';
 import { ContactProfileView } from './contact-profile-view';
@@ -63,7 +62,6 @@ import { GroupChatView } from './groups/group_chat_view';
 import { NewsView } from '@/components/feedback/news-view';
 import { GroupProfileView } from './groups/group-profile-view';
 import { getGroupWithMessages } from '@/lib/actions/group.actions';
-import { startCallSession, endCallSession } from '@/lib/actions/call.actions';
 import { createOpenMeeting } from '@/lib/actions/meeting.actions';
 
 
@@ -114,7 +112,6 @@ export function FeedbackClient() {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     
-    const [activeCall, setActiveCall] = useState<Call | null>(null);
     const [statusViewerIndex, setStatusViewerIndex] = useState<number | null>(null);
     
     const audioFeedback = useAudioFeedback();
@@ -275,11 +272,11 @@ export function FeedbackClient() {
             : conversations.find(c => c.contact.id === contact.id);
         if (conv) {
             try {
-                // Envoyer une carte visuelle (meeting_link) plutôt qu’une URL brute
+                // Envoyer une carte visuelle de réunion plutôt qu’une URL brute
                 await postMessage(
                     conv.id,
-                    type === ‘audio’ ? ‘📞 Appel audio OnChat’ : ‘🎥 Réunion vidéo OnChat’,
-                    ‘meeting_link’,
+                    type === 'audio' ? '📞 Appel audio OnChat' : '🎥 Réunion vidéo OnChat',
+                    'meeting',
                     currentUser.id,
                     contact.id,
                     undefined,
@@ -287,31 +284,19 @@ export function FeedbackClient() {
                     {
                         meetCode: meeting.meetCode,
                         joinUrl: link,
-                        topic: `${type === ‘audio’ ? ‘Appel audio’ : ‘Appel vidéo’} avec ${contact.first_name || contact.full_name}`,
-                        type: type === ‘audio’ ? ‘audio’ : ‘video’,
-                        status: ‘active’,
+                        topic: `${type === 'audio' ? 'Appel audio' : 'Appel vidéo'} avec ${contact.first_name || contact.full_name}`,
+                        type: type === 'audio' ? 'audio' : 'video',
+                        status: 'active',
                         startedAt: new Date().toISOString(),
                     }
                 );
             } catch (e) {
-                console.error(‘[OnChat] envoi du lien d\’appel’, e);
+                console.error('[OnChat] envoi du lien d\'appel', e);
             }
         }
         window.location.href = link;
     };
 
-    const endCall = (reason: Call['status']) => {
-        audioFeedback.stopAllSounds();
-        if (reason === 'no-answer') {
-            audioFeedback.playNoAnswerSound();
-        }
-        if (activeCall && activeCall.sessionId) {
-            endCallSession(activeCall.sessionId, reason);
-        }
-        setActiveCall(null);
-        setView('list');
-    };
-    
     const handleViewStatus = (groupIndex: number) => {
         setStatusViewerIndex(groupIndex);
     };
@@ -395,7 +380,6 @@ export function FeedbackClient() {
 
     if (isLoading) return <FeedbackLoading />;
     if (!currentUser) return <OnChatLandingPage />;
-    if (activeCall && currentUser) return <CallView call={activeCall} currentUser={currentUser} onHangUp={endCall} />;
     
     const showFooter = ['list', 'calls', 'groups', 'news'].includes(view);
 

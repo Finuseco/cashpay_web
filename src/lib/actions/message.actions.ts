@@ -15,6 +15,9 @@ import { verifyCurrentUserPin } from '@/lib/actions/auth.actions';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
+import { parseChatDataUri, attachmentDiskPath, ownedAttachmentPath } from '@/lib/chat-attachments';
 
 export async function getConversationsForUser(userId: number): Promise<Conversation[]> {
     try {
@@ -244,7 +247,7 @@ export async function postMessage(
     receiverId: number,
     fileDataUri?: string,
     fileName?: string,
-    extraMetadata?: Record<string, unknown>
+    attachmentMetadata?: Record<string, unknown>
 ): Promise<Message> {
     const connection = await db.getConnection();
 
@@ -286,38 +289,23 @@ export async function postMessage(
         }
 
         let imageId: string | null = null;
-        let metadata: Record<string, unknown> | null = extraMetadata || null;
+        let metadata: Record<string, unknown> | null = attachmentMetadata || null;
 
-        if (type === 'image' && fileDataUri) {
-            imageId = `IMG_${crypto.randomBytes(16).toString('hex')}`;
-
-            const finalFileUrl = await saveBase64Image(
-                fileDataUri,
-                `chat-files/sender_${senderId}`,
-                imageId
-            );
-
-            if (!finalFileUrl) throw new Error("Impossible d'enregistrer l'image.");
-
+        if (attachmentMetadata?.fileUrl && (typeof attachmentMetadata.fileUrl !== 'string' || !ownedAttachmentPath(attachmentMetadata.fileUrl, senderId))) {
+            throw new Error('Fichier non autorisé.');
+        }
+        if (fileDataUri) {
+            const attachment = parseChatDataUri(fileDataUri);
+            const name = `${crypto.randomUUID()}${attachment.extension}`;
+            const target = attachmentDiskPath(String(senderId), name);
+            await fs.mkdir(path.dirname(target), { recursive: true });
+            await fs.writeFile(target, attachment.buffer);
+            if (type === 'image') imageId = `IMG_${crypto.randomBytes(16).toString('hex')}`;
             metadata = {
-                fileUrl: finalFileUrl,
-                fileName: fileName || `${imageId}.jpg`,
-                imageId,
-            };
-        } else if (fileDataUri) {
-            const fileId = `${type}_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
-
-            const finalFileUrl = await saveBase64Image(
-                fileDataUri,
-                `chat-files/sender_${senderId}`,
-                fileId
-            );
-
-            if (!finalFileUrl) throw new Error("Impossible d'enregistrer le fichier joint.");
-
-            metadata = {
-                fileUrl: finalFileUrl,
-                fileName: fileName || fileId,
+                ...metadata,
+                fileUrl: `/api/uploads/onchat/${senderId}/${name}`,
+                fileName: fileName || name,
+                ...(imageId ? { imageId } : {}),
             };
         }
 
@@ -354,6 +342,8 @@ export async function postMessage(
 
         const insertedMessage = rows[0];
 
+        // PostgreSQL delivers NOTIFY only after COMMIT; no uncommitted message is broadcast.
+        await connection.query("SELECT pg_notify('onchat_messages', $1)", [JSON.stringify({ id: messageId })]);
         await connection.query('COMMIT');
 
         // Le message est déjà enregistré : une panne de notification/e-mail ne doit pas le faire échouer.
@@ -815,26 +805,33 @@ export async function postGroupMessage(
     content: string,
     type: Message['type'] = 'text',
     fileDataUri?: string,
-    fileName?: string
+    fileName?: string,
+    attachmentMetadata?: Record<string, string>
 ): Promise<Message> {
-    let finalFileUrl = null;
-    let metadata = null;
+    const { getAuthenticatedUser } = await import('./user.actions');
+    const user = await getAuthenticatedUser();
+    if (!user || Number(user.id) !== Number(senderId)) throw new Error('Authentification requise.');
+    const membership = await db.query("SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2 AND status = 'active'", [groupId, user.id]);
+    if (!membership.rows.length) throw new Error('Groupe inaccessible.');
+    if (attachmentMetadata?.fileUrl && !ownedAttachmentPath(attachmentMetadata.fileUrl, user.id)) throw new Error('Fichier non autorisé.');
+    let metadata = attachmentMetadata ? JSON.stringify(attachmentMetadata) : null;
     let imageId = null;
-
-    if (type === 'image' && fileDataUri) {
-        imageId = `IMG_G_${crypto.randomBytes(16).toString('hex')}`;
-        finalFileUrl = await saveBase64Image(fileDataUri, `chat-files/sender_${senderId}`, imageId);
-        metadata = JSON.stringify({ fileUrl: finalFileUrl, fileName: fileName || `${imageId}.jpg`, image_id: imageId });
-    } else if (fileDataUri) {
-        const fileId = `${type}_G_${Date.now()}`;
-        finalFileUrl = await saveBase64Image(fileDataUri, `chat-files/sender_${senderId}`, fileId);
-        metadata = JSON.stringify({ fileUrl: finalFileUrl, fileName: fileName || fileId });
+    if (fileDataUri) {
+        const attachment = parseChatDataUri(fileDataUri);
+        const name = `${crypto.randomUUID()}${attachment.extension}`;
+        const target = attachmentDiskPath(String(user.id), name);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, attachment.buffer);
+        if (type === 'image') imageId = `IMG_${crypto.randomBytes(16).toString('hex')}`;
+        metadata = JSON.stringify({ fileUrl: `/api/uploads/onchat/${user.id}/${name}`, fileName: fileName || name, imageId });
     }
 
     const { rows } = await db.query('INSERT INTO group_messages (group_id, sender_id, content, type, metadata, image_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *', 
         [groupId, senderId, content, type, metadata, imageId]);
     
     const insertedMessage = rows[0];
+    await db.query("SELECT pg_notify('onchat_group_messages', $1)", [JSON.stringify({ id: String(insertedMessage.id) })]);
+
 
     const { rows: memberRows } = await db.query('SELECT user_id FROM group_members WHERE group_id = $1 AND user_id != $2', [groupId, senderId]);
     const memberIds = memberRows.map(r => r.user_id);

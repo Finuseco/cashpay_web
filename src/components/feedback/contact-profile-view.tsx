@@ -68,7 +68,7 @@ export function ContactProfileView({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#0b141a] text-white">
       {/* Header fixe */}
-      <header className="z-10 flex shrink-0 items-center bg-[#1f2c33] p-2 sm:p-3">
+      <header className="z-10 flex shrink-0 items-center bg-[#141C38] p-2 sm:p-3">
         <Button variant="ghost" size="icon" onClick={onBack}>
           <ArrowLeft />
         </Button>
@@ -84,7 +84,7 @@ export function ContactProfileView({
         </div>
       </header>
 
-      {/* 
+      {/*
         Zone de contenu scrollable.
         min-h-0 est important dans une structure flex.
       */}
@@ -200,7 +200,7 @@ export function ContactProfileView({
 
         {/* Informations */}
         <div className="p-4">
-          <div className="rounded-lg bg-[#1f2c33] divide-y divide-zinc-700/50">
+          <div className="rounded-lg bg-[#141C38] divide-y divide-zinc-700/50">
             <InfoRow
               label="Info"
               value={t('contactProfileInfo')}
@@ -282,7 +282,7 @@ export function ContactProfileView({
 
         {/* Notifications */}
         <div className="p-4 pb-8">
-          <div className="flex items-center justify-between rounded-lg bg-[#1f2c33] p-4">
+          <div className="flex items-center justify-between rounded-lg bg-[#141C38] p-4">
             <div className="flex min-w-0 items-start gap-4">
               <Bell className="mt-1 h-5 w-5 shrink-0 text-zinc-400" />
 

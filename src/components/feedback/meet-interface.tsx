@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type { User } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useMeetRoom } from '@/hooks/use-meet-room';
@@ -78,7 +80,7 @@ function VideoTile({
                             src={avatar}
                             alt={label}
                             className="h-20 w-20 rounded-full object-cover ring-4"
-                            style={{ ringColor: isHostTile ? '#06b6d4' : '#8b5cf6' }}
+                            style={{ outlineColor: isHostTile ? '#06b6d4' : '#8b5cf6' }}
                         />
                     ) : (
                         <div className="h-20 w-20 rounded-full flex items-center justify-center text-2xl font-black ring-4"
@@ -86,7 +88,7 @@ function VideoTile({
                                 background: isHostTile
                                     ? 'linear-gradient(135deg, #06b6d4, #0891b2)'
                                     : 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
-                                ringColor: isHostTile ? '#06b6d4' : '#8b5cf6',
+                                outlineColor: isHostTile ? '#06b6d4' : '#8b5cf6',
                             }}>
                             {initials || '?'}
                         </div>
@@ -117,8 +119,14 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
     const [elapsed, setElapsed] = useState(0);
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraOff, setIsCameraOff] = useState(!withVideo);
-    const [showParticipants, setShowParticipants] = useState(isHost); // hôte voit toujours le panel
+    const [showParticipants, setShowParticipants] = useState(isHost);
     const [participants, setParticipants] = useState<LiveParticipant[]>([]);
+    const [revenue, setRevenue] = useState<{ currency: string; amount: number; payments: number }[]>([]);
+    const [actionError, setActionError] = useState('');
+    const [tariff, setTariff] = useState('0');
+    const [tariffCurrency, setTariffCurrency] = useState('USD');
+    const [savingTariff, setSavingTariff] = useState(false);
+    const [actionSuccess, setActionSuccess] = useState('');
     const [hasRaisedHand, setHasRaisedHand] = useState(false);
     const [grantingId, setGrantingId] = useState<number | null>(null);
     const [copied, setCopied] = useState(false);
@@ -126,6 +134,22 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
     const room = useMeetRoom(meetCode, withVideo);
     const { status, error, peers, localStream, isScreenSharing, join, leave } = room;
 
+    useEffect(() => {
+        if (!isHost) return;
+        fetch(`/api/v1/meetings/${meetCode}/billing`, { cache: 'no-store' }).then(async response => {
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'Tarif indisponible.');
+            setTariff(String(data.billing.priceAmount)); setTariffCurrency(data.billing.priceCurrency);
+        }).catch(error => setActionError(error.message));
+    }, [isHost, meetCode]);
+    async function saveTariff() {
+        setSavingTariff(true); setActionError(''); setActionSuccess('');
+        try {
+            const response = await fetch(`/api/v1/meetings/${meetCode}/billing`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ priceAmount: Number(tariff), priceCurrency: tariffCurrency }) });
+            const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Modification refusée.');
+            setActionSuccess('Tarif enregistré pour les prochaines participations.');
+        } catch (error) { setActionError((error as Error).message); } finally { setSavingTariff(false); }
+    }
     // Auto-join
     useEffect(() => { join(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -143,12 +167,16 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
             try {
                 const res = await fetch(`/api/v1/meetings/${meetCode}/participants`, { credentials: 'same-origin' });
                 const data = await res.json().catch(() => null);
-                if (data?.success) setParticipants(data.participants || []);
-            } catch { /* ignoré */ }
+                if (!res.ok || !data?.success) throw new Error(data?.error || 'Participants indisponibles.');
+                setParticipants(data.participants || []);
+                setRevenue(data.revenue || []);
+            } catch (error) { setActionError((error as Error).message); }
         };
+        const update = (event: Event) => { if ((event as CustomEvent).detail?.meetCode === meetCode) load(); };
+        window.addEventListener('onchat-meeting-updated', update);
         load();
         const id = setInterval(load, 8000);
-        return () => clearInterval(id);
+        return () => { clearInterval(id); window.removeEventListener('onchat-meeting-updated', update); };
     }, [status, meetCode]);
 
     const fmt = (s: number) =>
@@ -163,14 +191,14 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
         if (!isHost) return;
         setIsEndingMeeting(true);
         try {
-            await fetch(`/api/v1/meetings/${meetCode}/end`, {
+            const response = await fetch(`/api/v1/meetings/${meetCode}/end`, {
                 method: 'POST',
                 credentials: 'same-origin',
             });
-        } catch { /* ignoré */ } finally {
-            leave();
-            router.push('/feedback');
-        }
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || 'Action refusée.');
+            handleLeave();
+        } catch (error) { setActionError((error as Error).message); } finally { setIsEndingMeeting(false); }
     };
 
     const handleCopy = async () => {
@@ -188,24 +216,29 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
         const next = !hasRaisedHand;
         setHasRaisedHand(next);
         try {
-            await fetch(`/api/v1/meetings/${meetCode}/raise-hand`, {
+            const response = await fetch(`/api/v1/meetings/${meetCode}/raise-hand`, {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ raised: next }),
             });
-        } catch { /* ignoré */ }
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'Demande refusée.');
+        } catch (error) { setHasRaisedHand(!next); setActionError((error as Error).message); }
     };
 
     const handleGrant = useCallback(async (targetUserId: number, canSpeak: boolean) => {
         setGrantingId(targetUserId);
         try {
-            await fetch(`/api/v1/meetings/${meetCode}/grant-speech`, {
+            setActionError('');
+            const response = await fetch(`/api/v1/meetings/${meetCode}/grant-speech`, {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ targetUserId, canSpeak }),
             });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || 'Action refusée.');
             setParticipants((prev) =>
                 prev.map((p) =>
                     p.userId === targetUserId
@@ -213,7 +246,7 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                         : p
                 )
             );
-        } catch { /* ignoré */ } finally {
+        } catch (error) { setActionError((error as Error).message); } finally {
             setGrantingId(null);
         }
     }, [meetCode]);
@@ -221,32 +254,36 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
     /** Mute all — hôte uniquement */
     const handleMuteAll = useCallback(async () => {
         try {
-            await fetch(`/api/v1/meetings/${meetCode}/mute-all`, {
+            const response = await fetch(`/api/v1/meetings/${meetCode}/mute-all`, {
                 method: 'POST',
                 credentials: 'same-origin',
             });
-        } catch { /* ignoré */ }
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || 'Action refusée.');
+        } catch (error) { setActionError((error as Error).message); }
     }, [meetCode]);
 
     /** Expulser un participant — hôte uniquement */
     const handleKick = useCallback(async (targetUserId: number) => {
         try {
-            await fetch(`/api/v1/meetings/${meetCode}/kick`, {
+            const response = await fetch(`/api/v1/meetings/${meetCode}/kick`, {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ targetUserId }),
             });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || 'Action refusée.');
             setParticipants((prev) => prev.filter((p) => p.userId !== targetUserId));
-        } catch { /* ignoré */ }
+        } catch (error) { setActionError((error as Error).message); }
     }, [meetCode]);
 
     const myParticipant = participants.find((p) => p.userId === Number(user.id));
-    const iAmSpeaker = isHost || myParticipant?.canSpeak || myParticipant?.isHost;
+    const iAmSpeaker = room.canSpeak;
 
     const speakerPeers = peers.filter((p) => {
         const participant = participants.find((pp) => pp.userId === p.userId);
-        return !participant || participant.canSpeak || participant.isHost;
+        return Boolean(participant && (participant.canSpeak || participant.isHost));
     });
     const viewerPeers = peers.filter((p) => {
         const participant = participants.find((pp) => pp.userId === p.userId);
@@ -265,12 +302,9 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
     const userAvatar = (user as any).photo_url || (user as any).avatar || null;
 
     return (
-        <div className="flex flex-col h-[100dvh] text-white overflow-hidden"
-            style={{ background: 'linear-gradient(160deg, #080c1e 0%, #13072e 50%, #080c1e 100%)' }}>
-
-            {/* ── Header ── */}
-            <header className="shrink-0 h-14 flex items-center justify-between px-4"
-                style={{ background: 'rgba(8,12,30,0.85)', borderBottom: '1px solid rgba(139,92,246,0.15)', backdropFilter: 'blur(12px)' }}>
+        <div className="relative flex flex-col h-[100dvh] text-white overflow-hidden" style={{ background: 'linear-gradient(160deg, #080c1e 0%, #13072e 50%, #080c1e 100%)' }}>
+            {/* Header */}
+            <header className="shrink-0 h-14 flex items-center justify-between px-4 bg-black/40">
                 <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     {/* Code réunion */}
                     <div className="flex items-center gap-1.5 rounded-xl border px-3 py-1.5"
@@ -366,33 +400,19 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
 
                 {/* ── Panel participants ── */}
                 {showParticipants && (
-                    <aside className="w-64 shrink-0 flex flex-col overflow-hidden"
-                        style={{ background: 'rgba(8,12,30,0.92)', borderLeft: '1px solid rgba(139,92,246,0.15)', backdropFilter: 'blur(12px)' }}>
-                        <div className="flex items-center justify-between px-3 py-2 border-b"
-                            style={{ borderColor: 'rgba(139,92,246,0.15)' }}>
-                            <span className="text-xs font-bold uppercase tracking-widest text-[#8b5cf6]">
-                                Participants ({participants.length})
-                            </span>
-                            {!isHost && (
-                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowParticipants(false)}>
-                                    <X className="h-3 w-3" />
-                                </Button>
-                            )}
+                    <aside className="absolute top-14 bottom-20 right-0 z-20 w-full sm:static sm:w-80 shrink-0 bg-zinc-900/90 border-l border-zinc-800 flex flex-col overflow-hidden">
+                        <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+                            <span className="text-xs font-bold uppercase tracking-widest text-zinc-400">Participants</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowParticipants(false)}>
+                                <X className="h-3 w-3" />
+                            </Button>
                         </div>
-
-                        {/* Actions hôte globales */}
-                        {isHost && (
-                            <div className="px-2 py-2 border-b flex gap-1.5 flex-wrap"
-                                style={{ borderColor: 'rgba(139,92,246,0.1)' }}>
-                                <button
-                                    onClick={handleMuteAll}
-                                    className="flex items-center gap-1 text-[10px] font-medium text-zinc-300 bg-zinc-800/70 hover:bg-red-500/20 border border-zinc-700/40 hover:border-red-500/40 rounded-lg px-2 py-1 transition-all"
-                                >
-                                    <MuteAll className="h-3 w-3" /> Mute all
-                                </button>
-                            </div>
-                        )}
-
+                        {isHost && <div className="p-3 border-b border-border space-y-2"><h3 className="font-semibold text-sm">Administration de la réunion</h3><div className="grid grid-cols-2 gap-2"><div><Label htmlFor="host-tariff">Tarif futur</Label><Input id="host-tariff" type="number" min="0" step="0.01" value={tariff} onChange={event => setTariff(event.target.value)} /></div><div><Label htmlFor="host-currency">Devise</Label><Input id="host-currency" maxLength={10} value={tariffCurrency} onChange={event => setTariffCurrency(event.target.value.toUpperCase())} /></div></div><Button size="sm" disabled={savingTariff} onClick={saveTariff}>Enregistrer le tarif</Button><p className="text-xs text-muted-foreground">Revenus bruts reçus, hors frais payés par les participants</p>{revenue.length ? revenue.map(row => <p key={row.currency} className="font-semibold text-secondary">{row.amount} {row.currency} <span className="text-xs text-muted-foreground">· {row.payments} paiement(s)</span></p>) : <p className="text-xs text-muted-foreground">Aucun paiement enregistré.</p>}<Button variant="destructive" size="sm" onClick={async () => {
+                            setActionError('');
+                            try { const response = await fetch(`/api/v1/meetings/${meetCode}/end`, { method: 'POST' }); const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Action refusée.'); handleLeave(); }
+                            catch (error) { setActionError((error as Error).message); }
+                        }}>Terminer pour tous</Button></div>}
+                        {isHost && <div className="px-3 py-2 border-b border-border"><Button size="sm" variant="outline" onClick={handleMuteAll}><MuteAll className="h-3 w-3 mr-2" />Couper tous les micros</Button></div>}
                         <div className="flex-1 overflow-y-auto p-2 space-y-1">
                             {participants.length === 0 ? (
                                 <p className="text-xs text-zinc-500 text-center py-6">Aucun participant visible</p>
@@ -401,7 +421,7 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                                     className="flex items-center gap-2 p-2 rounded-xl hover:bg-zinc-800/40 transition-colors">
                                     {/* Avatar participant */}
                                     <div className="h-9 w-9 rounded-full overflow-hidden shrink-0 ring-2"
-                                        style={{ ringColor: p.isHost ? '#06b6d4' : 'rgba(139,92,246,0.3)' }}>
+                                        style={{ outlineColor: p.isHost ? '#06b6d4' : 'rgba(139,92,246,0.3)' }}>
                                         {p.avatar ? (
                                             <img src={p.avatar} alt={p.name} className="h-full w-full object-cover" />
                                         ) : (
@@ -423,7 +443,7 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                                     </div>
                                     <div className="flex items-center gap-1">
                                         {p.raiseHand && <span className="text-sm animate-bounce">✋</span>}
-                                        {/* Contrôles hôte par participant */}
+                                        {isHost && p.raiseHand && !p.isHost && <><Button size="sm" variant="ghost" disabled={grantingId === p.userId} onClick={() => handleGrant(p.userId, true)}>Accepter</Button><Button size="sm" variant="ghost" disabled={grantingId === p.userId} onClick={() => handleGrant(p.userId, false)}>Refuser</Button></>}
                                         {isHost && !p.isHost && (
                                             <>
                                                 <Button
@@ -461,7 +481,9 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                 )}
             </div>
 
-            {/* ── Status messages ── */}
+            {actionSuccess && <p role="status" className="text-sm text-secondary px-4 py-2">{actionSuccess}</p>}
+            {actionError && <p role="alert" className="text-sm text-red-400 px-4 py-2">{actionError}</p>}
+            {/* Status messages */}
             {(status === 'connecting' || status === 'media') && (
                 <p className="text-center text-xs text-zinc-400 pb-1 flex items-center justify-center gap-2">
                     <Loader2 className="h-3 w-3 animate-spin text-[#8b5cf6]" />Connexion…
@@ -483,16 +505,15 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                 </div>
             )}
 
-            {/* ── Contrôles bas ── */}
-            <div className="shrink-0 flex items-center justify-center gap-2 sm:gap-3 p-3"
-                style={{ background: 'rgba(8,12,30,0.92)', borderTop: '1px solid rgba(139,92,246,0.12)', backdropFilter: 'blur(12px)' }}>
-
-                {/* Micro */}
+            {!iAmSpeaker && status === 'joined' && <p className="text-center text-xs text-muted-foreground p-2">Vous êtes spectateur. Levez la main pour demander à rejoindre la scène.</p>}
+            {/* Controls */}
+            <div className="shrink-0 flex items-center justify-center gap-2 sm:gap-3 bg-zinc-900/80 border-t border-white/5 p-3">
                 <Button
                     variant="outline"
                     size="icon"
                     onClick={toggleMic}
-                    className={cn('h-12 w-12 rounded-full', isMuted ? 'bg-red-500 border-red-500 text-white' : 'bg-zinc-800/80 text-white border-zinc-700/50')}
+                    disabled={!iAmSpeaker}
+                    className={cn('h-12 w-12 rounded-full', isMuted ? 'bg-red-500 border-red-500 text-white' : 'bg-zinc-800 text-white')}
                 >
                     {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
                 </Button>
@@ -502,7 +523,8 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                     variant="outline"
                     size="icon"
                     onClick={toggleCam}
-                    className={cn('h-12 w-12 rounded-full', isCameraOff ? 'bg-red-500 border-red-500 text-white' : 'bg-zinc-800/80 text-white border-zinc-700/50')}
+                    disabled={!iAmSpeaker}
+                    className={cn('h-12 w-12 rounded-full', isCameraOff ? 'bg-red-500 border-red-500 text-white' : 'bg-zinc-800 text-white')}
                 >
                     {isCameraOff ? <VideoOff className="h-5 w-5" /> : <VideoIcon className="h-5 w-5" />}
                 </Button>
@@ -512,7 +534,8 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                     variant="outline"
                     size="icon"
                     onClick={room.toggleScreenShare}
-                    className={cn('h-12 w-12 rounded-full hidden sm:inline-flex', isScreenSharing ? 'bg-[#8b5cf6] text-white border-[#8b5cf6]' : 'bg-zinc-800/80 text-white border-zinc-700/50')}
+                    disabled={!iAmSpeaker}
+                    className={cn('h-12 w-12 rounded-full hidden sm:inline-flex', isScreenSharing ? 'bg-primary text-white' : 'bg-zinc-800 text-white')}
                     title="Partager l'écran"
                 >
                     <Monitor className="h-5 w-5" />

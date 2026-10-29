@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { db } from '@/lib/db';
+import type { Message } from '@/lib/types';
+import { ownedAttachmentPath, parseChatDataUri } from '@/lib/chat-attachments';
 import { postMessage } from '@/lib/actions/message.actions';
 
 export async function GET(
@@ -101,7 +103,7 @@ export async function GET(
           senderId: message.senderId,
           content: message.content,
           type: message.type,
-          metadata: message.metadata,
+          metadata: typeof message.metadata === 'string' ? JSON.parse(message.metadata) : message.metadata,
           status: message.status,
           isRead: message.isRead,
           imageId: message.imageId,
@@ -151,7 +153,7 @@ export async function POST(
       : '';
 
     const type = typeof body.type === 'string'
-      ? body.type
+      ? body.type as Message['type']
       : 'text';
 
     const fileDataUri =
@@ -164,10 +166,26 @@ export async function POST(
         ? body.fileName
         : undefined;
 
-    const connection = await db.getConnection();
-
-    try {
-      const { rows: participantRows } = await connection.query(
+    if (fileDataUri) {
+      try { parseChatDataUri(fileDataUri); } catch (error) {
+        return NextResponse.json({ success: false, error: (error as Error).message }, { status: 400 });
+      }
+    }
+    const fileUrl = typeof body.fileUrl === 'string' ? ownedAttachmentPath(body.fileUrl, user.id) : null;
+    if (body.fileUrl && !fileUrl) return NextResponse.json({ success: false, error: 'Fichier non autorisé.' }, { status: 400 });
+    if (!['text', 'image', 'audio', 'video', 'doc', 'sticker', 'location', 'contact', 'poll', 'meeting', 'product'].includes(type)) return NextResponse.json({ success: false, error: 'Type de message invalide.' }, { status: 400 });
+    const metadata: Record<string, string> = {};
+    const metadataKeys = ['duration', 'durationSeconds', 'mimeType', 'fileSize', 'width', 'height', 'meetCode'];
+    if (body.metadata && typeof body.metadata === 'object') {
+      for (const key of metadataKeys) {
+        const value = body.metadata[key];
+        if (typeof value === 'string' && value.length <= 512) metadata[key] = value;
+      }
+    }
+    if (fileUrl) Object.assign(metadata, { fileUrl, fileName: fileName || 'Pièce jointe' });
+    const attachmentMetadata = Object.keys(metadata).length ? metadata : undefined;
+    // No transaction spans this lookup; release the pool slot before postMessage opens its transaction.
+      const { rows: participantRows } = await db.query(
         `
         SELECT user_id
         FROM conversation_participants
@@ -215,7 +233,7 @@ export async function POST(
         );
       }
 
-      if (!content && !fileDataUri) {
+      if (!content.trim() && !fileDataUri && !fileUrl) {
         return NextResponse.json(
           {
             success: false,
@@ -232,19 +250,17 @@ export async function POST(
         user.id,
         receiverId,
         fileDataUri,
-        fileName
+        fileName,
+        attachmentMetadata
       );
 
       return NextResponse.json(
         {
           success: true,
-          message,
+          message: { ...message, metadata: message.metadata ? JSON.parse(message.metadata) : null },
         },
         { status: 201 }
       );
-    } finally {
-      connection.release();
-    }
   } catch (error) {
     console.error('[API V1 CHAT MESSAGE POST]', error);
 
