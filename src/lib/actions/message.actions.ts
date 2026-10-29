@@ -247,7 +247,7 @@ export async function postMessage(
     receiverId: number,
     fileDataUri?: string,
     fileName?: string,
-    attachmentMetadata?: Record<string, string>
+    attachmentMetadata?: Record<string, unknown>
 ): Promise<Message> {
     const connection = await db.getConnection();
 
@@ -291,7 +291,7 @@ export async function postMessage(
         let imageId: string | null = null;
         let metadata: Record<string, unknown> | null = attachmentMetadata || null;
 
-        if (attachmentMetadata?.fileUrl && !ownedAttachmentPath(attachmentMetadata.fileUrl, senderId)) {
+        if (attachmentMetadata?.fileUrl && (typeof attachmentMetadata.fileUrl !== 'string' || !ownedAttachmentPath(attachmentMetadata.fileUrl, senderId))) {
             throw new Error('Fichier non autorisé.');
         }
         if (fileDataUri) {

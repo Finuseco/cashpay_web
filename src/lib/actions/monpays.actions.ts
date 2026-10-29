@@ -862,14 +862,15 @@ export async function getMonPaysCreationFee(paymentCurrency: string = 'USD'): Pr
 
     const connection = await db.getConnection();
     try {
-        // Auto-créer le fee_structure si absent
+        // Auto-créer le fee_structure global (GBL) si absent — utilisé en fallback
         await connection.query(`
             INSERT INTO fee_structures (transaction_type, currency, country_code, fee_tiers, is_active)
             VALUES ('MONPAYS_PAGE', 'USD', 'GBL', '[{"min":0,"max":0,"flat":30,"percent":0}]'::jsonb, true)
             ON CONFLICT (transaction_type, currency, country_code) DO NOTHING
         `).catch(() => {});
+        // Cherche d'abord le fee spécifique au pays de l'utilisateur (ex: CD, FR…), puis fallback GBL
         let referenceFeeUSD = await calculateTransactionFee(0, 'USD', 'MONPAYS_PAGE', user.country, connection);
-        if (!(referenceFeeUSD > 0)) referenceFeeUSD = 30; // fallback 30 USD
+        if (!(referenceFeeUSD > 0)) referenceFeeUSD = 30; // fallback absolu 30 USD
 
         const currency = String(paymentCurrency || 'USD').toUpperCase();
         let fee = referenceFeeUSD;

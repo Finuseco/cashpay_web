@@ -23,10 +23,10 @@ import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import type { MonPaysCategory } from '@/lib/types';
 
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
-import { createMonPaysCompany } from '@/lib/actions/monpays.actions';
+import { createMonPaysCompany, getMonPaysCreationFee } from '@/lib/actions/monpays.actions';
 import { getUserCurrencies } from '@/lib/actions/currency.actions';
-import { calculateTransactionFee } from '@/lib/actions/wallet.actions';
-import { getExchangeRatesForCountry } from '@/lib/actions/exchange.actions';
+// calculateTransactionFee remplacé par getMonPaysCreationFee (gère country_code user + conversion)
+// getExchangeRatesForCountry supprimé — la conversion est gérée dans getMonPaysCreationFee
 
 const categories: MonPaysCategory[] = [
     'E-commerce',
@@ -390,50 +390,21 @@ useEffect(() => {
                     return;
                 }
 
-                // MONPAYS_PAGE = seul frais de création.
-                // Le frais configuré est récupéré dans sa devise de référence USD.
-                const referenceFee = await calculateTransactionFee(
-                    0,
-                    'USD',
-                    'MONPAYS_PAGE',
-                    user.country
-                );
+                // Frais récupérés depuis la DB selon le country_code de l'utilisateur
+                // getMonPaysCreationFee gère : lookup par pays → fallback GBL → conversion devise
+                const feeResult = await getMonPaysCreationFee(paymentCurrency);
 
-                if (!Number.isFinite(referenceFee) || referenceFee <= 0) {
+                if (!feeResult.success || !Number.isFinite(feeResult.fee) || (feeResult.fee ?? 0) <= 0) {
                     throw new Error(
-                        "Le frais de création MonPays n'est pas configuré."
+                        feeResult.error || "Le frais de création MonPays n'est pas configuré."
                     );
-                }
-
-                let finalFee = referenceFee;
-
-                // Conversion uniquement du frais MONPAYS_PAGE.
-                if (paymentCurrency !== 'USD') {
-                    const rates = await getExchangeRatesForCountry(
-                        user.country
-                    );
-
-                    const rate = rates.find(
-                        item =>
-                            item.from_currency.toUpperCase() === 'USD' &&
-                            item.to_currency.toUpperCase() === paymentCurrency
-                    );
-
-                    if (!rate || !Number.isFinite(Number(rate.rate))) {
-                        throw new Error(
-                            `Le taux USD → ${paymentCurrency} n'est pas disponible pour votre pays.`
-                        );
-                    }
-
-                    finalFee =
-                        referenceFee * Number(rate.rate);
                 }
 
                 if (!mounted) {
                     return;
                 }
 
-                setCreationFee(finalFee);
+                setCreationFee(feeResult.fee!);
             } catch (error) {
                 console.error(
                     '[CreateCompanyForm] Erreur chargement frais MONPAYS_PAGE:',

@@ -30,3 +30,7 @@ The repository has existing unrelated TypeScript parse failures in paypal.ts, bi
 ## Production checkout cleanup
 
 At the owner’s request, test suites and their isolated fixtures were removed from the delivery branch after validation. The prior test results above describe checks performed before removal, not tests available in the current checkout. Removed the unused simulated CallView and its dead render path; web calling continues through real meetings. No database records were deleted. Other existing provider simulations outside OnChat remain subject to a separate integration audit.
+
+## Main integration — 29 October 2026
+
+The owner explicitly authorized updating main. Integration retains the latest main changes for host meeting controls and MonPays fees. Conflicts retain paid admission/PIN checks, private attachments, real meeting cards and participant administration; curly quotes in the incoming call invitation code are corrected, and invitation messages use the existing meeting type. Test sources remain absent. The prepared SQL migration still requires application to the target database; merging source alone does not migrate a production database.

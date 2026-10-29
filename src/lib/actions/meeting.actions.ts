@@ -162,7 +162,14 @@ export async function checkMeetingCode(meetCode: string) {
     const code = (meetCode || '').trim();
     if (!/^[A-Za-z0-9_-]{4,64}$/.test(code)) return { exists: false as const };
     const meeting = await getMeetingByCode(code);
-    return meeting ? { exists: true as const, topic: meeting.topic as string, type: meeting.type as string } : { exists: false as const };
+    return meeting
+        ? {
+              exists: true as const,
+              topic: meeting.topic as string,
+              type: meeting.type as string,
+              hostUserId: Number(meeting.host_user_id),
+          }
+        : { exists: false as const };
 }
 
 /** Réunions récentes de l'utilisateur authentifié (hôte), pour l'onglet Appels. */
