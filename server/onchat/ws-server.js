@@ -620,7 +620,7 @@ async function listenForMessages() {
                         JOIN group_members member ON member.group_id = gm.group_id AND member.status = 'active' WHERE gm.id = $1`, [id]);
                     for (const row of rows) sendToUser(row.recipient_id, 'chat.message.created', {
                         conversationId: `g_${row.group_id}`,
-                        message: { id: String(row.id), senderId: row.sender_id, content: row.content, type: row.type,
+                        message: { id: String(row.id), senderId: row.sender_id, senderName: row.sender_name, content: row.content, type: row.type,
                             metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
                             status: 'sent', timestamp: new Date(row.created_at).toISOString() },
                     });
@@ -637,8 +637,9 @@ async function listenForMessages() {
                 const { id } = JSON.parse(notification.payload);
                 if (typeof id !== 'string') return;
                 const { rows } = await pool.query(`
-                    SELECT m.*, cp.user_id AS recipient_id
+                    SELECT m.*, cp.user_id AS recipient_id, sender.full_name AS sender_name
                     FROM messages m
+                    LEFT JOIN users sender ON sender.id = m.sender_id
                     JOIN conversation_participants cp ON cp.conversation_id = m.conversation_id
                     WHERE m.id = $1`, [id]);
                 for (const row of rows) {
@@ -646,7 +647,7 @@ async function listenForMessages() {
                         conversationId: row.conversation_id,
                         message: {
                             id: String(row.id), conversationId: row.conversation_id,
-                            senderId: row.sender_id, content: row.content, type: row.type,
+                            senderId: row.sender_id, senderName: row.sender_name, content: row.content, type: row.type,
                             metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
                             status: row.status, isRead: row.is_read, imageId: row.image_id,
                             timestamp: new Date(row.created_at).toISOString(),
