@@ -1,6 +1,8 @@
 'use server';
 
 import type { User, Product, Boutique, Seller, ProductVariation } from '@/lib/types';
+import { getAuthenticatedUser } from './user.actions';
+import { assertManagedUser, countryIdentity } from '@/lib/super-agent-access';
 import { db } from '../db';
 import { handleDbError, saveBase64Image, getUserFromDb } from './helpers';
 import { verifyUserPin, verifyCurrentUserPin, verifyOtp, sendAndStoreOtp } from './auth.actions';
@@ -15,7 +17,7 @@ import crypto from 'crypto';
 import { sendSms } from '@/services/sms';
 import { sendEmail } from '@/services/email';
 import { sendWhatsAppTextMessage } from '@/services/whatsapp';
-import { processMaxiCashMobilePayment, processMaxiCashPayout } from '@/services/maxicash';
+import { processMaxiCashMobilePayment } from '@/services/maxicash';
 
 const safeParse = (val: any, fallback: any) => {
     if (val === null || val === undefined) return fallback;
@@ -813,31 +815,50 @@ export async function confirmSaleByCode(args: any): Promise<ActionResult> {
     return { success: true };
 }
 
-export async function initiateClientTransfer(args: { senderWalletId: string; amount: number; currency: string; agentName: string }) {
-    const { senderWalletId, amount, currency, agentName } = args;
-    const user = await getUserFromDb({ walletId: senderWalletId });
-    if (!user) return { success: false, error: 'Expéditeur non trouvé.' };
-    return await sendAndStoreOtp(user.id, `un transfert de ${amount} ${currency} (via agent ${agentName})`, 'sms');
+async function agentTransferContext(senderWalletId: string, recipientWalletId: string, amount: number, currency: string) {
+    const actor = await getAuthenticatedUser();
+    if (!actor || !['Agent', 'SuperAgent', 'SubSuperAgent', 'Admin'].includes(actor.role)) throw new Error('Session agent requise.');
+    if (!Number.isFinite(amount) || amount <= 0 || !/^[A-Z]{3,10}$/.test(currency)) throw new Error('Montant ou devise invalide.');
+    const sender = await getUserFromDb({ walletId: senderWalletId });
+    const recipient = await getUserFromDb({ walletId: recipientWalletId });
+    if (!sender || !recipient || sender.id === recipient.id) throw new Error('Portefeuilles invalides.');
+    if (String(sender.status).toLowerCase() !== 'active' || String(recipient.status).toLowerCase() !== 'active') throw new Error('Les comptes doivent être actifs.');
+    if (actor.role === 'Agent') {
+        if (!actor.country || !sender.country || countryIdentity(actor.country) !== countryIdentity(sender.country)
+            || ['Admin','SuperAgent','SubSuperAgent'].includes(sender.role)) throw new Error('Compte émetteur hors de votre juridiction.');
+    } else await assertManagedUser(actor.id, sender.id);
+    return { actor, sender, recipient, otpType: `agent_transfer:${actor.id}:${sender.id}:${recipient.id}:${amount}:${currency}` };
+}
+
+export async function initiateClientTransfer(args: { senderWalletId: string; recipientWalletId: string; amount: number; currency: string; agentName?: string; channel?: 'sms' | 'in-app' }) {
+    try {
+        const context = await agentTransferContext(args.senderWalletId, args.recipientWalletId, Number(args.amount), String(args.currency).toUpperCase());
+        return await sendAndStoreOtp(context.sender.id, context.otpType, args.channel === 'in-app' ? 'in-app' : 'sms');
+    } catch (error: any) { return { success: false, error: error.message }; }
 }
 
 export async function confirmClientTransfer(args: { senderWalletId: string; recipientWalletId: string; amount: number; currency: string; code: string; method: string }) {
-    const { senderWalletId, recipientWalletId, amount, currency, code, method } = args;
-    const sender = await getUserFromDb({ walletId: senderWalletId });
-    if (!sender) return { success: false, error: 'Expéditeur non trouvé.' };
-    const recipient = await getUserFromDb({ walletId: recipientWalletId });
-    if (!recipient) return { success: false, error: 'Destinataire non trouvé.' };
-    const otpVerification = await verifyOtp(sender.id, code);
-    if (!otpVerification.success) return { success: false, error: 'Code de validation incorrect.' };
-    return await createTransaction({
-        user: sender,
-        typeCode: 'TR',
-        amount,
-        currency,
-        description: `Transfert à ${recipient.full_name} (via Agent)`,
-        receiver_id: recipient.id,
-        receiver_wallet_id: recipient.id_wallet,
-        metadata: { facilitator: 'agent' }
-    });
+    const connection = await db.getConnection();
+    try {
+        const amount = Number(args.amount), currency = String(args.currency).toUpperCase();
+        const { actor, sender, recipient, otpType } = await agentTransferContext(args.senderWalletId, args.recipientWalletId, amount, currency);
+        if (args.method !== 'otp' || !/^\d{6}$/.test(args.code)) throw new Error('Code de validation requis.');
+        await connection.query('BEGIN');
+        const { rows } = await connection.query(`UPDATE otps SET used = TRUE WHERE id = (
+            SELECT id FROM otps WHERE user_id = $1 AND type = $2 AND code = $3 AND expires_at > NOW()
+            AND COALESCE(used, FALSE) = FALSE ORDER BY id DESC LIMIT 1 FOR UPDATE
+        ) RETURNING id`, [sender.id, otpType, args.code]);
+        if (!rows.length) throw new Error('Code invalide, expiré, déjà utilisé ou lié à une autre opération.');
+        const result = await createTransaction({ user: sender, typeCode: 'TR', amount, currency,
+            description: `Transfert à ${recipient.full_name} (via Agent)`, receiver_id: recipient.id,
+            receiver_wallet_id: recipient.id_wallet, metadata: { facilitator: actor.id }, connection });
+        if (!result.success) throw new Error(result.error || 'Transfert refusé.');
+        await connection.query('COMMIT');
+        return result;
+    } catch (error: any) {
+        await connection.query('ROLLBACK');
+        return { success: false, error: error.message };
+    } finally { connection.release(); }
 }
 
 export async function initiateClientWithdrawalOtp(args: {
@@ -858,7 +879,7 @@ export async function initiateClientWithdrawalOtp(args: {
         };
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = crypto.randomInt(100000, 1000000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     const otpType = 'agent_withdrawal';
     const amountText = `${args.amount} ${args.currency}`;
@@ -952,7 +973,6 @@ export async function initiateClientWithdrawalOtp(args: {
                 return {
                     success: false,
                     error: 'Adresse email du client indisponible.',
-                    backupOtp: otp,
                     userId: client.id
                 };
             }
@@ -973,7 +993,6 @@ export async function initiateClientWithdrawalOtp(args: {
                 return {
                     success: false,
                     error: 'Numéro WhatsApp du client indisponible.',
-                    backupOtp: otp,
                     userId: client.id
                 };
             }
@@ -992,7 +1011,6 @@ export async function initiateClientWithdrawalOtp(args: {
                 return {
                     success: false,
                     error: 'Numéro de téléphone du client indisponible.',
-                    backupOtp: otp,
                     userId: client.id
                 };
             }
@@ -1013,7 +1031,6 @@ export async function initiateClientWithdrawalOtp(args: {
             return {
                 success: false,
                 error: `L'envoi du code de retrait par ${args.channel} a échoué.`,
-                backupOtp: otp,
                 userId: client.id
             };
         }
@@ -1103,7 +1120,7 @@ export async function confirmWithdrawal(args: { agent: User, clientWalletId: str
 
     if (method === 'otp') {
         const otpRes = await verifyClientWithdrawalOtp(client.id, code);
-        if (!otpRes.success) return { success: false, error: otpRes.error };
+        if (otpRes.success === false) return { success: false, error: otpRes.error };
     } else {
         const pinRes = await verifyUserPin(client.id, code);
         if (!pinRes.success) return { success: false, error: 'PIN incorrect.' };

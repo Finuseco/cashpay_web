@@ -20,7 +20,7 @@ export async function getWalletInfo(walletId: string): Promise<WalletInfo> {
   if (!walletId || walletId.length < 12) {
     return { success: false, error: 'Format d\'ID invalide.' };
   }
-  
+
   try {
     const { rows } = await db.query('SELECT id, full_name, profile_photo, country FROM users WHERE id_wallet = $1', [walletId]);
     if (rows.length > 0) {
@@ -29,9 +29,9 @@ export async function getWalletInfo(walletId: string): Promise<WalletInfo> {
       if (!userCountryCode) {
         console.warn(`Could not determine country code for user ${user.id} with country name '${user.country}'. This may affect fee calculations.`);
       }
-      return { 
-        success: true, 
-        userName: user.full_name, 
+      return {
+        success: true,
+        userName: user.full_name,
         userId: user.id,
         profilePhoto: user.profile_photo,
         countryCode: userCountryCode,
@@ -51,24 +51,7 @@ interface FeeTier {
     min: number;
 }
 
-// List of transaction types that should always use the 'GBL' country code.
-const GLOBAL_FEE_TYPES = [
-    'PRODUCT_SALE_VAT', 
-    'BUY_CARDS_USD_V_FEE', 'BUY_CARDS_USD_P_FEE', 
-    'BUY_CARDS_EUR_V_FEE', 'BUY_CARDS_EUR_P_FEE',
-    'BUY_CARDS_CDF_V_FEE', 'BUY_CARDS_CDF_P_FEE',
-    'SMS_PACKAGE', 'B2B_CARD_ISSUE',
-    'WD_ATM_USD', 'WD_ATM_EUR', 'WD_ATM_CDF',
-    'AGENT_SUB_PROMO',
-    'AGENT_SUB_NORMAL',
-    'HSM_LOCK'
-];
-
-// List of mobile money withdrawal types that have a fallback mechanism to 'CD'.
-const MOBILE_MONEY_WD_TYPES = [
-    'WD_AIRTEL_MONEY', 'WD_MPESA', 'WD_ORANGE_MONEY', 'WD_AFRIMONEY', 'WD_MTN_MOMO', 'WD_PAYPAL', 'WD_CRYPTO_MONEY'
-];
-
+import { GLOBAL_FEE_TYPES, MOBILE_MONEY_WD_TYPES } from '@/lib/fee-policy';
 
 export async function calculateTransactionFee(
   amount: number,
@@ -80,10 +63,10 @@ export async function calculateTransactionFee(
     const conn = connection || await db.getConnection();
     try {
         const userCountryCode = countryToCode(countryIdentifier);
-        
+
         const isGlobalOnly = GLOBAL_FEE_TYPES.includes(transactionTypeCode);
         let countryCodeToQuery = isGlobalOnly ? 'GBL' : (userCountryCode || 'GBL');
-        
+
         if (transactionTypeCode === 'TICKET_BUY') {
             if (currency === 'USD' || currency === 'EUR') {
                 countryCodeToQuery = 'GBL';
@@ -97,7 +80,7 @@ export async function calculateTransactionFee(
             'SELECT fee_tiers FROM fee_structures WHERE transaction_type = $1 AND currency = $2 AND country_code = $3 AND is_active = true',
             [transactionTypeCode, currency, countryCodeToQuery]
         );
-        
+
         // 2. Fallback to GBL if country-specific fee was not found (and it wasn't already GBL)
         if (rows.length === 0 && countryCodeToQuery !== 'GBL') {
             const { rows: globalRows } = await conn.query(
@@ -124,7 +107,7 @@ export async function calculateTransactionFee(
         const feeTiers: FeeTier[] = typeof feeTiersRaw === 'string'
             ? JSON.parse(feeTiersRaw)
             : feeTiersRaw;
-        
+
         const tier = feeTiers.find(t => amount >= t.min && (t.max === 0 || amount <= t.max));
 
         if (!tier) {
@@ -139,7 +122,7 @@ export async function calculateTransactionFee(
             }
             return 0;
         }
-        
+
         if (tier.fee.endsWith('%')) {
             const percentage = parseFloat(tier.fee.slice(0, -1));
             return (amount * percentage) / 100;

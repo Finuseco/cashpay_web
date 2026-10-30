@@ -87,15 +87,17 @@ function parseCookies(header) {
     return cookies;
 }
 
+const usedConnectTickets = new Map();
 function authenticate(request) {
     const cookies = parseCookies(
         request.headers.cookie
     );
 
     const authorization = request.headers.authorization;
-    const token = authorization && authorization.startsWith('Bearer ')
+    const connectTicket = new URL(request.url, 'http://localhost').searchParams.get('ticket');
+    const token = connectTicket || (authorization && authorization.startsWith('Bearer ')
         ? authorization.slice(7).trim()
-        : cookies['cashpay-token'];
+        : cookies['cashpay-token']);
 
     if (!token) {
         return null;
@@ -104,7 +106,8 @@ function authenticate(request) {
     try {
         const payload = jwt.verify(
             token,
-            JWT_SECRET
+            JWT_SECRET,
+            connectTicket ? { audience: 'onchat-ws', algorithms: ['HS256'] } : undefined
         );
 
         if (
@@ -115,6 +118,12 @@ function authenticate(request) {
             return null;
         }
 
+        if (connectTicket) {
+            const now=Date.now();for(const [id,expires] of usedConnectTickets)if(expires<now)usedConnectTickets.delete(id);
+            if(payload.scope!=='onchat-ws-connect'||!payload.jti||usedConnectTickets.has(payload.jti))return null;
+            if(usedConnectTickets.size>10000)return null;
+            usedConnectTickets.set(payload.jti,now+60000);
+        }
         return {
             id: Number(payload.id),
             walletId: payload.id_wallet || null,
@@ -282,6 +291,8 @@ function leaveMeetRoom(code, user, socket) {
     sockets.delete(socket);
     if (sockets.size > 0) return;
     room.delete(user.id);
+    const disconnectedAt=new Date();
+    pool.query('UPDATE meeting_participants SET left_at=NOW() WHERE meeting_id=(SELECT id FROM meetings WHERE meeting_provider_id=$1) AND user_id=$2 AND joined_at <= $3',[code,user.id,disconnectedAt]).catch(error=>console.error('[Meeting disconnect]',error.code));
     for (const peerId of room.keys()) {
         sendToMeetUser(code, peerId, 'meet.peer_left', { meetCode: code, userId: user.id });
     }
@@ -613,6 +624,21 @@ async function listenForMessages() {
         };
         client.on('error', retry);
         client.on('notification', async (notification) => {
+            if (notification.channel === 'onchat_calls') {
+                try {
+                    const payload=JSON.parse(notification.payload);
+                    const result=await pool.query(`SELECT cl.*,u.full_name,u.id_wallet,u.profile_photo FROM call_logs cl JOIN users u ON u.id=COALESCE($2::int,cl.caller_id) WHERE cl.id=$1`,[payload.callId,payload.actorId || null]);
+                    const call=result.rows[0];if(!call)return;
+                    const recipients=payload.targetId ? [Number(payload.targetId)] : [Number(call.caller_id),Number(call.receiver_id),...(await pool.query('SELECT user_id FROM onchat_call_invitees WHERE call_id=$1',[call.id])).rows.map(row=>Number(row.user_id))];
+                    for(const id of new Set(recipients)) sendToUser(id,payload.event,{callId:call.id,callerName:call.full_name,callerWalletId:call.id_wallet,callerAvatar:call.profile_photo,isVideo:call.is_video,meetCode:call.meeting_code});
+                } catch(error) {console.error('[Direct call notification]',error.message);}
+                return;
+            }
+            if (notification.channel === 'inter_claim_activity') {
+                try { const data = JSON.parse(notification.payload); sendToUser(Number(data.userId), 'inter.claim.updated', { claimId: data.claimId }); }
+                catch (error) { console.error('[Inter activity]', error.message); }
+                return;
+            }
             if (notification.channel === 'onchat_group_messages') {
                 try {
                     const { id } = JSON.parse(notification.payload);
@@ -620,7 +646,7 @@ async function listenForMessages() {
                         JOIN group_members member ON member.group_id = gm.group_id AND member.status = 'active' WHERE gm.id = $1`, [id]);
                     for (const row of rows) sendToUser(row.recipient_id, 'chat.message.created', {
                         conversationId: `g_${row.group_id}`,
-                        message: { id: String(row.id), senderId: row.sender_id, content: row.content, type: row.type,
+                        message: { id: String(row.id), senderId: row.sender_id, senderName: row.sender_name, content: row.content, type: row.type,
                             metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
                             status: 'sent', timestamp: new Date(row.created_at).toISOString() },
                     });
@@ -637,8 +663,9 @@ async function listenForMessages() {
                 const { id } = JSON.parse(notification.payload);
                 if (typeof id !== 'string') return;
                 const { rows } = await pool.query(`
-                    SELECT m.*, cp.user_id AS recipient_id
+                    SELECT m.*, cp.user_id AS recipient_id, sender.full_name AS sender_name
                     FROM messages m
+                    LEFT JOIN users sender ON sender.id = m.sender_id
                     JOIN conversation_participants cp ON cp.conversation_id = m.conversation_id
                     WHERE m.id = $1`, [id]);
                 for (const row of rows) {
@@ -646,7 +673,7 @@ async function listenForMessages() {
                         conversationId: row.conversation_id,
                         message: {
                             id: String(row.id), conversationId: row.conversation_id,
-                            senderId: row.sender_id, content: row.content, type: row.type,
+                            senderId: row.sender_id, senderName: row.sender_name, content: row.content, type: row.type,
                             metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
                             status: row.status, isRead: row.is_read, imageId: row.image_id,
                             timestamp: new Date(row.created_at).toISOString(),
@@ -655,6 +682,8 @@ async function listenForMessages() {
                 }
             } catch (error) { console.error('[ONCHAT WS NOTIFICATION]', error.message); }
         });
+        await client.query('LISTEN onchat_calls');
+        await client.query('LISTEN inter_claim_activity');
         await client.query('LISTEN onchat_messages');
         await client.query('LISTEN onchat_meetings');
         await client.query('LISTEN onchat_group_messages');
@@ -733,8 +762,8 @@ wss.on('connection', (socket, request, user) => {
     });
 });
 
-server.on('upgrade', (request, socket, head) => {
-    if (request.url !== '/ws') {
+server.on('upgrade', async (request, socket, head) => {
+    if (new URL(request.url, 'http://localhost').pathname !== '/ws') {
         socket.write(
             'HTTP/1.1 404 Not Found\r\n\r\n'
         );
@@ -754,6 +783,12 @@ server.on('upgrade', (request, socket, head) => {
         return;
     }
 
+    try {
+        const current=await pool.query("SELECT id,id_wallet,role FROM users WHERE id=$1 AND LOWER(status)='active'",[user.id]);
+        if(!current.rows[0]) { socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');socket.destroy();return; }
+        user.role=current.rows[0].role;user.walletId=current.rows[0].id_wallet;
+    } catch(error) {socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');socket.destroy();return;}
+    if(socket.destroyed)return;
     wss.handleUpgrade(
         request,
         socket,

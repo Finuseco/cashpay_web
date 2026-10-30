@@ -8,9 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, Briefcase, Search, RefreshCw, Power } from 'lucide-react';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
-import { 
-    getCountryBusinessPartners, 
-    resetBusinessApiKey 
+import {
+    getCountryBusinessPartners,
+    resetBusinessApiKey
 } from '@/lib/actions/super-agent/finance.actions';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -28,7 +28,7 @@ export default function BusinessManagementPage() {
     const [isProcessing, setIsProcessing] = useState(false);
     const [superAgent, setSuperAgent] = useState<any>(null);
     const [filter, setFilter] = useState('');
-    
+
     const { openAlert } = useAlertDialog();
 
     const fetchData = async () => {
@@ -43,7 +43,7 @@ export default function BusinessManagementPage() {
     };
 
     useEffect(() => {
-        fetchData();
+        fetchData().catch(() => { setIsLoading(false); openAlert({ title: 'Chargement impossible', description: 'Données indisponibles. Actualisez la page pour réessayer.', variant: 'error' }); });
     }, []);
 
     const handleOpenReset = (partner: any) => {
@@ -79,8 +79,8 @@ export default function BusinessManagementPage() {
                 </div>
                 <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-                    <Input 
-                        placeholder="Rechercher une entreprise..." 
+                    <Input
+                        placeholder="Rechercher une entreprise..."
                         className="pl-9 bg-zinc-800 border-zinc-700"
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
@@ -96,7 +96,7 @@ export default function BusinessManagementPage() {
                             Attention : Les anciennes clés de <strong>{selectedPartner?.company_name}</strong> seront immédiatement invalidées.
                         </DialogDescription>
                     </DialogHeader>
-                    
+
                     <div className="space-y-4 py-2">
                         <Label className="text-center block">Entrez votre PIN Super Agent pour confirmer</Label>
                         <div className="flex justify-center py-2">

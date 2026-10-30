@@ -6,14 +6,14 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
-import { 
-    getCountrySubAgents, 
-    promoteToSubSuperAgent, 
-    getInterventionHistory 
+import {
+    getCountrySubAgents,
+    promoteToSubSuperAgent,
+    getInterventionHistory
 } from '@/lib/actions/super-agent/staff.actions';
-import { 
-    getCountryAgentSubscriptions, 
-    forceAgentRenewal 
+import {
+    getCountryAgentSubscriptions,
+    forceAgentRenewal
 } from '@/lib/actions/agent-application.actions';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -53,7 +53,7 @@ export default function SubAgentsPage() {
     const [provinces, setProvinces] = useState<string[]>([]);
     const [verifiedUser, setVerifiedUser] = useState<WalletInfo | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    
+
     const { openAlert } = useAlertDialog();
 
     const form = useForm<z.infer<typeof promotionSchema>>({
@@ -82,21 +82,21 @@ export default function SubAgentsPage() {
     };
 
     useEffect(() => {
-        fetchData();
+        fetchData().catch(() => { setIsLoading(false); openAlert({ title: 'Chargement impossible', description: 'Données indisponibles. Actualisez la page pour réessayer.', variant: 'error' }); });
     }, []);
 
     const handlePromotion = async (values: z.infer<typeof promotionSchema>) => {
         if (!superAgent || !verifiedUser?.userId) return;
         setIsSubmitting(true);
-        
+
         const result = await promoteToSubSuperAgent(superAgent.id, verifiedUser.userId, values.province, values.pin);
-        
+
         setIsSubmitting(false);
         if (result.success) {
-            openAlert({ 
-                title: 'Sous-Agent Nommé !', 
-                description: `${verifiedUser.userName} est désormais Sous-Super Agent provincial pour : ${values.province}.`, 
-                variant: 'success' 
+            openAlert({
+                title: 'Sous-Agent Nommé !',
+                description: `${verifiedUser.userName} est désormais Sous-Super Agent provincial pour : ${values.province}.`,
+                variant: 'success'
             });
             setIsPromotionOpen(false);
             form.reset();
@@ -110,9 +110,9 @@ export default function SubAgentsPage() {
     const handleConfirmRenewal = async () => {
         if (!selectedAgentForRenewal || !superAgent) return;
         setIsSubmitting(true);
-        
+
         const result = await forceAgentRenewal(superAgent.id, selectedAgentForRenewal.user_id, renewalPin);
-        
+
         setIsSubmitting(false);
         if (result.success) {
             openAlert({ title: 'Régularisation Réussie', description: `L'agent ${selectedAgentForRenewal.full_name} a été réabonné pour 30 jours.`, variant: 'success' });

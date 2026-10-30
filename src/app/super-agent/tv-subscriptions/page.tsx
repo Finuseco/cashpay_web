@@ -3,9 +3,9 @@
 
 import { useState, useEffect } from 'react';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
-import { 
-    getCountryTvRequests, 
-    processTvSubscription 
+import {
+    getCountryTvRequests,
+    processTvSubscription
 } from '@/lib/actions/super-agent/staff.actions';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -25,42 +25,50 @@ export default function SuperAgentTvSubscriptions() {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
     const [actionType, setActionType] = useState<'activate' | 'reject' | null>(null);
+    const [providerReference, setProviderReference] = useState('');
+    const [loadError, setLoadError] = useState('');
     const [pin, setPin] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [superAgent, setSuperAgent] = useState<any>(null);
     const [filter, setFilter] = useState('');
-    
+
     const { openAlert } = useAlertDialog();
 
     const fetchData = async () => {
         setIsLoading(true);
+        setLoadError('');
+        try {
         const current = await getAuthenticatedUser();
+        if (!current) throw new Error('Session expirée.');
         setSuperAgent(current);
         if (current?.country) {
             const data = await getCountryTvRequests(current.country);
             setRequests(data);
         }
-        setIsLoading(false);
+        } catch { setLoadError('Impossible de charger les demandes. Réessayez.'); }
+        finally { setIsLoading(false); }
     };
 
     useEffect(() => {
-        fetchData();
+        fetchData().catch(() => { setIsLoading(false); openAlert({ title: 'Chargement impossible', description: 'Données indisponibles. Actualisez la page pour réessayer.', variant: 'error' }); });
     }, []);
 
     const handleOpenAction = (request: any, type: 'activate' | 'reject') => {
         setSelectedRequest(request);
         setActionType(type);
-        setPin('');
+        setPin(''); setProviderReference('');
     };
 
     const handleConfirmAction = async () => {
         if (!selectedRequest || !superAgent || !actionType) return;
 
         setIsProcessing(true);
+        try {
         const result = await processTvSubscription({
             requestId: selectedRequest.id,
             adminId: superAgent.id,
             action: actionType,
+            providerReference,
             pin: pin
         });
         setIsProcessing(false);
@@ -68,9 +76,9 @@ export default function SuperAgentTvSubscriptions() {
         if (result.success) {
             openAlert({
                 title: actionType === 'activate' ? 'Abonnement Activé' : 'Demande Rejetée',
-                description: actionType === 'activate' 
+                description: actionType === 'activate'
                     ? `L'abonnement ${selectedRequest.operator_name} pour ${selectedRequest.full_name} est désormais actif.`
-                    : `La demande a été annulée et le client a été remboursé de ${selectedRequest.amount} USD.`,
+                    : `La demande a été annulée et le client a été remboursé de ${result.refundedAmount} ${result.currency}.`,
                 variant: 'success'
             });
             setSelectedRequest(null);
@@ -79,15 +87,18 @@ export default function SuperAgentTvSubscriptions() {
         } else {
             openAlert({ title: 'Erreur', description: result.error, variant: 'error' });
         }
+        } catch { openAlert({ title: 'Erreur', description: 'Aucune confirmation reçue.', variant: 'error' }); }
+        finally { setIsProcessing(false); }
     };
 
-    const filteredRequests = requests.filter(r => 
-        r.smartcard_number.toLowerCase().includes(filter.toLowerCase()) ||
-        r.full_name.toLowerCase().includes(filter.toLowerCase())
+    const filteredRequests = requests.filter(r =>
+        String(r.smartcard_number || '').toLowerCase().includes(filter.toLowerCase()) ||
+        String(r.full_name || '').toLowerCase().includes(filter.toLowerCase())
     );
 
     return (
         <div className="space-y-6">
+            {loadError && <p role="alert">{loadError} <Button onClick={fetchData}>Réessayer</Button></p>}
             <div className="flex justify-between items-center flex-wrap gap-4">
                 <div>
                     <h1 className="text-2xl font-bold">Gestion Abonnements TV</h1>
@@ -95,8 +106,8 @@ export default function SuperAgentTvSubscriptions() {
                 </div>
                 <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-                    <Input 
-                        placeholder="N° Décodeur ou Nom..." 
+                    <Input
+                        placeholder="N° Décodeur ou Nom..."
                         className="pl-9 bg-zinc-800 border-zinc-700"
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
@@ -109,12 +120,12 @@ export default function SuperAgentTvSubscriptions() {
                     <DialogHeader>
                         <DialogTitle>{actionType === 'activate' ? 'Confirmer l\'Activation' : 'Confirmer le Rejet'}</DialogTitle>
                         <DialogDescription className="text-zinc-400">
-                            {actionType === 'activate' 
+                            {actionType === 'activate'
                                 ? "Confirmez que vous avez bien activé l'abonnement sur le portail du fournisseur."
                                 : "Le client sera automatiquement remboursé du montant total payé."}
                         </DialogDescription>
                     </DialogHeader>
-                    
+
                     <div className="p-4 bg-muted/50 rounded-lg space-y-2 text-sm">
                         <div className="flex justify-between"><span>Fournisseur:</span><span className="font-bold uppercase text-primary">{selectedRequest?.operator_name}</span></div>
                         <div className="flex justify-between"><span>Bouquet:</span><span className="font-semibold">{selectedRequest?.service_name}</span></div>
@@ -122,10 +133,11 @@ export default function SuperAgentTvSubscriptions() {
                         <div className="flex justify-between"><span>Client:</span><span>{selectedRequest?.full_name}</span></div>
                         <div className="flex justify-between border-t pt-2 mt-2 font-bold">
                             <span>Montant Payé:</span>
-                            <span>{selectedRequest?.amount} USD</span>
+                            <span>{selectedRequest?.amount} {selectedRequest?.currency || '—'}</span>
                         </div>
                     </div>
 
+                    {actionType === 'activate' && <div className="space-y-2"><Label>Référence de confirmation du fournisseur</Label><Input value={providerReference} onChange={event => setProviderReference(event.target.value)} /></div>}
                     <div className="space-y-2">
                         <Label className="text-center block">Entrez votre PIN Super Agent</Label>
                         <div className="flex justify-center py-2">
@@ -139,9 +151,9 @@ export default function SuperAgentTvSubscriptions() {
 
                     <DialogFooter>
                         <Button variant="ghost" onClick={() => setSelectedRequest(null)}>Annuler</Button>
-                        <Button 
-                            onClick={handleConfirmAction} 
-                            disabled={isProcessing || pin.length < 4} 
+                        <Button
+                            onClick={handleConfirmAction}
+                            disabled={isProcessing || pin.length < 4 || (actionType === 'activate' && providerReference.trim().length < 4)}
                             variant={actionType === 'activate' ? 'default' : 'destructive'}
                         >
                             {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
@@ -179,7 +191,7 @@ export default function SuperAgentTvSubscriptions() {
                                         <p className="font-bold text-sm">{req.service_name}</p>
                                         <p className="text-[10px] text-zinc-400">{req.full_name}</p>
                                     </TableCell>
-                                    <TableCell className="font-bold text-primary">{parseFloat(req.amount).toFixed(2)} USD</TableCell>
+                                    <TableCell className="font-bold text-primary">{parseFloat(req.amount).toFixed(2)} {req.currency || '—'}</TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex justify-end gap-2">
                                             <Button size="sm" variant="outline" className="border-green-600 text-green-500 hover:bg-green-600 hover:text-white" onClick={() => handleOpenAction(req, 'activate')}>

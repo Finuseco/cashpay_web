@@ -3,9 +3,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
-import { 
-    getCountryExchangeRates, 
-    updateCountryExchangeRate 
+import {
+    getCountryExchangeRates,
+    updateCountryExchangeRate
 } from '@/lib/actions/super-agent/finance.actions';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -16,9 +16,13 @@ import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { countryToCode, getCountryByCode, cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { User } from '@/lib/types';
 
 export default function SuperAgentRates() {
+    const [pendingRate, setPendingRate] = useState<any>(null);
+    const [pin, setPin] = useState('');
+    const [error, setError] = useState('');
     const [user, setUser] = useState<User | null>(null);
     const [rates, setRates] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -29,7 +33,10 @@ export default function SuperAgentRates() {
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
+        setError('');
+        try {
         const current = await getAuthenticatedUser();
+        if (!current) throw new Error('Session expirée.');
         setUser(current);
         if (current?.country) {
             const code = countryToCode(current.country);
@@ -37,12 +44,14 @@ export default function SuperAgentRates() {
                 setCountryCode(code);
                 const countryInfo = getCountryByCode(code);
                 setLocalCurrency(countryInfo?.currency_code || '');
-                
+
                 const result = await getCountryExchangeRates(code);
-                if (result.success) setRates(result.data || []);
+                if (!result.success) throw new Error('Chargement impossible.');
+                setRates(result.data || []);
             }
         }
-        setIsLoading(false);
+        } catch (error: any) { setError(error.message || 'Chargement impossible.'); }
+        finally { setIsLoading(false); }
     }, []);
 
     useEffect(() => {
@@ -60,16 +69,11 @@ export default function SuperAgentRates() {
 
         const rateKey = `${rateObj.from_currency}-${rateObj.to_currency}`;
         setIsSaving(rateKey);
-        
+
         if (!user) return;
 
-        const pin = window.prompt('Entrez votre PIN pour confirmer la modification du taux :');
-
-        if (!pin) {
-            setIsSaving(null);
-            return;
-        }
-
+        if (!pin || !user) { setIsSaving(null); return; }
+        try {
         const result = await updateCountryExchangeRate({
             adminId: user.id,
             from_currency: rateObj.from_currency,
@@ -80,12 +84,15 @@ export default function SuperAgentRates() {
         });
 
         if (result.success) {
+            setPendingRate(null); setPin('');
+            await fetchData();
             openAlert({ title: 'Taux mis à jour', description: `Le taux ${rateKey} a été actualisé avec succès.`, variant: 'success' });
         } else {
             openAlert({ title: 'Action Refusée', description: result.error, variant: 'error' });
-            fetchData(); 
+            fetchData();
         }
-        setIsSaving(null);
+        } catch { openAlert({ title: 'Erreur', description: 'La mise à jour n’a pas été confirmée.', variant: 'error' }); }
+        finally { setIsSaving(null); }
     };
 
     const isInternationalPair = (from: string, to: string) => {
@@ -97,6 +104,14 @@ export default function SuperAgentRates() {
 
     return (
         <div className="space-y-6">
+            {error && <p role="alert" className="text-red-400">{error}</p>}
+            <Dialog open={!!pendingRate} onOpenChange={open => { if (!open && !isSaving) { setPendingRate(null); setPin(''); } }}>
+                <DialogContent><DialogHeader><DialogTitle>Confirmer le taux {pendingRate?.from_currency}/{pendingRate?.to_currency}</DialogTitle></DialogHeader>
+                    <p>Nouveau taux : {pendingRate?.rate}</p>
+                    <Input aria-label="PIN du gestionnaire" type="password" inputMode="numeric" autoComplete="off" value={pin} onChange={event => setPin(event.target.value)} />
+                    <Button disabled={!!isSaving || !pin} onClick={() => handleUpdate(pendingRate)}>Confirmer</Button>
+                </DialogContent>
+            </Dialog>
             <div className="flex justify-between items-center">
                 <div>
                     <h1 className="text-2xl font-bold">Gestion des Taux de Change</h1>
@@ -120,7 +135,7 @@ export default function SuperAgentRates() {
                     <ShieldAlert className="h-4 w-4" />
                     <AlertTitle>Règle de Souveraineté</AlertTitle>
                     <AlertDescription>
-                        Vous pouvez modifier les taux entre votre devise locale (<strong>{localCurrency}</strong>) et les devises internationales (USD, EUR). 
+                        Vous pouvez modifier les taux entre votre devise locale (<strong>{localCurrency}</strong>) et les devises internationales (USD, EUR).
                         Les taux directs entre USD et EUR sont gérés par le siège social.
                     </AlertDescription>
                 </Alert>
@@ -152,8 +167,8 @@ export default function SuperAgentRates() {
                                         <TableCell className="font-bold">{rate.from_currency}</TableCell>
                                         <TableCell className="font-bold">{rate.to_currency}</TableCell>
                                         <TableCell>
-                                            <Input 
-                                                type="number" 
+                                            <Input
+                                                type="number"
                                                 step="0.0001"
                                                 value={rate.rate}
                                                 disabled={isLocked || isSaving === rateKey || isRestricted}
@@ -165,9 +180,9 @@ export default function SuperAgentRates() {
                                             {isLocked ? (
                                                 <Badge variant="outline" className="border-zinc-600 text-zinc-500">SIÈGE UNIQUEMENT</Badge>
                                             ) : (
-                                                <Button 
-                                                    size="sm" 
-                                                    onClick={() => handleUpdate(rate)}
+                                                <Button
+                                                    size="sm"
+                                                    onClick={() => { setPendingRate(rate); setPin(''); }}
                                                     disabled={isSaving === rateKey || isRestricted}
                                                     className={cn(isRestricted && "opacity-50 grayscale")}
                                                 >

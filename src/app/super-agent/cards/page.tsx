@@ -6,13 +6,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
-import { 
-    getCountryCardRequests, 
-    assignAndDeliverCard, 
-    getBulkOrders, 
-    orderBulkStock, 
-    getCountryOrders, 
-    cancelCardOrderAndRefund 
+import {
+    getCountryCardRequests,
+    assignAndDeliverCard,
+    getBulkOrders,
+    orderBulkStock,
+    getCountryOrders,
+    cancelCardOrderAndRefund
 } from '@/lib/actions/super-agent/logistics.actions';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -52,7 +52,7 @@ export default function SuperAgentCards() {
     const [isBulkDialogOpen, setIsBulkDialogOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [superAgent, setSuperAgent] = useState<any>(null);
-    
+
     const { openAlert } = useAlertDialog();
 
     const bulkForm = useForm<z.infer<typeof bulkOrderSchema>>({
@@ -83,13 +83,13 @@ export default function SuperAgentCards() {
     };
 
     useEffect(() => {
-        fetchData();
+        fetchData().catch(() => { setIsLoading(false); openAlert({ title: 'Chargement impossible', description: 'Données indisponibles. Actualisez la page pour réessayer.', variant: 'error' }); });
     }, []);
 
     const filteredRequests = useMemo(() => {
         if (!searchTerm) return requests;
-        return requests.filter(r => 
-            r.full_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        return requests.filter(r =>
+            r.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             r.id_wallet.toLowerCase().includes(searchTerm.toLowerCase())
         );
     }, [requests, searchTerm]);
@@ -166,7 +166,7 @@ export default function SuperAgentCards() {
                     <PlusCircle className="h-4 w-4 mr-2"/> Nouveau Stock (Bulk)
                 </Button>
             </div>
-            
+
             {/* Dialog Annuler Commande */}
             <Dialog open={!!requestToCancel} onOpenChange={(open) => !open && setRequestToCancel(null)}>
                 <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
@@ -182,8 +182,8 @@ export default function SuperAgentCards() {
                                 <FormItem>
                                     <FormLabel>Raison de l'indisponibilité (Sera envoyée au client)</FormLabel>
                                     <FormControl>
-                                        <Textarea 
-                                            placeholder="Ex: Rupture de stock momentanée sur la marque Visa..." 
+                                        <Textarea
+                                            placeholder="Ex: Rupture de stock momentanée sur la marque Visa..."
                                             className="bg-zinc-800 border-zinc-700 text-white"
                                             {...field}
                                         />
@@ -216,9 +216,9 @@ export default function SuperAgentCards() {
                         <div className="space-y-2">
                             <Label>Identifiant de la carte (Token/ID Marqeta)</Label>
                             <div className="flex gap-2">
-                                <Input 
-                                    placeholder="Ex: card_123456789" 
-                                    value={cardTokenInput} 
+                                <Input
+                                    placeholder="Ex: card_123456789"
+                                    value={cardTokenInput}
                                     onChange={(e) => setCardTokenInput(e.target.value)}
                                     className="bg-zinc-800 border-zinc-700 text-white"
                                 />
@@ -257,8 +257,8 @@ export default function SuperAgentCards() {
                                 </div>
                                 <div className="relative w-full md:w-64">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-                                    <Input 
-                                        placeholder="Nom ou Wallet ID..." 
+                                    <Input
+                                        placeholder="Nom ou Wallet ID..."
                                         className="pl-9 bg-zinc-900 border-zinc-700"
                                         value={searchTerm}
                                         onChange={e => setSearchTerm(e.target.value)}
@@ -293,7 +293,7 @@ export default function SuperAgentCards() {
                                             </TableCell>
                                             <TableCell>
                                                 <Badge className={cn(
-                                                    req.status === 'completed' ? 'bg-green-500' : 
+                                                    req.status === 'completed' ? 'bg-green-500' :
                                                     req.status === 'cancelled' ? 'bg-red-500' :
                                                     req.status === 'ready_for_pickup' ? 'bg-blue-500' : 'bg-zinc-600'
                                                 )}>
@@ -354,10 +354,10 @@ export default function SuperAgentCards() {
                                             <TableCell>{req.quantity}</TableCell>
                                             <TableCell>
                                                 <Badge className={cn(
-                                                    req.status === 'pending_approval' ? 'bg-amber-600' : 
+                                                    req.status === 'pending_approval' ? 'bg-amber-600' :
                                                     req.status === 'approved' ? 'bg-blue-600' : 'bg-green-600'
                                                 )}>
-                                                    {req.status === 'pending_approval' ? 'En attente backoffice' : 
+                                                    {req.status === 'pending_approval' ? 'En attente backoffice' :
                                                      req.status === 'approved' ? 'Validé (En production)' : 'Commandé'}
                                                 </Badge>
                                             </TableCell>

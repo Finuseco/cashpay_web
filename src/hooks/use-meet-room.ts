@@ -1,5 +1,6 @@
 'use client';
 
+import { openOnChatSocket } from '@/lib/onchat-browser-socket';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
@@ -12,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export interface RemotePeer {
     userId: number;
     name?: string;
+    cameraEnabled?: boolean;
     stream: MediaStream | null;
     state: RTCPeerConnectionState | 'new';
 }
@@ -32,6 +34,8 @@ const ICE_SERVERS: RTCIceServer[] = (() => {
 })();
 
 function wsUrl() {
+    const native = (window as any).OnChatAudio?.connectionUrl?.();
+    if (typeof native === 'string' && native.startsWith('wss://')) return native;
     const custom = process.env.NEXT_PUBLIC_ONCHAT_WS_URL;
     if (custom) return custom;
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -54,6 +58,8 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
     const socketRef = useRef<WebSocket | null>(null);
     const localRef = useRef<MediaStream | null>(null);
     const screenRef = useRef<MediaStream | null>(null);
+    const remoteStreamsRef = useRef<Map<number, MediaStream>>(new Map());
+    const joinEpochRef = useRef(0);
     const pcs = useRef<Map<number, RTCPeerConnection>>(new Map());
     const pendingIce = useRef<Map<number, RTCIceCandidateInit[]>>(new Map());
     const closedRef = useRef(false);
@@ -71,6 +77,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
     const removePeer = useCallback((userId: number) => {
         pcs.current.get(userId)?.close();
         pcs.current.delete(userId);
+        remoteStreamsRef.current.delete(userId);
         pendingIce.current.delete(userId);
         setPeers((prev) => prev.filter((p) => p.userId !== userId));
     }, []);
@@ -92,11 +99,14 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
             pcs.current.set(userId, pc);
             localRef.current?.getTracks().forEach((t) => pc.addTrack(t, localRef.current!));
+            if (!localRef.current?.getVideoTracks().length) pc.addTransceiver('video', { direction: 'sendrecv' });
             pc.onicecandidate = (e) => {
                 if (e.candidate) signal(userId, { type: 'ice', candidate: e.candidate.toJSON() });
             };
             pc.ontrack = (e) => {
-                const stream = e.streams[0] ?? new MediaStream([e.track]);
+                const stream = remoteStreamsRef.current.get(userId) || new MediaStream();
+                if (!stream.getTracks().some(track => track.id === e.track.id)) stream.addTrack(e.track);
+                remoteStreamsRef.current.set(userId, stream);
                 stream.getTracks().forEach(track => { track.enabled = permissionsRef.current.get(userId) === true; });
                 updatePeer(userId, { stream });
             };
@@ -113,6 +123,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             signal(userId, { type: 'offer', sdp: pc.localDescription });
+            signal(userId, { type: 'media-state', cameraEnabled: desiredCameraRef.current });
         },
         [createPc, signal]
     );
@@ -128,6 +139,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
     const handleSignal = useCallback(
         async (from: number, payload: any) => {
             try {
+                if (payload?.type === 'media-state') { updatePeer(from, { cameraEnabled: payload.cameraEnabled === true }); return; }
                 if (payload?.type === 'offer') {
                     const pc = createPc(from);
                     await pc.setRemoteDescription(payload.sdp);
@@ -135,6 +147,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
                     const answer = await pc.createAnswer();
                     await pc.setLocalDescription(answer);
                     signal(from, { type: 'answer', sdp: pc.localDescription });
+                    signal(from, { type: 'media-state', cameraEnabled: desiredCameraRef.current });
                 } else if (payload?.type === 'answer') {
                     const pc = pcs.current.get(from);
                     if (pc) {
@@ -160,12 +173,14 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
 
     const leave = useCallback(() => {
         closedRef.current = true;
+        joinEpochRef.current += 1;
         sendWs('meet.leave', { meetCode });
         fetch(`/api/v1/meetings/${encodeURIComponent(meetCode)}/leave`, { method: 'POST', keepalive: true }).catch(() => undefined);
         socketRef.current?.close();
         socketRef.current = null;
         pcs.current.forEach((pc) => pc.close());
         pcs.current.clear();
+        remoteStreamsRef.current.clear();
         localRef.current?.getTracks().forEach((t) => t.stop());
         screenRef.current?.getTracks().forEach((t) => t.stop());
         localRef.current = null;
@@ -183,6 +198,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             return;
         }
         closedRef.current = false;
+        const joinEpoch = ++joinEpochRef.current;
         setError(null);
         setStatus('media');
 
@@ -202,12 +218,16 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
                 return;
             }
         }
+        if (joinEpoch !== joinEpochRef.current || closedRef.current) { stream.getTracks().forEach(track => track.stop()); return; }
         stream.getTracks().forEach(track => { track.enabled = false; });
         localRef.current = stream;
         setLocalStream(stream);
         setStatus('connecting');
 
-        const socket = new WebSocket(wsUrl());
+        let socket: WebSocket;
+        try { socket = await openOnChatSocket(wsUrl()); }
+        catch (failure) { stream.getTracks().forEach(track=>track.stop());setError((failure as Error).message);setStatus('error');return; }
+        if (joinEpoch !== joinEpochRef.current || closedRef.current) { socket.close();stream.getTracks().forEach(track=>track.stop());return; }
         socketRef.current = socket;
 
         socket.onopen = () => sendWs('meet.join', { meetCode });
@@ -271,10 +291,43 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
         desiredMicRef.current = enabled;
         localRef.current?.getAudioTracks().forEach((t) => (t.enabled = enabled && canSpeakRef.current));
     }, []);
-    const setCameraEnabled = useCallback((enabled: boolean) => {
-        desiredCameraRef.current = enabled;
-        localRef.current?.getVideoTracks().forEach((t) => (t.enabled = enabled && canSpeakRef.current));
-    }, []);
+    const facingRef = useRef<'user'|'environment'>('user');
+    const switchCamera = useCallback(async (enabled: boolean, flip = false) => {
+        if (!canSpeakRef.current || !localRef.current) return false;
+        try {
+            if (!enabled) {
+                desiredCameraRef.current = false;
+                if (!screenRef.current) for (const pc of pcs.current.values()) {
+                    const sender = pc.getTransceivers().find(item => item.receiver.track.kind === 'video')?.sender;
+                    if (sender) await sender.replaceTrack(null);
+                }
+                localRef.current.getVideoTracks().forEach(track => { localRef.current?.removeTrack(track); track.stop(); });
+                setLocalStream(new MediaStream(localRef.current.getTracks()));
+                pcs.current.forEach((_pc,id) => signal(id,{type:'media-state',cameraEnabled:Boolean(screenRef.current)}));
+                return true;
+            }
+            if (enabled && (!localRef.current.getVideoTracks().some(track => track.readyState === 'live') || flip)) {
+                if (flip) facingRef.current = facingRef.current === 'user' ? 'environment' : 'user';
+                const previous = localRef.current.getVideoTracks();
+                if (flip) previous.forEach(track => track.stop());
+                const capture = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facingRef.current }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+                const track = capture.getVideoTracks()[0];
+                for (const pc of pcs.current.values()) {
+                    const sender = pc.getTransceivers().find(item => item.receiver.track.kind === 'video')?.sender;
+                    if (sender) await sender.replaceTrack(track);
+                }
+                previous.forEach(old => { localRef.current?.removeTrack(old); old.stop(); });
+                localRef.current.addTrack(track);
+                setLocalStream(new MediaStream(localRef.current.getTracks()));
+            }
+            desiredCameraRef.current = enabled;
+            localRef.current.getVideoTracks().forEach(track => { track.enabled = enabled; });
+            pcs.current.forEach((_pc,id) => signal(id,{type:'media-state',cameraEnabled:enabled}));
+            return true;
+        } catch { setError('Impossible d’activer cette caméra. Vérifiez les autorisations.'); return false; }
+    }, [signal]);
+    const setCameraEnabled = useCallback((enabled: boolean) => switchCamera(enabled), [switchCamera]);
+    const flipCamera = useCallback(() => switchCamera(true,true),[switchCamera]);
 
     const replaceVideoTrack = useCallback((track: MediaStreamTrack | null) => {
         pcs.current.forEach((pc) => {
@@ -308,5 +361,5 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
 
     useEffect(() => () => { if (!closedRef.current) leave(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return { status, error, canSpeak, peers, localStream, isScreenSharing, join, leave, setMicEnabled, setCameraEnabled, toggleScreenShare };
+    return { status, error, canSpeak, peers, localStream, isScreenSharing, join, leave, setMicEnabled, setCameraEnabled, flipCamera, toggleScreenShare };
 }

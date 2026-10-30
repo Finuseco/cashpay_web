@@ -1,5 +1,7 @@
 'use server';
 
+import { blockedAccountMessage } from '@/lib/account-status';
+
 import type { User } from '../types';
 import type { VerifyUserInput, VerifyUserOutput } from './types';
 import { generateToken, verifyToken } from '../jwt';
@@ -43,7 +45,7 @@ function generatePin(): string {
 
 export async function registerUser(data: any): Promise<{ success: true; id_wallet: string; token: string; user: User } | { success: false; error: string; }> {
     const { ...formData } = data;
-    
+
     if (!formData.phone || !formData.countryCode || !formData.country) {
         return { success: false, error: "Les informations de contact (téléphone, pays) sont manquantes. Veuillez recommencer le processus d'inscription." };
     }
@@ -54,7 +56,7 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
     }
 
     const connection = await db.getConnection();
-    
+
     try {
         await connection.query('BEGIN');
 
@@ -70,13 +72,13 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
                 throw new Error("Cette adresse email est déjà utilisée par un autre compte.");
             }
         }
-        
+
         const agencyPrefix = `${countryInfo.code}01`;
-        
+
         const id_wallet = await generateUniqueWalletId(agencyPrefix, connection);
         const pin = generatePin();
         const pinHash = await bcrypt.hash(pin, 10);
-        
+
         const profilePhotoPath = await saveBase64Image(formData.profile_photo, 'avatars', id_wallet);
         const signatureImagePath = await saveBase64Image(formData.signature_image, 'signatures', id_wallet);
         const idFrontImagePath = await saveBase64Image(formData.id_front_image, 'documents', `${id_wallet}_front`);
@@ -101,7 +103,7 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
             nationality: formData.nationality,
             email: formData.email || null,
             phone: formData.phone,
-            country: formData.country, 
+            country: formData.country,
             province: formData.province || null,
             city: formData.city,
             address: formData.address,
@@ -128,13 +130,13 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
             api_key: null,
             api_secret: null,
         };
-        
+
         const columns = Object.keys(newUserPayload).map(key => `"${key.toLowerCase()}"`).join(', ');
         const placeholders = Object.keys(newUserPayload).map((_, i) => `$${i + 1}`).join(', ');
         const values = Object.values(newUserPayload);
 
         const { rows: userResultRows } = await connection.query(
-            `INSERT INTO users (${columns}) VALUES (${placeholders}) RETURNING id`, 
+            `INSERT INTO users (${columns}) VALUES (${placeholders}) RETURNING id`,
             values
         );
         const userId = userResultRows[0].id;
@@ -145,7 +147,7 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
         }
 
         await connection.query('INSERT INTO wallets (user_id, id_wallet, balances) VALUES ($1, $2, $3)', [userId, id_wallet, initialBalances]);
-        
+
         if (formData.referralCode) {
             const { rows: referrerRows } = await connection.query('SELECT id FROM users WHERE id_wallet = $1', [formData.referralCode]);
             if (referrerRows.length > 0) {
@@ -153,7 +155,7 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
                 await connection.query('INSERT INTO referrals (referrer_user_id, referred_user_id, status) VALUES ($1, $2, $3)', [referrerId, userId, 'Pending Deposit']);
             }
         }
-        
+
         const userDocument = {
             user_id: userId,
             id_type: formData.id_type,
@@ -169,14 +171,14 @@ export async function registerUser(data: any): Promise<{ success: true; id_walle
         if (passportTypes.includes(formData.id_type)) {
             await connection.query('INSERT INTO user_verifications (user_id, status, notes) VALUES ($1, $2, $3)', [userId, 'blue', 'Auto-vérifié via passeport']);
         }
-        
+
         const { rows: createdUserRows } = await connection.query('SELECT * FROM users WHERE id = $1', [userId]);
 
         const token = generateToken({ id: userId, id_wallet, role: 'Client' });
         const finalUserObject: User = formatUser(createdUserRows[0]);
-        
+
         await connection.query('COMMIT');
-        
+
         const welcomeMessage = `Bienvenue chez CashPay! Votre ID portefeuille est: ${id_wallet}. Votre PIN initial est: ${pin}. Veuillez le changer rapidement.`;
         if (newUserPayload.phone) {
             sendSms(newUserPayload.phone, welcomeMessage).catch(console.error);
@@ -212,19 +214,19 @@ export async function findUserForLogin(walletId: string): Promise<{ success: tru
     if (!walletId) {
         return { success: false, error: 'ID de portefeuille non fourni.' };
     }
-    
+
     let connection;
     try {
         connection = await db.getConnection();
         const { rows } = await connection.query('SELECT id, email, phone FROM users WHERE id_wallet = $1', [walletId]);
-        
+
         if (rows.length === 0) {
             return { success: false, error: 'Utilisateur non trouvé.' };
         }
         const user = rows[0];
 
         const contactDetails = await getOtpContactDetails(user.id);
-        
+
         if (user.email && !contactDetails.availableChannels.includes('email')) {
             contactDetails.availableChannels.push('email');
             contactDetails.maskedEmail = maskEmail(user.email);
@@ -234,7 +236,7 @@ export async function findUserForLogin(walletId: string): Promise<{ success: tru
             contactDetails.availableChannels.push('whatsapp');
         }
 
-        const isGoogleLinked = false; 
+        const isGoogleLinked = false;
 
         return { success: true, userId: user.id, isGoogleLinked, ...contactDetails };
     } catch (error) {
@@ -260,17 +262,21 @@ export async function verifyOtp(userId: number, otp: string): Promise<{ success:
             await connection.query('ROLLBACK');
             return { success: false, error: "Le code de vérification est invalide ou a expiré." };
         }
-        
+
         await connection.query(`UPDATE otps SET used = true WHERE id = $1`, [otpRows[0].id]);
-        
+
         const { rows: userRows } = await connection.query('SELECT * FROM users WHERE id = $1', [userId]);
         if (userRows.length === 0) {
             throw new Error("Utilisateur non trouvé après vérification OTP.");
         }
-        
+
+        const accountBlock = blockedAccountMessage(userRows[0]);
+        if (accountBlock) { await connection.query('ROLLBACK'); return { success: false, error: accountBlock }; }
         await connection.query('COMMIT');
-        
+
         const user = userRows[0];
+        const blockMessage = blockedAccountMessage(user);
+        if (blockMessage) return { success: false, error: blockMessage };
         const token = generateToken(user as User);
         logUserSessionAndNotify(user).catch(console.error);
 
@@ -298,9 +304,9 @@ export async function verifyRegistrationOtp(phone: string, otp: string): Promise
         if (otpRows.length === 0) {
             return { success: false, error: "Le code de vérification est invalide ou a expiré." };
         }
-        
+
         await db.query(`UPDATE registration_otps SET used = true WHERE id = $1`, [otpRows[0].id]);
-        
+
         return { success: true, error: null };
 
     } catch (error) {
@@ -310,11 +316,10 @@ export async function verifyRegistrationOtp(phone: string, otp: string): Promise
 }
 
 
-export async function sendAndStoreOtp(userId: number, type: string, channel: 'sms' | 'email' | 'whatsapp' | 'in-app') : Promise<{success: true, message: string, destination: string, userId: number } | {success: false, error?: string, backupOtp?: string, userId?: number}> {
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+export async function sendAndStoreOtp(userId: number, type: string, channel: 'sms' | 'email' | 'whatsapp' | 'in-app') : Promise<{success: true, message: string, destination: string, userId: number } | {success: false, error?: string, userId?: number}> {
+    const otp = crypto.randomInt(100000, 1000000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-    
-    console.log(`[OTP DEBUG] Generated OTP for user ${userId} for action "${type}": ${otp}`);
+
 
     try {
         const { rows: userRows } = await db.query('SELECT first_name, email, phone, language, country FROM users WHERE id = $1', [userId]);
@@ -324,7 +329,7 @@ export async function sendAndStoreOtp(userId: number, type: string, channel: 'sm
         const user = userRows[0];
 
         await db.query('INSERT INTO otps (user_id, code, type, channel, expires_at) VALUES ($1, $2, $3, $4, $5)', [userId, otp, type, channel, expiresAt]);
-        
+
         const headerList = await headers();
         const ip = (headerList.get('x-forwarded-for') ?? '127.0.0.1').split(',')[0].trim();
         const userAgentString = headerList.get('user-agent') ?? '';
@@ -332,7 +337,7 @@ export async function sendAndStoreOtp(userId: number, type: string, channel: 'sm
 
         const parser = new UAParser(userAgentString);
         const uaResult = parser.getResult();
-        
+
         let deviceType = uaResult.device.type || 'Ordinateur';
         if (deviceType === 'mobile' || deviceType === 'tablet') {
             deviceType = uaResult.device.vendor ? `${uaResult.device.vendor} ${uaResult.device.model}` : 'Mobile';
@@ -358,17 +363,17 @@ export async function sendAndStoreOtp(userId: number, type: string, channel: 'sm
         if (channel === 'in-app') {
             return { success: true, message: `OTP a été envoyé au client via l'application.`, destination: 'in-app', userId };
         }
-        
+
         const smsMessage = `CashPay: Votre code pour ${type} est : ${otp}. Ne le partagez pas.`;
-        
+
         let destination = '';
         let sendSuccess = false;
 
         try {
             if (user.email && channel === 'email') {
-                await sendEmail(user.email, 'Votre Code de Vérification CashPay', 'otp', emailData);
+                const result = await sendEmail(user.email, 'Votre Code de Vérification CashPay', 'otp', emailData);
                 destination = user.email;
-                sendSuccess = true;
+                sendSuccess = result.success;
             } else if (user.phone && (channel === 'sms' || channel === 'whatsapp')) {
                 if (channel === 'whatsapp') {
                     const whatsAppResult = await sendWhatsAppAuthenticationTemplate(user.phone, otp);
@@ -383,12 +388,12 @@ export async function sendAndStoreOtp(userId: number, type: string, channel: 'sm
             if(sendSuccess){
                  return { success: true, message: `Un code a été envoyé à ${destination}.`, destination, userId };
             } else {
-                 return { success: false, error: `L'envoi par ${channel} a échoué.`, backupOtp: otp, userId };
+                 return { success: false, error: `L'envoi par ${channel} a échoué.`, userId };
             }
 
         } catch (sendError) {
              console.error(`Failed to send OTP via ${channel}:`, sendError);
-             return { success: false, error: `L'envoi par ${channel} a échoué.`, backupOtp: otp, userId };
+             return { success: false, error: `L'envoi par ${channel} a échoué.`, userId };
         }
 
     } catch (dbError) {
@@ -403,13 +408,13 @@ export async function sendOtp(userId: number, method: 'sms' | 'email' | 'whatsap
 }
 
 export async function sendRegistrationOtp(destination: string, channel: 'sms' | 'whatsapp' = 'sms'): Promise<SendOtpSuccess | SendOtpError> {
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = crypto.randomInt(100000, 1000000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-    
+
     try {
         await db.query('INSERT INTO registration_otps (destination, code, expires_at) VALUES ($1, $2, $3)', [destination, otp, expiresAt]);
         const message = `Bienvenue chez CashPay ! Votre code de vérification est : ${otp}. Ne le partagez pas.`;
-        
+
         let sendResult;
         if (channel === 'whatsapp') {
             sendResult = await sendWhatsAppAuthenticationTemplate(destination, otp);
@@ -449,8 +454,10 @@ export async function verifyAgentPin(phone: string, pin: string): Promise<{ succ
             return { success: false, error: 'Code PIN incorrect.' };
         }
 
+        const blockMessage = blockedAccountMessage(user);
+        if (blockMessage) return { success: false, error: blockMessage };
         const token = generateToken(user as User);
-        
+
         await logUserSessionAndNotify(user);
 
         return { success: true, user: formatUser(user), token };
@@ -471,9 +478,9 @@ export async function verifyUserPin(userId: number, pin: string): Promise<{ succ
         if (!user.pin_hash) {
             return { success: false, error: 'Aucun PIN n\'est configuré pour ce compte.' };
         }
-        
+
         const isHashed = user.pin_hash.startsWith('$2a$') || user.pin_hash.startsWith('$2b$');
-        
+
         let isMatch = false;
         if (isHashed) {
             isMatch = await bcrypt.compare(pin, user.pin_hash);
@@ -489,6 +496,8 @@ export async function verifyUserPin(userId: number, pin: string): Promise<{ succ
         if (!isMatch) {
             return { success: false, error: 'Code PIN incorrect.' };
         }
+        const blockMessage = blockedAccountMessage(user);
+        if (blockMessage) return { success: false, error: blockMessage };
         return { success: true };
     } catch (error) {
         const dbError = await handleDbError(error, 'verifying user PIN');
@@ -528,10 +537,12 @@ export async function verifyPinAndCreateSession(userId: number, pin: string): Pr
         }
 
         const user = userRows[0];
+        const blockMessage = blockedAccountMessage(user);
+        if (blockMessage) return { success: false, error: blockMessage };
         const token = generateToken(user as User);
         const cookieStore = cookies();
         cookieStore.set('cashpay-token', token, { httpOnly: true, secure: process.env.NODE_ENV !== 'development', sameSite: 'strict', path: '/', maxAge: 60 * 60 * 24 * 30 });
-        
+
         await logUserSessionAndNotify(user);
 
         return { success: true, user: formatUser(user) };
@@ -563,7 +574,7 @@ export async function getOtpContactDetails(userId: number): Promise<{ phone?: st
         }
         const user = rows[0];
         const { phone, email } = user;
-        
+
         let availableChannels: ('sms' | 'email' | 'whatsapp' | 'in-app')[] = [];
         const configuredChannelsRaw = user.notifications_channel;
         let configuredChannels: string[] = [];
@@ -581,7 +592,7 @@ export async function getOtpContactDetails(userId: number): Promise<{ phone?: st
                 configuredChannels = [];
             }
         }
-        
+
         if (Array.isArray(configuredChannels) && configuredChannels.length > 0) {
             availableChannels = configuredChannels as ('sms' | 'email' | 'whatsapp' | 'in-app')[];
         } else {
@@ -589,7 +600,7 @@ export async function getOtpContactDetails(userId: number): Promise<{ phone?: st
             if (email) availableChannels.push('email');
             if (user.totp_secret) availableChannels.push('in-app');
         }
-        
+
         const finalChannels = availableChannels.filter(c => (c === 'email' && email) || (c !== 'email' && phone) || (c === 'in-app' && user.totp_secret));
 
         return { phone, email, maskedPhone: maskPhone(phone), maskedEmail: maskEmail(email), availableChannels: finalChannels };
@@ -601,7 +612,7 @@ export async function getOtpContactDetails(userId: number): Promise<{ phone?: st
 
 export async function sendWorkerPinBySms(phone: string): Promise<{ success: true, pin: string } | { success: false, error: string }> {
     const pin = generatePin();
-    
+
     try {
         const pinHash = await bcrypt.hash(pin, 10);
         await db.query('UPDATE users SET pin_hash = $1 WHERE phone LIKE $2', [pinHash, `%${phone.slice(-9)}`]);
@@ -616,7 +627,7 @@ export async function sendWorkerPinBySms(phone: string): Promise<{ success: true
 
 export async function verifyUser(input: VerifyUserInput): Promise<VerifyUserOutput> {
   const { walletId } = input;
-  
+
   if (!/^[A-Z]{2}\d{10}$/.test(walletId)) {
       return {
           isValid: false,
@@ -688,16 +699,16 @@ export async function resetPinWithOtp(userId: number, otp: string, newPin: strin
             throw new Error("Code de vérification invalide ou expiré.");
         }
         await connection.query(`UPDATE otps SET used = true WHERE id = $1`, [otpRows[0].id]);
-        
+
         const pinHash = await bcrypt.hash(newPin, 10);
         const { rowCount } = await connection.query('UPDATE users SET pin_hash = $1 WHERE id = $2', [pinHash, userId]);
 
         if (rowCount === 0) {
             throw new Error("Utilisateur non trouvé lors de la mise à jour du PIN.");
         }
-        
+
         await connection.query('COMMIT');
-        
+
         const { rows: userRows } = await db.query('SELECT first_name, email FROM users WHERE id = $1', [userId]);
         if (userRows.length > 0 && userRows[0].email) {
             const user = userRows[0];
@@ -710,7 +721,7 @@ export async function resetPinWithOtp(userId: number, otp: string, newPin: strin
                 signature: "L'équipe de sécurité CashPay"
             });
         }
-        
+
         return { success: true };
     } catch (error: any) {
         await connection.query('ROLLBACK');
@@ -729,17 +740,17 @@ export async function logUserSessionAndNotify(user: any) {
         const ip = (headerList.get('x-forwarded-for') ?? '127.0.0.1').split(',')[0].trim();
         const userAgentString = headerList.get('user-agent') ?? '';
         const countryFromHeader = headerList.get('x-vercel-ip-country') || user.country;
-        
+
         const parser = new UAParser(userAgentString);
         const uaResult = parser.getResult();
-        
+
         let deviceType = uaResult.device.type || 'Ordinateur';
         if (deviceType === 'mobile' || deviceType === 'tablet') {
             deviceType = uaResult.device.vendor ? `${uaResult.device.vendor} ${uaResult.device.model}` : 'Mobile';
         } else {
             deviceType = 'Ordinateur';
         }
-        
+
         const sessionData = {
             user_id: user.id,
             ip_address: ip,
@@ -752,7 +763,7 @@ export async function logUserSessionAndNotify(user: any) {
             })
         };
         await db.query('INSERT INTO user_sessions (user_id, ip_address, user_agent, user_agent_details) VALUES ($1, $2, $3, $4)', Object.values(sessionData));
-        
+
         const now = new Date();
 
         if (user.email && user.email.includes('@')) {
@@ -769,7 +780,7 @@ export async function logUserSessionAndNotify(user: any) {
         } else {
              console.log(`User ${user.id} does not have a valid email. Skipping login notification.`);
         }
-        
+
     } catch(e) {
         console.error("Failed to log session or send notification email:", e);
     }
@@ -859,6 +870,7 @@ export async function getAuthenticatedUser(): Promise<User | null> {
             console.log(`getAuthenticatedUser: User with id ${decodedPayload.id} not found.`);
             return null;
         }
+        if (blockedAccountMessage(rows[0])) return null;
         return formatUser(rows[0]);
     } catch (error) {
         await handleDbError(error, 'getting authenticated user');
@@ -993,7 +1005,7 @@ export async function updateUser({ userId, updates }: UpdateUserArgs): Promise<{
         const values = Object.values(updates);
 
         const { rowCount } = await connection.query(`UPDATE users SET ${setClauses.join(', ')} WHERE id = $${values.length + 1}`, [...values, userId]);
-        
+
         if (rowCount === 0) {
             throw new Error("Utilisateur non trouvé ou aucune mise à jour effectuée.");
         }
@@ -1022,6 +1034,9 @@ interface UpdatePinArgs {
  * Met à jour le code PIN de l'utilisateur et synchronise le changement avec ses cartes Marqeta.
  */
 export async function updatePin({ userId, oldPin, newPin }: UpdatePinArgs): Promise<{ success: boolean; error?: string }> {
+    const authenticated = await getAuthenticatedUser();
+    if (!authenticated || authenticated.id !== userId) return { success: false, error: 'Session du titulaire requise.' };
+    if (!/^\d{4}$/.test(oldPin) || !/^\d{4}$/.test(newPin) || oldPin === newPin) return { success: false, error: 'PIN invalide ou identique à l’ancien.' };
     const connection = await db.getConnection();
     const headerList = headers();
     const ipAddress = (headerList.get('x-forwarded-for') ?? '127.0.0.1').split(',')[0].trim();
@@ -1032,10 +1047,10 @@ export async function updatePin({ userId, oldPin, newPin }: UpdatePinArgs): Prom
         // 1. Vérifier l'ancien PIN
         const { rows: userRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1', [userId]);
         if (userRows.length === 0) throw new Error('Utilisateur non trouvé.');
-        
+
         const user = userRows[0];
         if (!user.pin_hash) throw new Error('Aucun PIN configuré. Contactez le support.');
-        
+
         const isMatch = await bcrypt.compare(oldPin, user.pin_hash);
         if (!isMatch) throw new Error('Votre ancien code PIN est incorrect.');
 

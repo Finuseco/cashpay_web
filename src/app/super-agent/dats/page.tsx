@@ -25,7 +25,7 @@ export default function SuperAgentDats() {
     const [isProcessing, setIsProcessing] = useState(false);
     const [superAgent, setSuperAgent] = useState<any>(null);
     const [filter, setFilter] = useState('');
-    
+
     const { openAlert } = useAlertDialog();
 
     const fetchData = async () => {
@@ -40,7 +40,7 @@ export default function SuperAgentDats() {
     };
 
     useEffect(() => {
-        fetchData();
+        fetchData().catch(() => { setIsLoading(false); openAlert({ title: 'Chargement impossible', description: 'Données indisponibles. Actualisez la page pour réessayer.', variant: 'error' }); });
     }, []);
 
     const handleOpenAction = (dat: any, type: 'approve' | 'reject') => {
@@ -59,7 +59,7 @@ export default function SuperAgentDats() {
         if (result.success) {
             openAlert({
                 title: actionType === 'approve' ? 'DAT Approuvé' : 'DAT Rejeté',
-                description: actionType === 'approve' 
+                description: actionType === 'approve'
                     ? `Le placement de ${selectedDat.amount} ${selectedDat.currency} a été validé.`
                     : `Le DAT a été rejeté et le client a été remboursé.`,
                 variant: 'success'
@@ -72,7 +72,7 @@ export default function SuperAgentDats() {
         }
     };
 
-    const filtered = dats.filter(d => 
+    const filtered = dats.filter(d =>
         d.full_name.toLowerCase().includes(filter.toLowerCase()) ||
         d.id.toString().includes(filter)
     );
@@ -86,8 +86,8 @@ export default function SuperAgentDats() {
                 </div>
                 <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-                    <Input 
-                        placeholder="Rechercher..." 
+                    <Input
+                        placeholder="Rechercher..."
                         className="pl-9 bg-zinc-800 border-zinc-700"
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
@@ -100,12 +100,12 @@ export default function SuperAgentDats() {
                     <DialogHeader>
                         <DialogTitle>{actionType === 'approve' ? 'Valider le DAT' : 'Rejeter le DAT'}</DialogTitle>
                         <DialogDescription className="text-zinc-400">
-                            {actionType === 'approve' 
+                            {actionType === 'approve'
                                 ? "En validant, les fonds seront bloqués pour la durée choisie."
                                 : "En cas de rejet, le capital sera immédiatement remboursé au client."}
                         </DialogDescription>
                     </DialogHeader>
-                    
+
                     <div className="p-4 bg-muted/50 rounded-lg space-y-2 text-sm">
                         <div className="flex justify-between"><span>Client:</span><span className="font-bold">{selectedDat?.full_name}</span></div>
                         <div className="flex justify-between"><span>Montant:</span><span className="font-bold text-primary">{selectedDat?.amount} {selectedDat?.currency}</span></div>
@@ -126,9 +126,9 @@ export default function SuperAgentDats() {
 
                     <DialogFooter>
                         <Button variant="ghost" onClick={() => setSelectedDat(null)}>Annuler</Button>
-                        <Button 
-                            onClick={handleConfirmAction} 
-                            disabled={isProcessing || pin.length < 4} 
+                        <Button
+                            onClick={handleConfirmAction}
+                            disabled={isProcessing || pin.length < 4}
                             variant={actionType === 'approve' ? 'default' : 'destructive'}
                         >
                             {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}

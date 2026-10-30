@@ -1,7 +1,7 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { validateWebhookSignature } from '@/services/marqeta';
+import { verifyLegacyCardWebhook } from '@/lib/legacy-card-webhook';
 import type { MarqetaEvent } from '@/lib/types';
 
 /**
@@ -20,8 +20,8 @@ export async function POST(request: NextRequest) {
 
     try {
         const bodyText = await request.text();
-        const isValid = await validateWebhookSignature(bodyText, signature);
-        
+        const isValid = verifyLegacyCardWebhook(bodyText, signature);
+
         if (!isValid) {
             console.error('[Marqeta Webhook] Signature invalide.');
             return new NextResponse('Invalid signature', { status: 401 });
@@ -39,10 +39,10 @@ export async function POST(request: NextRequest) {
             case 'card.terminated':
             case 'cardtransition.status.updated':
                 const newState = (data.state || data.status || '').toLowerCase();
-                if (newState) {
+                if (['active', 'suspended', 'terminated'].includes(newState)) {
                     const localStatus = newState === 'active' ? 'active' : (newState === 'suspended' ? 'inactive' : 'cancelled');
                     await db.query(
-                        'UPDATE cards SET status = $1 WHERE marqeta_card_token = $2',
+                        'UPDATE cards SET status = $1 WHERE marqeta_card_token = $2 AND card_provider_id IS NULL',
                         [localStatus, data.card_token || data.token]
                     );
                     console.log(`[Marqeta Webhook] Card synced: ${data.card_token || data.token} is now ${localStatus}`);

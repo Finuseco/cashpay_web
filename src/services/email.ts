@@ -36,7 +36,7 @@ const templatePaths = {
 /**
  * Sends an email using a direct SMTP transport as configured in the environment variables.
  * It can now render HTML templates with dynamic data.
- * 
+ *
  * @param to The recipient's email address.
  * @param subject The email subject.
  * @param template The name of the HTML template to use (e.g., 'otp', 'welcome').
@@ -44,8 +44,8 @@ const templatePaths = {
  * @returns A promise that resolves with the email response.
  */
 export async function sendEmail(
-    to: string, 
-    subject: string, 
+    to: string,
+    subject: string,
     template: keyof typeof templatePaths,
     data: Record<string, any>
 ): Promise<EmailResponse> {
@@ -55,16 +55,10 @@ export async function sendEmail(
   const smtpPass = process.env.SMTP_PASSWORD;
 
   if (!smtpHost || !smtpUser || !smtpPass) {
-    const errorMessage = 'SMTP configuration is incomplete. Email will be logged to console instead of being sent.';
-    console.warn(`[Email Service] ${errorMessage}`);
-    console.log(`--- MOCK EMAIL to ${to} ---`);
-    console.log(`Subject: ${subject}`);
-    console.log(`Template: ${template}`);
-    console.log(`Data:`, data);
-    console.log(`--- END MOCK EMAIL ---`);
-    return { success: true, message: 'Email service not configured, logged to console.' };
+    console.error('[Email Service] Configuration SMTP incomplète, aucun envoi effectué.');
+    return { success: false, message: 'Service email non configuré.' };
   }
-  
+
   try {
     // 1. Read base template and specific template
     const templateFileName = templatePaths[template];
@@ -104,7 +98,7 @@ export async function sendEmail(
             pass: smtpPass,
         },
         tls: {
-          rejectUnauthorized: process.env.NODE_ENV === 'production' 
+          rejectUnauthorized: process.env.NODE_ENV === 'production'
         }
     });
 
@@ -114,9 +108,9 @@ export async function sendEmail(
         subject: subject,
         html: finalHtml,
     };
-    
+
     const info = await transporter.sendMail(mailOptions);
-    console.log(`[Email Service] Email sent to ${to}. Message ID: ${info.id || info.messageId}`);
+    console.log(`[Email Service] Email sent to ${to}. Message ID: ${info.messageId}`);
     return { success: true, message: 'Email sent successfully.' };
 
   } catch (error: any) {
