@@ -92,6 +92,7 @@ export default function SuperAgentLayout({ children }: { children: React.ReactNo
             title: "Supports (Dépôts)",
             links: [
                 { href: "/super-agent/support", label: "Flux Entrants", icon: LifeBuoy },
+                { href: "/super-agent/inter-agents", label: "Agences inter & audit", icon: ShieldCheck },
                 { href: "/super-agent/international-claims", label: "Réclames Inter.", icon: Globe },
             ]
         },
