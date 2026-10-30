@@ -20,6 +20,9 @@ export async function getRegionalDashboard() {
         activity: `SELECT t.reference_code, t.type_code, t.amount, t.currency, t.status, t.created_at, u.full_name
             FROM transactions t JOIN users u ON u.id = COALESCE(t.sender_id,t.receiver_id)
             WHERE ${scope.sql} ORDER BY t.created_at DESC LIMIT 25`,
+        deposits: `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE LOWER(t.status) = 'pending')::int AS pending
+            FROM transactions t JOIN users u ON u.id = CASE WHEN t.type_code = 'DP_SUPER_AGENT' THEN t.receiver_id ELSE COALESCE(t.sender_id,t.receiver_id) END
+            WHERE ${scope.sql} AND t.type_code LIKE 'DP%'`,
         orders: `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE LOWER(o.status) IN ('pending','processing'))::int AS pending
             FROM orders o JOIN users u ON u.id = o.user_id WHERE ${scope.sql}`,
         cards: `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE cr.status = 'pending')::int AS pending

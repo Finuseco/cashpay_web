@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
 type Dashboard = Awaited<ReturnType<typeof getRegionalDashboard>>;
-const queues = [ ['orders', 'Commandes', '/super-agent/orders'], ['cards', 'Commandes de cartes', '/super-agent/cards'],
+const queues = [ ['deposits', 'Dépôts', '/super-agent/support'], ['orders', 'Commandes', '/super-agent/orders'], ['cards', 'Commandes de cartes', '/super-agent/cards'],
     ['tv', 'Abonnements TV en attente', '/super-agent/tv-subscriptions'], ['claims', 'Réclamations en attente', '/super-agent/international-claims'],
     ['checks', 'Chèques émis', '/super-agent/support'] ];
 const number = (value: unknown) => Number(value).toLocaleString('fr-FR', { maximumFractionDigits: 8 });
