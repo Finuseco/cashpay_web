@@ -3,9 +3,9 @@
 
 import { useState, useEffect } from 'react';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
-import { 
-    getCountryInternationalClaims, 
-    approveInternationalClaim 
+import {
+    getCountryInternationalClaims,
+    approveInternationalClaim
 } from '@/lib/actions/super-agent/finance.actions';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -28,7 +28,7 @@ export default function InternationalClaimsPage() {
     const [isApproving, setIsApproving] = useState(false);
     const [superAgent, setSuperAgent] = useState<any>(null);
     const [filter, setFilter] = useState('');
-    
+
     const { openAlert } = useAlertDialog();
 
     const fetchData = async () => {
@@ -43,7 +43,7 @@ export default function InternationalClaimsPage() {
     };
 
     useEffect(() => {
-        fetchData();
+        fetchData().catch(() => { setIsLoading(false); openAlert({ title: 'Chargement impossible', description: 'Données indisponibles. Actualisez la page pour réessayer.', variant: 'error' }); });
     }, []);
 
     const handleOpenApprove = (claim: any) => {
@@ -62,7 +62,7 @@ export default function InternationalClaimsPage() {
         if (result.success) {
             openAlert({
                 title: 'Transfert Approuvé',
-                description: `Le montant de ${selectedClaim.expected_amount} ${selectedClaim.receive_in_currency} a été crédité sur le portefeuille de ${selectedClaim.full_name}.`,
+                description: `La réclamation de ${selectedClaim.full_name} a été approuvée administrativement. Aucun crédit automatique n’a été effectué ; le règlement financier reste à rapprocher.`,
                 variant: 'success'
             });
             setIsPinOpen(false);
@@ -72,7 +72,7 @@ export default function InternationalClaimsPage() {
         }
     };
 
-    const filteredClaims = claims.filter(c => 
+    const filteredClaims = claims.filter(c =>
         c.tracking_number.toLowerCase().includes(filter.toLowerCase()) ||
         c.full_name.toLowerCase().includes(filter.toLowerCase())
     );
@@ -86,8 +86,8 @@ export default function InternationalClaimsPage() {
                 </div>
                 <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-                    <Input 
-                        placeholder="Référence ou Nom..." 
+                    <Input
+                        placeholder="Référence ou Nom..."
                         className="pl-9 bg-zinc-800 border-zinc-700"
                         value={filter}
                         onChange={e => setFilter(e.target.value)}

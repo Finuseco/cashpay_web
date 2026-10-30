@@ -1,6 +1,7 @@
 'use server';
 
 import { db } from '@/lib/db';
+import { regionalScope, requireSuperAgent, assertManagedUser } from '@/lib/super-agent-access';
 import { verifyUserPin } from '../auth.actions';
 import { createTransaction } from '../transaction.actions';
 import { approveLoanRequest, processLoanRepayments } from '../loan.actions';
@@ -13,41 +14,15 @@ const money = (value: any) => Math.max(0, Number.parseFloat(String(value ?? 0)) 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 async function getSuperAgentContext(adminId: number, connection?: any) {
-    const conn = connection || db;
-    const { rows } = await conn.query(
-        `SELECT id, role, country, province, status, pin_hash, full_name, first_name, id_wallet
-         FROM users WHERE id = $1::integer LIMIT 1`,
-        [adminId]
-    );
-    if (!rows.length) throw new Error('Super Agent introuvable.');
-    const role = String(rows[0].role || '').trim();
-    if (!['SuperAgent', 'SubSuperAgent', 'Admin'].includes(role)) {
-        throw new Error('Accès réservé au Super Agent.');
-    }
-    if (['Suspended', 'Blocked', 'Inactive', 'Disabled', 'Banned'].includes(String(rows[0].status || '').trim())) {
-        throw new Error('Compte Super Agent suspendu ou désactivé.');
-    }
-    return rows[0];
+    return requireSuperAgent(adminId, connection);
 }
-
 async function assertTerritory(adminId: number, targetUserId: number, connection?: any) {
-    const conn = connection || db;
-    const admin = await getSuperAgentContext(adminId, conn);
-    const { rows } = await conn.query(
-        `SELECT id, country, province FROM users WHERE id = $1::integer LIMIT 1`,
-        [targetUserId]
-    );
-    if (!rows.length) throw new Error('Utilisateur cible introuvable.');
-    if (String(admin.country || '').trim().toLowerCase() !== String(rows[0].country || '').trim().toLowerCase()) {
-        throw new Error('Utilisateur hors du territoire du Super Agent.');
-    }
-    if (String(admin.role) === 'SubSuperAgent' && admin.province && String(admin.province).trim().toLowerCase() !== String(rows[0].province || '').trim().toLowerCase()) {
-        throw new Error('Utilisateur hors de la province attribuée au Super Agent.');
-    }
-    return { admin, target: rows[0] };
+    const { actor, target } = await assertManagedUser(adminId, targetUserId, connection);
+    return { admin: actor, target };
 }
 
 async function verifyAdminPin(adminId: number, pin: string, connection?: any) {
+    await requireSuperAgent(adminId, connection);
     if (!pin || !/^\d{4}$/.test(String(pin))) throw new Error('PIN Super Agent invalide.');
     const conn = connection || db;
     const { rows } = await conn.query('SELECT pin_hash FROM users WHERE id = $1::integer LIMIT 1', [adminId]);
@@ -57,20 +32,22 @@ async function verifyAdminPin(adminId: number, pin: string, connection?: any) {
 }
 
 export async function getCountryDats(country: string) {
+    const scope = await regionalScope(country);
     const { rows } = await db.query(`
         SELECT d.*, u.full_name, u.phone, u.id_wallet, u.country
         FROM term_deposits d JOIN users u ON d.user_id = u.id
-        WHERE u.country = $1
-        ORDER BY d.id DESC`, [country]);
+        WHERE ${scope.sql}
+        ORDER BY d.id DESC`, scope.values);
     return rows;
 }
 
 export async function getCountryInternationalClaims(country: string) {
+    const scope = await regionalScope(country);
     const { rows } = await db.query(`
         SELECT c.*, u.full_name, u.phone, u.email, u.id_wallet, u.country
         FROM international_transfer_claims c JOIN users u ON c.user_id = u.id
-        WHERE u.country = $1
-        ORDER BY c.id DESC`, [country]);
+        WHERE ${scope.sql}
+        ORDER BY c.id DESC`, scope.values);
     return rows;
 }
 
@@ -105,14 +82,15 @@ export async function approveInternationalClaim(claimId: number, adminId: number
 }
 
 export async function getCountryLoans(country: string) {
+    const scope = await regionalScope(country);
     const { rows } = await db.query(`
         SELECT l.*, u.full_name, u.first_name, u.phone, u.email, u.id_wallet, u.country, u.province,
                COALESCE(w.balances, '{}'::jsonb) AS wallet_balances
         FROM loans l
         JOIN users u ON l.user_id = u.id
         LEFT JOIN wallets w ON w.user_id = u.id
-        WHERE LOWER(TRIM(u.country)) = LOWER(TRIM($1))
-        ORDER BY CASE WHEN LOWER(l.status)='pending' THEN 0 ELSE 1 END, l.request_date DESC, l.id DESC`, [country]);
+        WHERE ${scope.sql}
+        ORDER BY CASE WHEN LOWER(l.status)='pending' THEN 0 ELSE 1 END, l.request_date DESC, l.id DESC`, scope.values);
 
     for (const loan of rows) {
         const [schedule, repayments] = await Promise.all([
@@ -426,8 +404,13 @@ export async function updateCountryExchangeRate(data: any) {
         await connection.query('BEGIN');
         await verifyAdminPin(adminId, pin, connection);
         const admin = await getSuperAgentContext(adminId, connection);
+        if (admin.role === 'SubSuperAgent') throw new Error('Un sous-super-agent ne peut pas modifier les taux de change.');
         const adminCode = countryToCode(admin.country) || String(admin.country || '').toUpperCase();
-        if (adminCode !== countryCode && String(admin.country || '').toUpperCase() !== countryCode) throw new Error('Le taux demandé est hors du territoire du Super Agent.');
+        if (admin.role !== 'Admin' && adminCode !== countryCode && String(admin.country || '').toUpperCase() !== countryCode) throw new Error('Le taux demandé est hors du territoire du Super Agent.');
+        const countryInfo = (await import('@/lib/countries')).countries.find(item => item.code === countryCode);
+        const local = countryInfo?.currency_code;
+        if (!local || fromCurrency === toCurrency || ![fromCurrency, toCurrency].every(code => /^[A-Z]{3,10}$/.test(code))) throw new Error('Paire de devises invalide.');
+        if (admin.role !== 'Admin' && (!([fromCurrency, toCurrency].includes(local)) || [fromCurrency, toCurrency].some(code => code !== local && !['USD', 'EUR'].includes(code)))) throw new Error('Seules les paires entre la devise locale et USD/EUR sont modifiables.');
         await connection.query(`
             INSERT INTO exchange_rates (country_code, from_currency, to_currency, rate)
             VALUES ($1,$2,$3,$4)
@@ -441,7 +424,8 @@ export async function updateCountryExchangeRate(data: any) {
 }
 
 export async function getUserTransactionsForSuperAgent(userId: number, adminId?: number) {
-    if (adminId) await assertTerritory(adminId, userId);
+    const actor = await requireSuperAgent(adminId);
+    await assertTerritory(actor.id, userId);
     const { rows } = await db.query(`
         SELECT t.*, s.full_name AS sender_name, r.full_name AS receiver_name,
                s.id_wallet AS sender_wallet, r.id_wallet AS receiver_wallet
@@ -490,7 +474,7 @@ export async function superAgentDeposit(data: any) {
         ]);
         await logIntervention(adminId, targetUserId, 'SUPER_AGENT_DEPOSIT', `Dépôt de ${amount.toFixed(2)} ${currency} — Réf ${reference}`, connection);
         await connection.query('COMMIT');
-        await createNotification(targetUserId, 'Dépôt reçu', `Votre portefeuille a été crédité de ${amount.toFixed(2)} ${currency} par votre Super Agent. Réf: ${reference}.`, 'transaction', { reference, amount, currency });
+        await createNotification(targetUserId, 'Dépôt reçu', `Votre portefeuille a été crédité de ${amount.toFixed(2)} ${currency} par votre Super Agent. Réf: ${reference}.`, 'general', { reference, amount, currency }).catch(error => console.error('[SUPER_AGENT_DEPOSIT_NOTIFICATION]', error));
         return { success: true, reference, transactionId: txRows[0]?.id, senderNewBalance: adminBalances[currency], receiverNewBalance: targetBalances[currency], fee: 0 };
     } catch (error: any) { await connection.query('ROLLBACK'); return { success: false, error: error?.message || 'Dépôt Super Agent impossible.' }; }
     finally { connection.release(); }
@@ -537,47 +521,47 @@ export async function resetBusinessApiKey(partnerId: number, type: string, admin
 }
 
 export async function getCountryRevenueWallet(country: string) {
-    const code = countryToCode(country) || String(country || '').trim().toUpperCase();
-    const { rows } = await db.query(`
-        SELECT w.*, u.full_name, u.country, u.role
-        FROM wallets w JOIN users u ON u.id=w.user_id
-        WHERE LOWER(TRIM(u.country))=LOWER(TRIM($1))
-          AND (UPPER(COALESCE(u.role,'')) LIKE '%REVENUE%' OR UPPER(COALESCE(u.account_type,'')) LIKE '%REVENUE%')
-        ORDER BY w.id DESC LIMIT 1`, [country]);
-    if (rows[0]) return rows[0];
-    const { rows: fallback } = await db.query(`SELECT * FROM wallets WHERE id_wallet LIKE $1 ORDER BY id DESC LIMIT 1`, [`${code}%`]);
-    return fallback[0];
+    const scope = await regionalScope(country);
+    const { rows } = await db.query(`SELECT w.id, w.id_wallet, w.balances, u.full_name, u.country, u.role
+        FROM wallets w JOIN users u ON u.id = w.user_id
+        WHERE ${scope.sql} AND (UPPER(COALESCE(u.role::text,'')) LIKE '%REVENUE%' OR UPPER(COALESCE(u.account_type::text,'')) LIKE '%REVENUE%')
+        ORDER BY w.id DESC LIMIT 1`, scope.values);
+    return rows[0] || null;
 }
 
 export async function getCountryPayouts(country: string) {
+    const scope = await regionalScope(country);
     const { rows } = await db.query(`
         SELECT t.*, u.full_name, u.country, u.id_wallet
         FROM transactions t LEFT JOIN users u ON u.id=t.sender_id
-        WHERE t.type_code LIKE 'WD_%' AND LOWER(TRIM(COALESCE(u.country,'')))=LOWER(TRIM($1))
-        ORDER BY t.created_at DESC, t.id DESC`, [country]);
+        WHERE t.type_code LIKE 'WD_%' AND ${scope.sql}
+        ORDER BY t.created_at DESC, t.id DESC`, scope.values);
     return rows;
 }
 
 export async function getCountryPendingDeposits(country: string) {
+    const scope = await regionalScope(country);
     const { rows } = await db.query(`
         SELECT t.*, u.full_name, u.country, u.id_wallet
         FROM transactions t LEFT JOIN users u ON u.id=t.sender_id
         WHERE t.type_code LIKE 'DP%' AND LOWER(t.status)='pending'
-          AND LOWER(TRIM(COALESCE(u.country,'')))=LOWER(TRIM($1))
-        ORDER BY t.created_at DESC, t.id DESC`, [country]);
+          AND ${scope.sql}
+        ORDER BY t.created_at DESC, t.id DESC`, scope.values);
     return rows;
 }
 
 export async function getCountryExchangeRates(code: string) {
+    await regionalScope(code);
     const { rows } = await db.query(`SELECT * FROM exchange_rates WHERE country_code = $1 ORDER BY from_currency,to_currency`, [code]);
     return { success: true, data: rows };
 }
 
 export async function getCountryBusinessPartners(country: string) {
+    const scope = await regionalScope(country);
     const { rows } = await db.query(`
         SELECT p.*, u.full_name, u.phone, u.email, u.id_wallet, u.country
         FROM b2b_partners p JOIN users u ON p.owner_user_id = u.id
-        WHERE LOWER(TRIM(u.country))=LOWER(TRIM($1)) ORDER BY p.id DESC`, [country]);
+        WHERE ${scope.sql} ORDER BY p.id DESC`, scope.values);
     return { b2b: rows };
 }
 

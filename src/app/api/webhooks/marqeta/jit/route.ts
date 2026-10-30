@@ -1,7 +1,11 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { formatJitResponse, validateWebhookSignature } from '@/services/marqeta';
+import { verifyLegacyCardWebhook } from '@/lib/legacy-card-webhook';
+const formatJitResponse = (token: string, approved: boolean, amount: number, memo?: string) => ({
+    jit_funding: { token, method: approved ? 'pgfs.authorization' : 'pgfs.decline', user_notified: true, memo: memo || (approved ? 'Approved' : 'Declined') },
+    response: { code: approved ? '0000' : '1001', memo: approved ? 'Success' : 'Declined' }
+});
 import { createTransaction } from '@/lib/actions/transaction.actions';
 import { getTransactionControls } from '@/lib/actions/transaction-controls.actions';
 import { formatUser } from '@/lib/utils';
@@ -18,12 +22,8 @@ export async function POST(request: NextRequest) {
 
     try {
         const bodyText = await request.text();
-        
-        // 1. Validation de sécurité
-        if (signature) {
-            const isValid = await validateWebhookSignature(bodyText, signature);
-            if (!isValid) return new NextResponse('Unauthorized', { status: 401 });
-        }
+
+        if (!verifyLegacyCardWebhook(bodyText, signature)) return new NextResponse('Unauthorized', { status: 401 });
 
         const body: JitFundingRequest = JSON.parse(bodyText);
         const jit = body.jit_funding;
@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
         }
 
         const { user_token, amount, currency_code, token: jitToken } = jit;
+        if (!Number.isFinite(amount) || amount <= 0 || !['USD', 'EUR'].includes(currency_code) || !body.card_token || !jitToken) return new NextResponse('Invalid funding request', { status: 400 });
         const method = body.method; // e.g. "pgfs.authorization"
         const merchant = body.merchant;
 
@@ -44,19 +45,27 @@ export async function POST(request: NextRequest) {
             // 2. Identifier l'utilisateur et la carte CashPay
             const { rows: cardRows } = await connection.query(`
                 SELECT c.*, u.id as user_real_id, u.country as user_country
-                FROM cards c 
-                JOIN users u ON c.user_id = u.id 
-                WHERE c.marqeta_card_token = $1 LIMIT 1
+                FROM cards c
+                JOIN users u ON c.user_id = u.id
+                WHERE c.marqeta_card_token = $1 AND c.card_provider_id IS NULL AND c.status = 'active' AND LOWER(u.status) = 'active' LIMIT 1
             `, [body.card_token]);
 
             if (cardRows.length === 0) throw new Error("Carte non reconnue par CashPay.");
             const cardData = cardRows[0];
+            if (String(cardData.currency).toUpperCase() !== currency_code) throw new Error('Devise de carte incompatible.');
+            await connection.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`legacy-jit:${jitToken}`]);
+            const { rows: previous } = await connection.query("SELECT amount, currency, metadata FROM transactions WHERE metadata->>'jit_token' = $1 AND status = 'Completed'", [jitToken]);
+            if (method === 'pgfs.authorization' && previous.length) {
+                if (previous.length !== 1 || Number(previous[0].amount) !== amount || previous[0].currency !== currency_code || previous[0].metadata?.card_token !== body.card_token) throw new Error('Identifiant déjà utilisé avec un autre paiement.');
+                await connection.query('COMMIT');
+                return NextResponse.json(formatJitResponse(jitToken, true, amount));
+            }
 
             // 3. Traiter uniquement les demandes d'autorisation
             if (method === 'pgfs.authorization') {
                 // A. Vérifier les contrôles de transaction définis par l'utilisateur
                 const controls = await getTransactionControls(cardData.id.toString());
-                
+
                 for (const control of controls) {
                     // Blocage par type de transaction
                     if (control.control_type === 'ECOMMERCE' && control.is_blocked && !body.local_amount) {
@@ -80,13 +89,13 @@ export async function POST(request: NextRequest) {
                 if (availableBalance >= amount) {
                     // 4. Débit immédiat du portefeuille CashPay
                     const txResult = await createTransaction({
-                        user: { id: cardData.user_real_id, country: cardData.user_country } as any, 
-                        typeCode: 'CARD_PAY', 
-                        amount, 
+                        user: { id: cardData.user_real_id, country: cardData.user_country } as any,
+                        typeCode: 'CARD_PAY',
+                        amount,
                         currency: currency_code,
                         description: `Paiement Carte: ${merchant.name} (${merchant.city})`,
-                        metadata: { 
-                            marqeta_token: body.token, 
+                        metadata: {
+                            marqeta_token: body.token,
                             jit_token: jitToken,
                             card_token: body.card_token,
                             mcc: merchant.mcc,
@@ -100,7 +109,7 @@ export async function POST(request: NextRequest) {
                     if (!txResult.success) throw new Error("Échec du débit local du portefeuille.");
 
                     await connection.query('COMMIT');
-                    
+
                     console.log(`[JIT] Approved: ${amount} ${currency_code} at ${merchant.name}`);
                     return NextResponse.json(formatJitResponse(jitToken, true, amount));
                 } else {

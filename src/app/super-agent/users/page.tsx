@@ -5,16 +5,16 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
-import { 
-    searchCountryUsers, toggleUserStatus, resetClientPin, 
+import {
+    searchCountryUsers, toggleUserStatus, resetClientPin,
     updateClientContact, getClientKycDetails, updateClientProfilePhoto, upgradeToBusinessAccount
 } from '@/lib/actions/super-agent/users.actions';
-import { 
-    getUserTransactionsForSuperAgent, 
-    getClientBalancesForAdmin, 
+import {
+    getUserTransactionsForSuperAgent,
+    getClientBalancesForAdmin,
     superAgentDeposit
 } from '@/lib/actions/super-agent/finance.actions';
-import { 
+import {
     getUserCardsForAdmin
 } from '@/lib/actions/super-agent/logistics.actions';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -22,8 +22,8 @@ import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { 
-    Search, ShieldAlert, Loader2, Eye, 
+import {
+    Search, ShieldAlert, Loader2, Eye,
     Edit, CreditCard, Printer, ChevronRight, Coins,
     Camera, KeyRound, Building, User as UserIcon,
     Phone, Mail
@@ -74,12 +74,14 @@ const businessUpgradeSchema = z.object({
 });
 
 export default function SuperAgentUsers() {
+    const [page, setPage] = useState(0);
+    const requestSequence = useRef(0);
     const [users, setUsers] = useState<User[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [superAgent, setSuperAgent] = useState<User | null>(null);
-    
+
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
     const [userHistory, setUserHistory] = useState<Transaction[]>([]);
     const [userCards, setUserCards] = useState<CardInterface[]>([]);
@@ -90,7 +92,7 @@ export default function SuperAgentUsers() {
     const [isDepositOpen, setIsDepositOpen] = useState(false);
     const [isSuspensionDialogOpen, setIsSuspensionDialogOpen] = useState(false);
     const [isBusinessUpgradeOpen, setIsBusinessUpgradeOpen] = useState(false);
-    
+
     const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
     const photoInputRef = useRef<HTMLInputElement>(null);
     const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -122,10 +124,13 @@ export default function SuperAgentUsers() {
         defaultValues: { companyName: "", pin: "" },
     });
 
-    const loadUsers = async (agentId: number, query = '') => {
+    const loadUsers = async (agentId: number, query = '', requestedPage = 0) => {
+        const sequence = ++requestSequence.current;
         setIsLoading(true);
         try {
-            const results = await searchCountryUsers(agentId, query.trim());
+            const results = await searchCountryUsers(agentId, query.trim(), requestedPage);
+            if (sequence !== requestSequence.current) return [];
+            setPage(requestedPage);
             setUsers(Array.isArray(results) ? results : []);
             return Array.isArray(results) ? results : [];
         } catch (e: any) {
@@ -136,7 +141,7 @@ export default function SuperAgentUsers() {
             });
             return [];
         } finally {
-            setIsLoading(false);
+            if (sequence === requestSequence.current) setIsLoading(false);
         }
     };
 
@@ -146,10 +151,12 @@ export default function SuperAgentUsers() {
             const agent = await getAuthenticatedUser();
             if (cancelled) return;
             setSuperAgent(agent);
-            if (agent?.id) await loadUsers(agent.id, '');
+            const initialSearch = new URLSearchParams(window.location.search).get('search') || '';
+            if (initialSearch) setSearchTerm(initialSearch);
+            if (agent?.id) await loadUsers(agent.id, initialSearch);
             else setIsLoading(false);
         };
-        init();
+        init().catch(() => { setIsLoading(false); toast({ title: 'Session indisponible', variant: 'destructive' }); });
         return () => {
             cancelled = true;
             if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
@@ -187,7 +194,7 @@ export default function SuperAgentUsers() {
             setUserHistory(history);
             setUserCards(cards as CardInterface[]);
             setUserKyc(kyc);
-            
+
             if (user.role === 'PartnerB2B' || user.account_type === 'business') {
                 businessUpgradeForm.setValue('companyName', user.full_name);
             }
@@ -255,7 +262,7 @@ export default function SuperAgentUsers() {
                     if (confirmed) {
                         const res = await toggleUserStatus(selectedUser.id, selectedUser.status, superAgent.id);
                         if (res.success) {
-                            setSelectedUser({ ...selectedUser, status: res.status! });
+                            setSelectedUser({ ...selectedUser, status: res.status as User['status'] });
                             toast({ title: "Utilisateur réactivé", variant: "success" });
                         }
                     }
@@ -270,7 +277,7 @@ export default function SuperAgentUsers() {
         const result = await toggleUserStatus(selectedUser.id, selectedUser.status, superAgent.id, values.reason);
         setIsSubmitting(false);
         if (result.success) {
-            setSelectedUser({ ...selectedUser, status: result.status! });
+            setSelectedUser({ ...selectedUser, status: result.status as User['status'] });
             setIsSuspensionDialogOpen(false);
             suspensionForm.reset();
             toast({ title: "Utilisateur suspendu", variant: "destructive" });
@@ -352,9 +359,9 @@ export default function SuperAgentUsers() {
                     <div className="flex gap-2">
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-                            <Input 
-                                placeholder="Rechercher par Nom, Wallet ID ou Téléphone..." 
-                                className="pl-9 bg-zinc-900 border-zinc-700 h-12" 
+                            <Input
+                                placeholder="Rechercher par Nom, Wallet ID ou Téléphone..."
+                                className="pl-9 bg-zinc-900 border-zinc-700 h-12"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
@@ -398,6 +405,7 @@ export default function SuperAgentUsers() {
                 )}
             </div>
 
+            <div className="flex justify-between items-center gap-3"><Button disabled={isLoading || page === 0} onClick={() => superAgent && loadUsers(superAgent.id, searchTerm, page - 1)}>Précédent</Button><span>Page {page + 1}</span><Button disabled={isLoading || users.length < 100} onClick={() => superAgent && loadUsers(superAgent.id, searchTerm, page + 1)}>Suivant</Button></div>
             {/* Dialog Dossier Client */}
             <Dialog open={!!selectedUser} onOpenChange={(open) => !open && setSelectedUser(null)}>
                 <DialogContent className="max-w-4xl bg-zinc-900 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0 overflow-hidden">
@@ -406,7 +414,7 @@ export default function SuperAgentUsers() {
                             <div className="relative group cursor-pointer" onClick={() => photoInputRef.current?.click()}>
                                 <Avatar className="h-16 w-16 border-2 border-primary group-hover:opacity-50 transition-opacity">
                                     <AvatarImage src={userKyc?.profile_photo || selectedUser?.profile_photo} />
-                                    <AvatarFallback>{selectedUser?.full_name[0] || '?'}</AvatarFallback>
+                                    <AvatarFallback>{selectedUser?.full_name?.[0] || '?'}</AvatarFallback>
                                 </Avatar>
                                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100"><Camera className="h-6 w-6"/></div>
                                 <input type="file" ref={photoInputRef} className="hidden" accept="image/*" onChange={handlePhotoChange} />
@@ -426,7 +434,7 @@ export default function SuperAgentUsers() {
                             </div>
                         </div>
                     </DialogHeader>
-                    
+
                     <Tabs defaultValue="kyc" className="flex-1 overflow-hidden flex flex-col">
                         <TabsList className="bg-zinc-950 border-b border-zinc-800 rounded-none h-12">
                             <TabsTrigger value="kyc" className="flex-1">Dossier KYC</TabsTrigger>
@@ -450,12 +458,12 @@ export default function SuperAgentUsers() {
                                         <div>
                                             <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">Garant / Urgence</h4>
                                             <div className="p-4 rounded-lg bg-zinc-800 border border-zinc-700">
-                                                {userKyc?.representative ? ( 
+                                                {userKyc?.representative ? (
                                                     <div className="space-y-1">
                                                         <p className="font-bold">{userKyc.representative.name}</p>
                                                         <p className="text-sm text-zinc-400">{userKyc.representative.relation}</p>
                                                         <p className="text-sm text-primary font-mono">{userKyc.representative.contact}</p>
-                                                    </div> 
+                                                    </div>
                                                 ) : <p className="text-zinc-500 italic text-sm">Aucun garant enregistré.</p>}
                                             </div>
                                         </div>
@@ -507,18 +515,18 @@ export default function SuperAgentUsers() {
                                 ) : (
                                     <div className="space-y-6">
                                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                            {Object.entries(userBalances).map(([cur, amt]) => ( 
+                                            {Object.entries(userBalances).map(([cur, amt]) => (
                                                 <Card key={cur} className="bg-zinc-950 border-zinc-800 shadow-lg">
                                                     <CardContent className="p-4 text-center">
                                                         <p className="text-xs text-zinc-500 font-bold uppercase mb-1">{cur}</p>
                                                         <p className="text-2xl font-black text-primary">{Number(amt).toLocaleString('fr-FR', { minimumFractionDigits: 2 })}</p>
                                                     </CardContent>
-                                                </Card> 
+                                                </Card>
                                             ))}
                                         </div>
-                                        
+
                                         <Separator className="bg-zinc-800" />
-                                        
+
                                         <div className="p-6 rounded-xl border border-primary/20 bg-primary/5 space-y-4">
                                             <div className="flex items-center gap-4">
                                                 <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center"><Building className="h-6 w-6 text-primary"/></div>
@@ -541,7 +549,7 @@ export default function SuperAgentUsers() {
                                 <Table>
                                     <TableBody>
                                         {userHistory.map((tx, idx) => (
-                                            <TableRow key={tx.id ?? idx} className="border-zinc-800 hover:bg-zinc-800/50">
+                                            <TableRow key={tx.reference ?? idx} className="border-zinc-800 hover:bg-zinc-800/50">
                                                 <TableCell className="text-[10px] text-zinc-500">{tx.date} {tx.time}</TableCell>
                                                 <TableCell className="text-xs font-semibold">{tx.description}</TableCell>
                                                 <TableCell className={cn("text-right font-bold text-xs", tx.type === 'sent' ? 'text-red-400' : 'text-green-400')}>
@@ -664,7 +672,7 @@ export default function SuperAgentUsers() {
                                 <AlertTitle>Changement d'Identité</AlertTitle>
                                 <AlertDescription className="text-xs text-zinc-400">Le nom de l'utilisateur sur le réseau deviendra le nom de l'entreprise saisi ci-dessous.</AlertDescription>
                             </Alert>
-                            
+
                             <FormField control={businessUpgradeForm.control} name="companyName" render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Nom Officiel de l'Entreprise</FormLabel>
