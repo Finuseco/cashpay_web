@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser, changeUserPin } from '@/lib/actions/auth.actions';
+import { getAuthenticatedUser, updatePin } from '@/lib/actions/user.actions';
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await changeUserPin(oldPin, newPin);
+    const result = await updatePin({ userId: user.id, oldPin, newPin });
 
     if (!result.success) {
       return NextResponse.json(result, { status: 400 });

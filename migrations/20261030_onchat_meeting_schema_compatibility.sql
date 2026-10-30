@@ -34,6 +34,11 @@ ALTER TABLE meeting_participants
     ADD COLUMN IF NOT EXISTS raise_hand BOOLEAN DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS can_speak BOOLEAN DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'viewer';
+-- Required by admission quotes even for a free meeting with no linked event.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS onchat_meeting_id INTEGER REFERENCES meetings(id);
+CREATE UNIQUE INDEX IF NOT EXISTS events_onchat_meeting_idx ON events(onchat_meeting_id) WHERE onchat_meeting_id IS NOT NULL;
+-- Existing duplicate participant rows must be reconciled explicitly, never deleted here.
+CREATE UNIQUE INDEX IF NOT EXISTS meeting_participants_identity_idx ON meeting_participants(meeting_id, user_id);
 UPDATE meeting_participants mp SET is_host = TRUE
     FROM meetings m WHERE mp.meeting_id = m.id AND mp.user_id = m.host_user_id AND mp.is_host IS DISTINCT FROM TRUE;
 COMMIT;

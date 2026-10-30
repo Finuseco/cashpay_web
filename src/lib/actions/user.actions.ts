@@ -316,8 +316,8 @@ export async function verifyRegistrationOtp(phone: string, otp: string): Promise
 }
 
 
-export async function sendAndStoreOtp(userId: number, type: string, channel: 'sms' | 'email' | 'whatsapp' | 'in-app') : Promise<{success: true, message: string, destination: string, userId: number } | {success: false, error?: string, backupOtp?: string, userId?: number}> {
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+export async function sendAndStoreOtp(userId: number, type: string, channel: 'sms' | 'email' | 'whatsapp' | 'in-app') : Promise<{success: true, message: string, destination: string, userId: number } | {success: false, error?: string, userId?: number}> {
+    const otp = crypto.randomInt(100000, 1000000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
 
@@ -371,9 +371,9 @@ export async function sendAndStoreOtp(userId: number, type: string, channel: 'sm
 
         try {
             if (user.email && channel === 'email') {
-                await sendEmail(user.email, 'Votre Code de Vérification CashPay', 'otp', emailData);
+                const result = await sendEmail(user.email, 'Votre Code de Vérification CashPay', 'otp', emailData);
                 destination = user.email;
-                sendSuccess = true;
+                sendSuccess = result.success;
             } else if (user.phone && (channel === 'sms' || channel === 'whatsapp')) {
                 if (channel === 'whatsapp') {
                     const whatsAppResult = await sendWhatsAppAuthenticationTemplate(user.phone, otp);
@@ -388,12 +388,12 @@ export async function sendAndStoreOtp(userId: number, type: string, channel: 'sm
             if(sendSuccess){
                  return { success: true, message: `Un code a été envoyé à ${destination}.`, destination, userId };
             } else {
-                 return { success: false, error: `L'envoi par ${channel} a échoué.`, backupOtp: otp, userId };
+                 return { success: false, error: `L'envoi par ${channel} a échoué.`, userId };
             }
 
         } catch (sendError) {
              console.error(`Failed to send OTP via ${channel}:`, sendError);
-             return { success: false, error: `L'envoi par ${channel} a échoué.`, backupOtp: otp, userId };
+             return { success: false, error: `L'envoi par ${channel} a échoué.`, userId };
         }
 
     } catch (dbError) {
@@ -408,7 +408,7 @@ export async function sendOtp(userId: number, method: 'sms' | 'email' | 'whatsap
 }
 
 export async function sendRegistrationOtp(destination: string, channel: 'sms' | 'whatsapp' = 'sms'): Promise<SendOtpSuccess | SendOtpError> {
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = crypto.randomInt(100000, 1000000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     try {
@@ -1034,6 +1034,9 @@ interface UpdatePinArgs {
  * Met à jour le code PIN de l'utilisateur et synchronise le changement avec ses cartes Marqeta.
  */
 export async function updatePin({ userId, oldPin, newPin }: UpdatePinArgs): Promise<{ success: boolean; error?: string }> {
+    const authenticated = await getAuthenticatedUser();
+    if (!authenticated || authenticated.id !== userId) return { success: false, error: 'Session du titulaire requise.' };
+    if (!/^\d{4}$/.test(oldPin) || !/^\d{4}$/.test(newPin) || oldPin === newPin) return { success: false, error: 'PIN invalide ou identique à l’ancien.' };
     const connection = await db.getConnection();
     const headerList = headers();
     const ipAddress = (headerList.get('x-forwarded-for') ?? '127.0.0.1').split(',')[0].trim();

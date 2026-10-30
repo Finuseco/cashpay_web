@@ -5,6 +5,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { randomInt } from 'crypto';
+import { sendSms } from '@/services/sms';
+import { sendEmail } from '@/services/email';
 
 const resendSchema = z.object({
   cpNumber: z.string().min(1, 'Le numéro CP est requis.'),
@@ -16,9 +18,9 @@ const generateOtp = () => {
 };
 
 async function sendOtp(destination: string, otp: string, method: 'sms' | 'email') {
-    console.log(`********************************************`);
-    console.log(`* RESENDING OTP to ${destination} via ${method}: ${otp} *`);
-    console.log(`********************************************`);
+    const result = method === 'sms' ? await sendSms(destination, `CashPay : votre code de connexion est ${otp}. Ne le partagez pas.`)
+        : await sendEmail(destination, 'Code de connexion CashPay', 'otp', { otpCode: otp });
+    if (!result.success) throw new Error('Le fournisseur a refusé l’envoi du code.');
 }
 
 export async function POST(request: Request) {

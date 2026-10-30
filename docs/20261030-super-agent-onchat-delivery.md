@@ -36,3 +36,14 @@ Cette livraison est du code applicatif. Aucun accès au serveur de production, a
 4. Les parcours réels avec comptes, base PostgreSQL, fournisseurs et téléphones restent à valider. L'environnement de compilation n'a pas de base de production ni de comptes de test.
 5. La refonte complète des créations de comptes, validation KYC, rémunérations nettes, compensation et émission physique FYATU n'est pas livrée comme opérationnelle. Les commandes qui produisaient des faux succès sont refusées explicitement.
 6. Les erreurs préexistantes d'exports d'autres modules signalées par Next.js restent visibles dans le build. Le build n'est pas une validation financière de bout en bout.
+
+## Complément authentification après lecture des logs
+
+- Les routes historiques de connexion/inscription ne renvoient plus un identifiant utilisateur fictif ou un envoi simulé. Les transports SMS/email sont réellement appelés et un refus fournisseur échoue explicitement.
+- Les OTP ne sont plus exposés comme « code de secours » en réponse serveur ni montrés à l’agent après un échec d’envoi. Génération cryptographique ; un email refusé ne vaut plus confirmation.
+- Le transfert assisté lie son OTP à l’agent, aux deux comptes, au montant et à la devise. Validation et mouvements financiers partagent la transaction PostgreSQL ; il ne crée pas une session client pendant la confirmation de l’agent.
+- Le code fixe de validation d’achat de crédit est remplacé par la consommation du code enregistré, non expiré et non utilisé ; la juridiction de l’agent est vérifiée.
+- La route historique de changement de PIN vérifie la session, l’ancien hash et met à jour le compte réel ; l’export cassé de la route v1 est corrigé.
+- La clé API publique codée en dur de l’ancienne route `/api/auth/initiate-login` est supprimée : configurer `CASHPAY_CLIENT_API_KEY` pour les clients qui utilisent cette route. Aucun secret n’est fourni dans le dépôt.
+
+Ces validations financières nécessitent encore une recette avec des comptes et fournisseurs autorisés. Cela ne certifie pas les autres anciens services financiers ou jeux comme exempts de simulations. Aucun paiement n’a été exécuté pour les vérifier.
