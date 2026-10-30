@@ -1,3 +1,4 @@
+import { directCallAccess } from '@/lib/onchat-direct-calls';
 import { db } from '@/lib/db';
 import { createTransaction } from '@/lib/actions/transaction.actions';
 import { calculateTransactionFee } from '@/lib/actions/wallet.actions';
@@ -31,6 +32,7 @@ async function quote(connection: PoolClient, meeting: any, user: User, requested
         const membership = await connection.query('SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2 AND status = \'active\'', [meeting.group_id, user.id]);
         if (!membership.rows.length) throw new MeetingAccessError(403, 'GROUP_ACCESS_REQUIRED', 'Cette réunion est réservée aux membres du groupe.');
     }
+    const isDirectCall = await directCallAccess(connection, meeting.meeting_provider_id, user.id);
     const price = meetingPrice(meeting.price_amount, meeting.price_currency);
     const currency = meetingPrice(0, requestedCurrency || price.currency).currency;
     const { rows: participant } = await connection.query('SELECT fee_paid FROM meeting_participants WHERE meeting_id = $1 AND user_id = $2', [meeting.id, user.id]);
@@ -54,7 +56,7 @@ async function quote(connection: PoolClient, meeting: any, user: User, requested
     const balance = Number(balances[currency] || 0);
     return { priceAmount: price.amount, priceCurrency: price.currency, currency, amount: debit, fee,
         totalDebit: debit + fee, balance, sufficientBalance: balance >= debit + fee,
-        isHost, alreadyPaid, requiresTicket, eventId: events[0]?.id || null };
+        isHost, isDirectCall, alreadyPaid, requiresTicket, eventId: events[0]?.id || null };
 }
 
 export async function quoteMeetingAccess(code: string, user: User, currency?: string) {
@@ -105,6 +107,7 @@ export async function admitMeeting(code: string, user: User, body: { pin?: strin
               fee_paid = CASE WHEN EXCLUDED.fee_paid > 0 THEN EXCLUDED.fee_paid ELSE meeting_participants.fee_paid END,
               fee_currency = COALESCE(EXCLUDED.fee_currency, meeting_participants.fee_currency)`,
             [meeting.id, user.id, access.isHost, charged ? access.amount : 0, charged ? access.currency : null, access.isHost ? 'host' : 'viewer']);
+        if (access.isDirectCall) await connection.query("UPDATE meeting_participants SET can_speak=TRUE,role=CASE WHEN is_host THEN 'host' ELSE 'speaker' END WHERE meeting_id=$1 AND user_id=$2",[meeting.id,user.id]);
         await connection.query("SELECT pg_notify('onchat_meetings', $1)", [JSON.stringify({ meetCode: code })]);
         await connection.query('COMMIT');
         return { success: true, meetCode: code, joinUrl: meeting.join_url, topic: meeting.topic, type: meeting.type, isHost: access.isHost, charged, amount: charged ? access.totalDebit : 0, currency: access.currency };
