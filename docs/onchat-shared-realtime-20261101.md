@@ -2,12 +2,12 @@
 
 ## Corrections livrées
 
-- OnChat Android 5.3 utilise par défaut `wss://app.cashpay-all.com/ws`, exactement comme Wallet-final. La propriété Gradle `onchatWsUrl` permet une configuration explicite.
+- OnChat Android 5.3 utilise par défaut `wss://app.cashpay-all.com/ws`, exactement comme Wallet_best. La propriété Gradle `onchatWsUrl` permet une configuration explicite.
 - Les métadonnées des messages acceptent les nombres et objets réellement retournés par PostgreSQL. Les URL et noms des photos, audios, vidéos et documents sont également récupérés depuis `metadata`, en REST comme en WebSocket. Les erreurs de chargement de l'historique ne retournent plus un faux succès.
 - Les messages reçus en arrière-plan sont enregistrés dans Room. L'insertion et le compteur de messages non lus sont transactionnels et utilisent l'identifiant serveur pour éviter les doubles comptages. À chaque connexion, l'historique de la conversation ouverte est resynchronisé.
 - Le chat web reçoit les événements WebSocket puis recharge les messages autorisés via l'API. La liste des conversations se rafraîchit sans rechargement de page. Le polling reste un secours.
 - Le raccordement aux réunions couvre aussi le cas où le WebSocket est déjà ouvert avant la pose du gestionnaire `onopen`. Un délai de 20 secondes et les erreurs de schéma interrompent l'attente infinie. Réessayer recharge le parcours d'admission, sans contourner PIN, billet ou autorisations de parole.
-- Le serveur partagé transmet les notifications Wallet au format historique et les événements structurés OnChat. Wallet-final ignore désormais les trames techniques qui ne sont pas des notifications ; le contenu des messages n'est plus écrit dans ses logs Android.
+- Le serveur partagé transmet les notifications Wallet au format historique et les événements structurés OnChat. Wallet_best ignore désormais les trames techniques qui ne sont pas des notifications ; le contenu des messages n'est plus écrit dans ses logs Android.
 
 ## SQL à appliquer volontairement via Adminer
 
