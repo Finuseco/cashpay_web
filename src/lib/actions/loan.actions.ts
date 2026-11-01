@@ -295,7 +295,7 @@ export async function createLoanApplication(args: CreateLoanArgs): Promise<{ suc
 export async function getLoanForUser(userId: number): Promise<Loan | null> {
     try {
         const { rows } = await db.query(`
-            SELECT id, amount, remaining_balance, currency, interest_rate, duration,
+            SELECT id, amount, remaining_balance, currency, interest_rate, duration, status,
                    monthly_payment, repayment_frequency, installment_count, installment_amount,
                    approval_date AS start_date,
                    CASE WHEN repayment_frequency='weekly'
@@ -307,7 +307,7 @@ export async function getLoanForUser(userId: number): Promise<Loan | null> {
         const loan = rows[0];
         const totalAmount = money(loan.amount) * (1 + money(loan.interest_rate) / 100);
         return {
-            id: loan.id, amount: totalAmount,
+            id: loan.id, amount: totalAmount, principal_amount:money(loan.amount),total_repayment:totalAmount,status:loan.status,
             repaid_amount: totalAmount - money(loan.remaining_balance), currency: loan.currency,
             interest_rate: loan.interest_rate,
             start_date: format(new Date(loan.start_date), 'yyyy-MM-dd'),
@@ -662,7 +662,7 @@ export async function getLoanHistory(userId:number):Promise<LoanHistory[]> {
                 const frequency:LoanRepaymentFrequency = loan.repayment_frequency==='weekly' ? 'weekly' : loan.repayment_frequency==='quarterly' ? 'quarterly' : 'monthly';
                 const count=Math.trunc(Number(loan.installment_count || (frequency==='weekly' ? Math.round(Number(loan.duration)*4.345) : frequency==='quarterly' ? Number(loan.duration)/3 : loan.duration)));
                 if(count>0){
-                    const totalAmount=roundMoney(money(loan.amount)*(1+(money(loan.interest_rate)/100*Number(loan.duration))));
+                    const totalAmount=roundMoney(money(loan.amount)*(1+(money(loan.interest_rate)/100)));
                     const installmentAmount=roundMoney(totalAmount/count);
                     let allocated=0;
                     for(let n=1;n<=count;n++){
@@ -676,7 +676,7 @@ export async function getLoanHistory(userId:number):Promise<LoanHistory[]> {
                 }
             }
 
-            const totalAmount=roundMoney(money(loan.amount)*(1+(money(loan.interest_rate)/100*Number(loan.duration))));
+            const totalAmount=roundMoney(money(loan.amount)*(1+(money(loan.interest_rate)/100)));
             const repaidAmount=repaymentRows.filter(r=>r.type==='repayment').reduce((sum,r)=>sum+money(r.amount),0);
             const schedule:LoanInstallment[]=scheduleRows.map(r=>({
                 id:Number(r.id),
