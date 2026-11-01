@@ -29,6 +29,20 @@ function dispatchRealtime(event:string,data:any){
  if(event==='presence.online'||event==='presence.offline'){for(const key of [data?.userId,data?.walletId])if(key!=null){if(event==='presence.online')onlineUsers.add(String(key));else onlineUsers.delete(String(key));}}
  realtimeListeners.forEach(listener=>listener(event==='realtime.resync'?'reconnected':event,data));
 }
+let recoveryTimer:ReturnType<typeof setTimeout>|undefined;
+let recoveryCursor:string|undefined;
+let recoveryGeneration=0;
+async function recoverRealtime(generation:number){
+ if(generation!==recoveryGeneration||!realtimeListeners.size)return;
+ let more=false;
+ try{
+  const response=await fetch(`/api/v1/onchat/notifications${recoveryCursor?`?cursor=${encodeURIComponent(recoveryCursor)}`:''}`,{cache:'no-store',signal:AbortSignal.timeout(10000)});
+  const data=await response.json();
+  if(generation!==recoveryGeneration||!realtimeListeners.size)return;
+  if(response.ok&&data.success){for(const item of data.events||[])if(item.event==='chat.message.created')dispatchRealtime(item.event,item.data);recoveryCursor=data.cursor;more=data.hasMore;}
+ }catch{/* WebSocket and history remain available; retry without advancing the cursor. */}
+ if(generation===recoveryGeneration&&realtimeListeners.size)recoveryTimer=setTimeout(()=>void recoverRealtime(generation),more?250:15000);
+}
 function connectRealtime() {
  if (connecting || realtimeSocket || !realtimeListeners.size) return;
  connecting = true;
@@ -47,6 +61,6 @@ function connectRealtime() {
 }
 /** Events invalidate local state; callers reload authorized messages from PostgreSQL through the API. */
 export function subscribeOnChatRealtime(listener: (event: string, data: any) => void) {
- realtimeListeners.add(listener); connectRealtime();
- return () => { realtimeListeners.delete(listener); if (!realtimeListeners.size) { clearTimeout(retry); realtimeSocket?.close(); realtimeSocket = null; } };
+ const first=!realtimeListeners.size;realtimeListeners.add(listener); connectRealtime();if(first){const generation=++recoveryGeneration;recoveryTimer=setTimeout(()=>void recoverRealtime(generation),500);}
+ return () => { realtimeListeners.delete(listener); if (!realtimeListeners.size) { clearTimeout(retry);clearTimeout(recoveryTimer);recoveryGeneration++;recoveryCursor=undefined; realtimeSocket?.close(); realtimeSocket = null; } };
 }
