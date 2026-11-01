@@ -249,7 +249,8 @@ export function PosClient({ initialProducts, categories, agent }: { initialProdu
             amount: paymentInfo.total,
             currency: 'USD',
             saleReference: paymentInfo.reference,
-            boutiqueName: paymentInfo.boutiqueName
+            boutiqueName: paymentInfo.boutiqueName,
+            items: paymentInfo.items.map(item=>({id:item.id,quantity:item.quantity}))
         });
     }, [paymentInfo, agent.id_wallet]);
 

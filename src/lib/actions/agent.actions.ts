@@ -1,4 +1,5 @@
 'use server';
+import { canonicalSale } from '@/lib/scanpay';
 
 import type { User, Product, Boutique, Seller, ProductVariation } from '@/lib/types';
 import { getAuthenticatedUser } from './user.actions';
@@ -251,9 +252,16 @@ export async function agentDeposit(args: {
  * Supporte le paiement dans une devise différente de celle du produit.
  */
 export async function processQrSale(buyerUserId: number, orderPayload: any) {
+    const authenticated=await getAuthenticatedUser();
+    if(!authenticated||Number(authenticated.id)!==Number(buyerUserId))return {success:false,error:'Authentification du payeur requise.'};
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
+        const canonical=await canonicalSale(connection,orderPayload,true);
+        if(Math.abs(Number(orderPayload.amount)-canonical.amount)>0.005||orderPayload.currency!=='USD')throw new Error('Le prix du QR ne correspond plus au catalogue. Régénérez le QR.');
+        if(orderPayload.saleReference){await connection.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`sale:${buyerUserId}:${orderPayload.saleReference}`]);const done=await connection.query("SELECT 1 FROM transactions WHERE sender_id=$1 AND metadata->>'saleReference'=$2 AND status='Completed' LIMIT 1",[buyerUserId,String(orderPayload.saleReference)]);if(done.rows.length)throw new Error('Cette référence de vente est déjà réglée.');}
+        orderPayload={...orderPayload,...canonical};
+        const wallets=await connection.query('SELECT user_id FROM wallets WHERE user_id=ANY($1::int[]) ORDER BY user_id FOR UPDATE',[[buyerUserId,canonical.sellerId]]);if(wallets.rows.length!==2)throw new Error('Wallet payeur ou vendeur introuvable.');
         const { rows: buyerRows } = await connection.query('SELECT * FROM users WHERE id = $1', [buyerUserId]);
         const buyer = buyerRows[0];
         
@@ -303,7 +311,7 @@ export async function processQrSale(buyerUserId: number, orderPayload: any) {
             }
         }
         await connection.query('COMMIT');
-        return { success: true };
+        return { success: true,reference:tx.reference,transactionId:tx.transactionId };
     } catch (e: any) {
         await connection.query('ROLLBACK');
         return { success: false, error: e.message };
