@@ -19,7 +19,11 @@ export async function GET(request: NextRequest, { params }: { params: { groupId:
         const group = await getGroupWithMessages(groupId, user.id);
 
         if (group) {
-            return NextResponse.json({ success: true, group });
+            return NextResponse.json({ success: true, group: { ...group, messages: group.messages.map(message => ({
+                ...message, conversationId: `g_${groupId}`,
+                metadata: typeof message.metadata === 'string' ? JSON.parse(message.metadata) : message.metadata,
+                imageId: message.image_id,
+            })) } }, { headers: { 'Cache-Control': 'private, no-store' } });
         } else {
             return NextResponse.json({ success: false, error: 'Group not found or you are not a member.' }, { status: 404 });
         }

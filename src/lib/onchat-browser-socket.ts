@@ -31,7 +31,7 @@ function connectRealtime() {
   realtimeSocket = socket;
   const deadline = setTimeout(() => socket.close(), 15000);
   socket.onmessage = message => {
-   try { const {event, data} = JSON.parse(message.data); realtimeListeners.forEach(listener => listener(event, data)); } catch { /* A malformed frame cannot replace database history. */ }
+   try { const {event, data} = JSON.parse(message.data); realtimeListeners.forEach(listener => listener(event === 'realtime.resync' ? 'reconnected' : event, data)); } catch { /* A malformed frame cannot replace database history. */ }
   };
   socket.onclose = () => { clearTimeout(deadline); if (realtimeSocket === socket) realtimeSocket = null; if (realtimeListeners.size) retry = setTimeout(connectRealtime, 3000); };
   socket.onerror = () => socket.close();

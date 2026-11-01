@@ -605,6 +605,44 @@ async function handleEvent(socket, user, message) {
     });
 }
 
+function chatMessageData(row) {
+    return { conversationId: row.conversation_id, message: {
+        id: String(row.id), conversationId: row.conversation_id,
+        senderId: row.sender_id, senderName: row.sender_name, content: row.content || '', type: row.type,
+        metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
+        status: row.status, isRead: row.is_read, imageId: row.image_id,
+        timestamp: new Date(row.created_at).toISOString(),
+    }};
+}
+
+async function replayPendingRealtime(socket, user) {
+    try {
+        const { rows } = await pool.query(`SELECT m.*,sender.full_name AS sender_name FROM messages m
+            JOIN conversation_participants cp ON cp.conversation_id=m.conversation_id
+            LEFT JOIN users sender ON sender.id=m.sender_id
+            WHERE cp.user_id=$1 AND m.sender_id<>$1 AND COALESCE(m.is_read,FALSE)=FALSE
+              AND m.created_at>NOW()-INTERVAL '24 hours'
+            ORDER BY m.created_at DESC,m.id DESC LIMIT 100`, [user.id]);
+        for (const row of rows.reverse()) send(socket, 'chat.message.created', chatMessageData(row));
+    } catch (error) { console.error('[Realtime message recovery]', error.code || error.message); }
+    try {
+        const { rows } = await pool.query(`SELECT cl.*,caller.full_name,caller.id_wallet,caller.profile_photo,
+            CASE WHEN cl.receiver_id=$1 THEN cl.started_at ELSE invite.created_at END AS ringing_at
+            FROM call_logs cl JOIN users caller ON caller.id=cl.caller_id
+            LEFT JOIN onchat_call_invitees invite ON invite.call_id=cl.id AND invite.user_id=$1 AND invite.status='pending'
+            WHERE cl.ended_at IS NULL AND cl.meeting_code IS NOT NULL AND cl.caller_id<>$1
+              AND ((cl.receiver_id=$1 AND cl.accepted_at IS NULL AND cl.status='MISSED') OR invite.user_id=$1)
+              AND CASE WHEN cl.receiver_id=$1 THEN cl.started_at ELSE invite.created_at END>NOW()-INTERVAL '25 seconds'
+            ORDER BY ringing_at DESC LIMIT 1`, [user.id]);
+        for (const call of rows) {
+            const ringForMs = Math.max(0, Math.min(25000, new Date(call.ringing_at).getTime() + 25000 - Date.now()));
+            if (ringForMs > 0) send(socket, 'call.offer', { callId: call.id, callerName: call.full_name,
+                callerWalletId: call.id_wallet, callerAvatar: call.profile_photo, isVideo: call.is_video,
+                meetCode: call.meeting_code, ringForMs });
+        }
+    } catch (error) { console.error('[Realtime call recovery]', error.code || error.message); }
+}
+
 // A dedicated PostgreSQL LISTEN connection bridges HTTP writes to this process.
 // Notifications contain only an ID; recipients and content are loaded from committed rows.
 let messageListener = null;
@@ -627,6 +665,7 @@ async function listenForMessages() {
             if (!shuttingDown) listenerRetry = setTimeout(listenForMessages, 3000);
         };
         client.on('error', retry);
+        client.on('end', retry);
         client.on('notification', async (notification) => {
             if (notification.channel === 'cashpay_notifications') {
                 try {
@@ -689,16 +728,7 @@ async function listenForMessages() {
                     JOIN conversation_participants cp ON cp.conversation_id = m.conversation_id
                     WHERE m.id = $1`, [id]);
                 for (const row of rows) {
-                    sendToUser(row.recipient_id, 'chat.message.created', {
-                        conversationId: row.conversation_id,
-                        message: {
-                            id: String(row.id), conversationId: row.conversation_id,
-                            senderId: row.sender_id, senderName: row.sender_name, content: row.content, type: row.type,
-                            metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
-                            status: row.status, isRead: row.is_read, imageId: row.image_id,
-                            timestamp: new Date(row.created_at).toISOString(),
-                        },
-                    });
+                    sendToUser(row.recipient_id, 'chat.message.created', chatMessageData(row));
                 }
             } catch (error) { console.error('[ONCHAT WS NOTIFICATION]', error.message); }
         });
@@ -709,6 +739,13 @@ async function listenForMessages() {
         await client.query('LISTEN onchat_meetings');
         await client.query('LISTEN onchat_group_messages');
         realtimeReady = true;
+        for (const code of meetRooms.keys()) void broadcastMeetingState(code);
+        for (const [userId, sockets] of users) {
+            for (const socket of sockets) {
+                send(socket, 'realtime.resync');
+                void replayPendingRealtime(socket, { id: userId });
+            }
+        }
     } catch (error) {
         if (messageListener === client) { messageListener = null; realtimeReady = false; }
         release();
@@ -720,6 +757,7 @@ listenForMessages();
 
 wss.on('connection', (socket, request, user) => {
     addConnection(user.id, socket);
+    void replayPendingRealtime(socket, user);
 
     send(socket, 'connected', {
         userId: user.id,

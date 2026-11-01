@@ -50,15 +50,22 @@ export async function respondDirectCall(id:string,status:string) {
   await c.query('BEGIN');
   const {rows}=await c.query('SELECT * FROM call_logs WHERE id=$1 FOR UPDATE',[id]);const call=rows[0];
   if(!call||call.ended_at)throw new Error('Appel inexistant ou terminé.');
-  const invited=await c.query("SELECT 1 FROM onchat_call_invitees WHERE call_id=$1 AND user_id=$2 AND status<>'rejected'",[id,user.id]);
+  const invited=await c.query("SELECT status FROM onchat_call_invitees WHERE call_id=$1 AND user_id=$2 AND status<>'rejected'",[id,user.id]);
   if(Number(call.receiver_id)!==Number(user.id)&&!invited.rows.length)throw new Error('Vous ne pouvez pas répondre à cet appel.');
   const accepted=['ACCEPTED','COMPLETED'].includes(status.toUpperCase());
   if(!accepted&&!['REJECTED','BUSY','MISSED'].includes(status.toUpperCase()))throw new Error('Réponse invalide.');
+  const alreadyAccepted = invited.rows[0]?.status === 'accepted' || (!invited.rows.length && Boolean(call.accepted_at));
+  if (alreadyAccepted) {
+   if (!accepted) throw new Error('Cet appel est déjà accepté. Utilisez la commande de fin pour raccrocher.');
+   await c.query('COMMIT');
+   return {success:true,call:{...call,joinUrl:`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.cashpay-all.com'}/feedback/call/${id}`}};
+  }
   if(invited.rows.length)await c.query('UPDATE onchat_call_invitees SET status=$3 WHERE call_id=$1 AND user_id=$2',[id,user.id,accepted?'accepted':'rejected']);
   else await c.query(`UPDATE call_logs SET status=$2,accepted_at=CASE WHEN $3 THEN COALESCE(accepted_at,NOW()) ELSE accepted_at END,
    ended_at=CASE WHEN $3 THEN NULL ELSE NOW() END WHERE id=$1`,[id,accepted?'COMPLETED':status.toUpperCase(),accepted]);
   if(!accepted&&!invited.rows.length)await c.query("UPDATE meetings SET status='ended',ended_at=COALESCE(ended_at,NOW()) WHERE meeting_provider_id=$1",[call.meeting_code]);
   await emit(c,id,accepted?'call.accepted':'call.rejected',call.caller_id,user.id);
+  await emit(c,id,accepted?'call.accepted':'call.rejected',user.id,user.id);
   await c.query('COMMIT');return {success:true,call:{...call,joinUrl:`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.cashpay-all.com'}/feedback/call/${id}`}};
  }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
 }
