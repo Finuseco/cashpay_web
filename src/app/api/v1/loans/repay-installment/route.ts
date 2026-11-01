@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     const result = await repayLoanInstallment(
       user.id,
       loanId,
-      installmentId
+      installmentId,undefined,body.acceptedPayment
     );
 
     return NextResponse.json(result, {

@@ -1,3 +1,4 @@
+import {LOAN_INTERNAL_CONTEXT} from '@/lib/loan-internal-context';
 import { NextRequest, NextResponse } from 'next/server';
 import { processLoanRepayments } from '@/lib/actions/loan.actions';
 
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
 
   const startedAt = Date.now();
   try {
-    const result = await processLoanRepayments();
+    const result = await processLoanRepayments(undefined,LOAN_INTERNAL_CONTEXT);
     return NextResponse.json({
       ...result,
       job: 'loan-repayments',

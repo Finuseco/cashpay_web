@@ -1,3 +1,5 @@
+import {LOAN_INTERNAL_CONTEXT} from '@/lib/loan-internal-context';
+import {loanPlan} from '@/lib/loan-plan';
 import { getCardsForUser } from '../actions/card.actions';
 import {
   confirmWithdrawal,
@@ -909,7 +911,7 @@ async function starlinkMenuHandler(u:any,s:Session,i:string,d:any,l:Lang){
 
 async function loanMe(u:any,s:Session,i:string,d:any,l:Lang,c:any){
   if(i==='0')return services(u,s,'0',d,l);
-  await processLoanRepayments().catch(()=>null);
+  await processLoanRepayments(u.id,LOAN_INTERNAL_CONTEXT).catch(()=>null);
   const loan:any=await getLoanForUser(u.id);
   if(i==='1'){
     const offer=await getLoanOffer(u.id,d.currency);
@@ -924,11 +926,11 @@ async function loanMe(u:any,s:Session,i:string,d:any,l:Lang,c:any){
     if(String(current.status).toLowerCase()==='pending')
       return `CON ${l==='fr'?`Demande de prêt #${current.id}\nStatut : en attente de décision.\nMontant : ${Number(current.amount).toFixed(2)} ${current.currency}\n0. Retour`:`Loan request #${current.id}\nStatus: pending decision.\nAmount: ${Number(current.amount).toFixed(2)} ${current.currency}\n0. Back`}`;
     await save(s,{...d,state:'LOAN_SCHEDULE',loanId:current.id,loanSchedulePage:0},'LOAN_SCHEDULE');
-    return `CON ${l==='fr'?`Mon prêt #${current.id}\nDette restante: ${Number(current.remaining_balance).toFixed(2)} ${current.currency}\nFréquence: ${current.repayment_frequency==='weekly'?'hebdomadaire':'mensuelle'}\n1. Rembourser maintenant\n2. Échéancier\n0. Retour`:`My loan #${current.id}\nRemaining: ${Number(current.remaining_balance).toFixed(2)} ${current.currency}\nFrequency: ${current.repayment_frequency==='weekly'?'weekly':'monthly'}\n1. Repay now\n2. Schedule\n0. Back`}`;
+    return `CON ${l==='fr'?`Mon prêt #${current.id}\nDette restante: ${Number(current.remaining_balance).toFixed(2)} ${current.currency}\nFréquence: ${current.repayment_frequency==='weekly'?'hebdomadaire':current.repayment_frequency==='quarterly'?'trimestrielle':'mensuelle'}\n1. Rembourser maintenant\n2. Échéancier\n0. Retour`:`My loan #${current.id}\nRemaining: ${Number(current.remaining_balance).toFixed(2)} ${current.currency}\nFrequency: ${current.repayment_frequency==='weekly'?'weekly':'monthly'}\n1. Repay now\n2. Schedule\n0. Back`}`;
   }
   if(i==='3'){
     if(!loan)return `CON ${l==='fr'?'Aucun prêt actif.\n0. Retour':'No active loan.\n0. Back'}`;
-    await save(s,{...d,state:'LOAN_REPAY_AMOUNT',loanId:loan.id},'LOAN_REPAY_AMOUNT');
+    await save(s,{...d,state:'LOAN_REPAY_AMOUNT',loanId:loan.id,loanCurrency:loan.currency},'LOAN_REPAY_AMOUNT');
     return `CON ${l==='fr'?`Remboursement prêt #${loan.id}\nRestant: ${Number(loan.remaining_balance).toFixed(2)} ${loan.currency}\nEntrez le montant à rembourser :`:`Loan #${loan.id} repayment\nRemaining: ${Number(loan.remaining_balance).toFixed(2)} ${loan.currency}\nEnter repayment amount:`}`;
   }
   if(i==='4'){
@@ -958,16 +960,16 @@ async function loanRequestDuration(u:any,s:Session,i:string,d:any,l:Lang){
   if(i==='0')return loanMe(u,s,'1',d,l,await getCountryByPhone(u.phone));
   const offer=d.loanOffer; const index=Number(i)-1; const duration=Number(offer?.durations?.[index]);
   if(!offer||!Number.isFinite(duration))return `CON ${T[l].invalid}`;
-  const amount=Number(d.loanAmount); const total=amount*(1+(Number(offer.interestRate)/100*duration)); const count=duration===1?4:duration; const installment=total/count;
-  await save(s,{...d,state:'LOAN_REQUEST_CONFIRM',loanAmount:amount,loanDuration:duration,loanTotal:total,loanInstallment:installment},'LOAN_REQUEST_CONFIRM');
-  return `CON ${l==='fr'?`LoanMe\nMontant: ${amount.toFixed(2)} ${d.currency}\nDurée: ${duration} mois\nTaux: ${Number(offer.interestRate).toFixed(2)}%\nTotal à rembourser: ${total.toFixed(2)} ${d.currency}\nÉchéance: ${installment.toFixed(2)} ${d.currency} (${duration===1?'hebdomadaire':'mensuelle'})\n1. Confirmer\n0. Annuler`:`LoanMe\nAmount: ${amount.toFixed(2)} ${d.currency}\nDuration: ${duration} month${duration>1?'s':''}\nRate: ${Number(offer.interestRate).toFixed(2)}%\nTotal repayment: ${total.toFixed(2)} ${d.currency}\nInstallment: ${installment.toFixed(2)} ${d.currency} (${duration===1?'weekly':'monthly'})\n1. Confirm\n0. Cancel`}`;
+  const amount=Number(d.loanAmount);const rate=Number(offer.interestRates?.[duration]);if(!Number.isFinite(rate))return `CON ${T[l].invalid}`;const plan=loanPlan(amount,duration,rate);const total=plan.totalRepayment;const installment=plan.installmentAmount;
+  await save(s,{...d,state:'LOAN_REQUEST_CONFIRM',loanAmount:amount,loanDuration:duration,loanTotal:total,loanInstallment:installment,loanTerms:{...plan,currency:d.currency,durationMonths:duration}},'LOAN_REQUEST_CONFIRM');
+  return `CON ${l==='fr'?`LoanMe\nMontant: ${amount.toFixed(2)} ${d.currency}\nDurée: ${duration} mois\nTaux: ${rate.toFixed(2)}%\nTotal à rembourser: ${total.toFixed(2)} ${d.currency}\nÉchéance: ${installment.toFixed(2)} ${d.currency} (${plan.repaymentFrequency==='weekly'?'hebdomadaire':plan.repaymentFrequency==='quarterly'?'trimestrielle':'mensuelle'})\n1. Confirmer\n0. Annuler`:`LoanMe\nAmount: ${amount.toFixed(2)} ${d.currency}\nDuration: ${duration} month${duration>1?'s':''}\nRate: ${rate.toFixed(2)}%\nTotal repayment: ${total.toFixed(2)} ${d.currency}\nInstallment: ${installment.toFixed(2)} ${d.currency} (${plan.repaymentFrequency})\n1. Confirm\n0. Cancel`}`;
 }
 
 async function loanRequestConfirm(u:any,s:Session,i:string,d:any,l:Lang,c:any){
   if(i==='0')return loanMe(u,s,'0',d,l,c);
   if(i!=='1')return `CON ${T[l].invalid}`;
   const amount=Number(d.loanAmount),duration=Number(d.loanDuration),offer=d.loanOffer;
-  const x=await createLoanApplication({user:u,amount,currency:d.currency,interestRate:Number(offer?.interestRate),durationMonths:duration,purpose:'USSD LoanMe'});
+  const x=await createLoanApplication({user:u,amount,currency:d.currency,interestRate:Number(offer?.interestRate),durationMonths:duration,purpose:'USSD LoanMe',context:LOAN_INTERNAL_CONTEXT,repaymentFrequency:d.loanTerms?.repaymentFrequency,installmentCount:d.loanTerms?.installmentCount,acceptedTerms:d.loanTerms});
   await save(s,{...d,state:'MENU'},'MENU');
   return x.success?`END ${l==='fr'?'Demande de prêt enregistrée. Vous serez notifié après décision.':'Loan request submitted. You will be notified after a decision.'}`:`CON ${x.error||T[l].failed}\n0. Retour`;
 }
@@ -975,16 +977,17 @@ async function loanRequestConfirm(u:any,s:Session,i:string,d:any,l:Lang,c:any){
 async function loanRepayAmount(u:any,s:Session,i:string,d:any,l:Lang){
   if(i==='0')return loanMe(u,s,'0',d,l,await getCountryByPhone(u.phone));
   const amount=Number(i); if(!Number.isFinite(amount)||amount<=0)return `CON ${l==='fr'?'Montant invalide.':'Invalid amount.'}`;
+  const active=await getLoanForUser(u.id);if(!active||Number(active.id)!==Number(d.loanId))return `END Prêt introuvable.`;if(amount>Number(active.remaining_balance))return `CON Montant supérieur à la dette restante (${active.remaining_balance} ${active.currency}).`;d={...d,loanCurrency:active.currency};
   await save(s,{...d,state:'LOAN_REPAY_PIN',loanId:d.loanId,loanRepayAmount:amount},'LOAN_REPAY_PIN');
-  return `CON ${l==='fr'?`Confirmez le remboursement de ${amount.toFixed(2)} ${d.currency}\nEntrez votre PIN :`:`Confirm repayment of ${amount.toFixed(2)} ${d.currency}\nEnter your PIN:`}`;
+  return `CON ${l==='fr'?`Confirmez le remboursement de ${amount.toFixed(2)} ${d.loanCurrency||d.currency}\nEntrez votre PIN :`:`Confirm repayment of ${amount.toFixed(2)} ${d.loanCurrency||d.currency}\nEnter your PIN:`}`;
 }
 
 async function loanRepayPin(u:any,s:Session,i:string,d:any,l:Lang){
   const pin=await verifyUserPin(u.id,i); if(!pin.success)return `CON ${l==='fr'?'Code PIN incorrect.':'Incorrect PIN.'}`;
-  const x=await repayLoan(u.id,Number(d.loanId),Number(d.loanRepayAmount));
+  const x=await repayLoan(u.id,Number(d.loanId),Number(d.loanRepayAmount),LOAN_INTERNAL_CONTEXT);
   await save(s,{...d,state:'MENU'},'MENU');
   return x.success
-    ? `END ${l==='fr'?`Remboursement effectué: ${Number(x.paid).toFixed(2)} ${d.currency}.\nDette restante: ${Number(x.remaining).toFixed(2)} ${d.currency}.`:`Repayment completed: ${Number(x.paid).toFixed(2)} ${d.currency}.\nRemaining debt: ${Number(x.remaining).toFixed(2)} ${d.currency}.`}`
+    ? `END ${l==='fr'?`Remboursement effectué: ${Number(x.paid).toFixed(2)} ${d.loanCurrency||d.currency}.\nDette restante: ${Number(x.remaining).toFixed(2)} ${d.loanCurrency||d.currency}.`:`Repayment completed: ${Number(x.paid).toFixed(2)} ${d.loanCurrency||d.currency}.\nRemaining debt: ${Number(x.remaining).toFixed(2)} ${d.loanCurrency||d.currency}.`}`
     : `CON ${x.error||T[l].failed}\n0. Retour`;
 }
 
@@ -1008,7 +1011,7 @@ async function loanSchedule(u:any,s:Session,i:string,d:any,l:Lang){
       if(!items.length && hasPrevious){
         return loanSchedule(u,s,'9',{...d,state:'LOAN_SCHEDULE',loanId:loan.id,loanSchedulePage:page-1},l);
       }
-      const rows=items.map((x:any,idx:number)=>`${idx+1}. #${x.installment_number} | ${new Date(x.due_date).toLocaleDateString(l==='fr'?'fr-FR':'en-US',{day:'2-digit',month:'2-digit'})}\n   ${Number(x.remaining_amount).toFixed(2)} ${loan.currency}${Number(x.penalty)>0.005?` + Pén.${Number(x.penalty).toFixed(2)}`:''}`);
+      const rows=items.map((x:any,idx:number)=>`${idx+1}. #${x.installment_number} | ${new Date(x.due_date).toLocaleDateString(l==='fr'?'fr-FR':'en-US',{day:'2-digit',month:'2-digit'})}\n   ${Number(x.remaining_amount).toFixed(2)} ${loan.currency}${Number(x.penalty)>0.005?` (dont pénalité ${Number(x.penalty).toFixed(2)})`:''}`);
       const nav=`${hasPrevious?'8. '+(l==='fr'?'Précédent':'Previous')+'\n':''}${hasNext?'9. '+(l==='fr'?'Suivant':'Next'):'0. '+(l==='fr'?'Retour':'Back')}`;
       return `CON ${l==='fr'?`Échéancier #${loan.id}\n${rows.join('\n')}\n\n1. Rembourser\n${nav}`:`Schedule #${loan.id}\n${rows.join('\n')}\n\n1. Pay\n${nav}`}`;
     }
@@ -1039,16 +1042,16 @@ async function loanInstallmentSelect(u:any,s:Session,i:string,d:any,l:Lang){
   if(choice===9 && (page+1)*size<schedule.length)return loanInstallmentSelect(u,s,'0',{...d,state:'LOAN_INSTALLMENT_SELECT',loanInstallmentPage:page+1},l);
   if(!Number.isInteger(choice) || choice<1 || choice>items.length)return `CON ${l==='fr'?'Choisissez une échéance affichée.\n0. Retour':'Choose an installment shown.\n0. Back'}`;
   const inst=items[choice-1];
-  await save(s,{...d,state:'LOAN_INSTALLMENT_PIN',loanId:loan.id,loanInstallmentId:inst.id,loanInstallmentNumber:inst.installment_number,loanInstallmentAmount:inst.remaining_amount},'LOAN_INSTALLMENT_PIN');
+  await save(s,{...d,state:'LOAN_INSTALLMENT_PIN',loanId:loan.id,loanCurrency:loan.currency,loanInstallmentId:inst.id,loanInstallmentNumber:inst.installment_number,loanInstallmentAmount:inst.remaining_amount},'LOAN_INSTALLMENT_PIN');
   return `CON ${l==='fr'?`Échéance #${inst.installment_number}\nReste: ${Number(inst.remaining_amount).toFixed(2)} ${loan.currency}\nPIN (paiement anticipé OK):`:`Installment #${inst.installment_number}\nRemaining: ${Number(inst.remaining_amount).toFixed(2)} ${loan.currency}\nPIN (early payment OK):`}`;
 }
 
 async function loanInstallmentPin(u:any,s:Session,i:string,d:any,l:Lang){
   if(i==='0')return loanInstallmentSelect(u,s,'0',{...d,state:'LOAN_INSTALLMENT_SELECT',loanInstallmentPage:Number(d.loanInstallmentPage||d.loanSchedulePage||0)},l);
   const pin=await verifyUserPin(u.id,i); if(!pin.success)return `CON ${l==='fr'?'Code PIN incorrect.':'Incorrect PIN.'}`;
-  const x=await repayLoanInstallment(u.id,Number(d.loanId),Number(d.loanInstallmentId));
+  const x=await repayLoanInstallment(u.id,Number(d.loanId),Number(d.loanInstallmentId),LOAN_INTERNAL_CONTEXT);
   await save(s,{...d,state:'MENU'},'MENU');
-  return x.success?`END ${l==='fr'?`Échéance #${x.installmentNumber||d.loanInstallmentNumber} remboursée : ${Number(x.paid).toFixed(2)} ${d.currency||''}.\n${Number(x.remaining||0)>0.005?`Dette restante : ${Number(x.remaining).toFixed(2)} ${d.currency||''}.`:'Dette entièrement remboursée.'}`:`Installment #${x.installmentNumber||d.loanInstallmentNumber} paid: ${Number(x.paid).toFixed(2)} ${d.currency||''}.\n${Number(x.remaining||0)>0.005?`Remaining debt: ${Number(x.remaining).toFixed(2)} ${d.currency||''}.`:'Loan fully repaid.'}`}`:`CON ${x.error||T[l].failed}\n0. Retour`;
+  return x.success?`END ${l==='fr'?`Échéance #${x.installmentNumber||d.loanInstallmentNumber} remboursée : ${Number(x.paid).toFixed(2)} ${d.loanCurrency||d.currency||''}.\n${Number(x.remaining||0)>0.005?`Dette restante : ${Number(x.remaining).toFixed(2)} ${d.loanCurrency||d.currency||''}.`:'Dette entièrement remboursée.'}`:`Installment #${x.installmentNumber||d.loanInstallmentNumber} paid: ${Number(x.paid).toFixed(2)} ${d.loanCurrency||d.currency||''}.\n${Number(x.remaining||0)>0.005?`Remaining debt: ${Number(x.remaining).toFixed(2)} ${d.loanCurrency||d.currency||''}.`:'Loan fully repaid.'}`}`:`CON ${x.error||T[l].failed}\n0. Retour`;
 }
 
 async function loanHistory(u:any,s:Session,i:string,d:any,l:Lang){
