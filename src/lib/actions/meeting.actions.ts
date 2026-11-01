@@ -1,5 +1,7 @@
 
 'use server';
+import {sendMeetingEmail,meetingJoinUrl} from '@/lib/meeting-email';
+import {getAuthenticatedUser} from '@/lib/actions/user.actions';
 
 import { db } from '@/lib/db';
 import { handleDbError } from './helpers';
@@ -24,13 +26,14 @@ export async function createMeetingSession(args: {
     topic: string;
     type: 'audio' | 'video';
 }) {
+    const actor=await getAuthenticatedUser();if(!actor||Number(actor.id)!==Number(args.hostId))return {success:false,error:'Authentification de l’organisateur requise.'};
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
 
         // Génération d'un ID de réunion type "xxx-yyyy-zzz"
         const meetCode = `${crypto.randomBytes(3).toString('hex')}-${crypto.randomBytes(3).toString('hex')}-${crypto.randomBytes(3).toString('hex')}`;
-        const joinUrl = `${process.env.NEXT_PUBLIC_APP_URL}/feedback/meet/${meetCode}`;
+        const joinUrl = meetingJoinUrl(meetCode);
 
         // 1. Enregistrer la réunion
         const { rows } = await connection.query(
@@ -49,19 +52,9 @@ export async function createMeetingSession(args: {
         const host = users.find(u => u.id === args.hostId) || { full_name: 'Un utilisateur', first_name: 'Un utilisateur' };
         const guest = users.find(u => u.id === args.contactId);
 
-        // 3. Envoyer l'invitation par email
-        if (guest?.email) {
-            await sendEmail(guest.email, `Invitation Meet : ${args.topic}`, 'general', {
-                title: 'Nouvelle Invitation Vidéo',
-                greeting: `Bonjour ${guest.first_name || guest.full_name},`,
-                message: `<strong>${host.full_name}</strong> vous invite à rejoindre une réunion vidéo sur OnChat.<br/>Sujet : <strong>${args.topic}</strong>`,
-                buttonText: 'Rejoindre la réunion',
-                buttonUrl: joinUrl,
-                signature: "Infrastructure Souveraine OnChat"
-            }).catch(console.error);
-        }
-
+        if(guest)await connection.query("INSERT INTO notifications(user_id,title,description,type,link,is_read) VALUES($1,$2,$3,'general',$4,FALSE)",[guest.id,'Invitation OnChat Meet',args.topic,`/feedback/meet/${meetCode}`]);
         await connection.query('COMMIT');
+        if(guest?.email)void sendMeetingEmail(guest,meetCode,host.full_name).catch(error=>console.error('[Meeting invitation]',error.message));
         return { success: true, meetCode, joinUrl, meetingId };
     } catch (error: any) {
         await connection.query('ROLLBACK');
@@ -139,7 +132,7 @@ export async function createOpenMeeting(args: { topic?: string; type?: 'audio' |
         const type = args.type === 'audio' ? 'audio' : 'video';
         const meetCode = `${crypto.randomBytes(3).toString('hex')}-${crypto.randomBytes(3).toString('hex')}-${crypto.randomBytes(3).toString('hex')}`;
         const base = process.env.NEXT_PUBLIC_APP_URL || '';
-        const joinUrl = `${base}/feedback/meet/${meetCode}`;
+        const joinUrl = meetingJoinUrl(meetCode);
 
         const price = meetingPrice(args.priceAmount, args.priceCurrency);
         const scheduledAt = args.scheduledAt ? new Date(args.scheduledAt) : null;

@@ -1,5 +1,6 @@
 
 'use server';
+import {meetingCodeFromMessage,sendMeetingEmail,notifyGroupMeetingShare} from '@/lib/meeting-email';
 
 import type { Conversation, Message, User, AssistantSettings, Currency, GroupMessage, Product } from '@/lib/types';
 import { generateChatResponse } from '@/ai/flows/chat-flow';
@@ -250,6 +251,7 @@ export async function postMessage(
     attachmentMetadata?: Record<string, unknown>
 ): Promise<Message> {
     const connection = await db.getConnection();
+    let released=false;
 
     try {
         await connection.query('BEGIN');
@@ -345,6 +347,7 @@ export async function postMessage(
         // PostgreSQL delivers NOTIFY only after COMMIT; no uncommitted message is broadcast.
         await connection.query("SELECT pg_notify('onchat_messages', $1)", [JSON.stringify({ id: messageId })]);
         await connection.query('COMMIT');
+        connection.release();released=true;
 
         // Le message est déjà enregistré : une panne de notification/e-mail ne doit pas le faire échouer.
         try {
@@ -367,7 +370,9 @@ export async function postMessage(
                     { contactId: senderId }
                 );
 
-                if (receiver.email) {
+                const meetingCode=meetingCodeFromMessage(content,metadata);
+                const meetingMailSent=receiver.email&&meetingCode?await sendMeetingEmail({...receiver,email:receiver.email},meetingCode,sender.full_name):false;
+                if (receiver.email && !meetingMailSent) {
                     const senderProfilePicture = sender.profile_photo
                         ? `${process.env.NEXT_PUBLIC_APP_URL}${sender.profile_photo}`
                         : 'https://www.cashpay-all.com/logos/profile-placeholder.png';
@@ -409,11 +414,11 @@ export async function postMessage(
             image_id: insertedMessage.image_id ?? null,
         };
     } catch (error) {
-        await connection.query('ROLLBACK');
+        if(!released)await connection.query('ROLLBACK');
         handleDbError(error, 'posting message');
         throw error;
     } finally {
-        connection.release();
+        if(!released)connection.release();
     }
 }
 
@@ -834,6 +839,8 @@ export async function postGroupMessage(
 
 
     const { rows: memberRows } = await db.query('SELECT user_id FROM group_members WHERE group_id = $1 AND user_id != $2', [groupId, senderId]);
+    const meetingCode=meetingCodeFromMessage(content,attachmentMetadata);
+    if(meetingCode)void notifyGroupMeetingShare(meetingCode,groupId,senderId).catch(error=>console.error('[Group meet mail]',error.message));
     const memberIds = memberRows.map(r => r.user_id);
     const sender = await getUserFromDb({userId: senderId});
     const { rows: groupRows } = await db.query('SELECT name FROM groups WHERE id = $1', [groupId]);

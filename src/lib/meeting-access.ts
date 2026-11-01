@@ -1,3 +1,4 @@
+import {notifyMeetingStarted,meetingJoinUrl} from '@/lib/meeting-email';
 import { directCallAccess } from '@/lib/onchat-direct-calls';
 import { db } from '@/lib/db';
 import { createTransaction } from '@/lib/actions/transaction.actions';
@@ -109,8 +110,10 @@ export async function admitMeeting(code: string, user: User, body: { pin?: strin
             [meeting.id, user.id, access.isHost, charged ? access.amount : 0, charged ? access.currency : null, access.isHost ? 'host' : 'viewer']);
         if (access.isDirectCall) await connection.query("UPDATE meeting_participants SET can_speak=TRUE,role=CASE WHEN is_host THEN 'host' ELSE 'speaker' END WHERE meeting_id=$1 AND user_id=$2",[meeting.id,user.id]);
         await connection.query("SELECT pg_notify('onchat_meetings', $1)", [JSON.stringify({ meetCode: code })]);
+        const started=access.isHost?(await connection.query("UPDATE meetings SET started_at=NOW() WHERE id=$1 AND started_at IS NULL AND status='active' RETURNING id",[meeting.id])).rows.length>0:false;
         await connection.query('COMMIT');
-        return { success: true, meetCode: code, joinUrl: meeting.join_url, topic: meeting.topic, type: meeting.type, isHost: access.isHost, charged, amount: charged ? access.totalDebit : 0, currency: access.currency };
+        if(started)void notifyMeetingStarted(code,user.id).catch(error=>console.error('[Meeting start mail]',error.message));
+        return { success: true, meetCode: code, joinUrl: meetingJoinUrl(code), topic: meeting.topic, type: meeting.type, isHost: access.isHost, charged, amount: charged ? access.totalDebit : 0, currency: access.currency };
     } catch (error) { await connection.query('ROLLBACK'); throw error; }
     finally { connection.release(); }
 }

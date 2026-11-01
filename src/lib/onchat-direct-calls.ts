@@ -57,7 +57,7 @@ export async function respondDirectCall(id:string,status:string) {
   if(invited.rows.length)await c.query('UPDATE onchat_call_invitees SET status=$3 WHERE call_id=$1 AND user_id=$2',[id,user.id,accepted?'accepted':'rejected']);
   else await c.query(`UPDATE call_logs SET status=$2,accepted_at=CASE WHEN $3 THEN COALESCE(accepted_at,NOW()) ELSE accepted_at END,
    ended_at=CASE WHEN $3 THEN NULL ELSE NOW() END WHERE id=$1`,[id,accepted?'COMPLETED':status.toUpperCase(),accepted]);
-  if(!accepted&&!invited.rows.length)await c.query("UPDATE meetings SET status='ended' WHERE meeting_provider_id=$1",[call.meeting_code]);
+  if(!accepted&&!invited.rows.length)await c.query("UPDATE meetings SET status='ended',ended_at=COALESCE(ended_at,NOW()) WHERE meeting_provider_id=$1",[call.meeting_code]);
   await emit(c,id,accepted?'call.accepted':'call.rejected',call.caller_id,user.id);
   await c.query('COMMIT');return {success:true,call:{...call,joinUrl:`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.cashpay-all.com'}/feedback/call/${id}`}};
  }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
@@ -103,7 +103,7 @@ export async function finishDirectCall(id:string) {
   const endsAll=!call.is_conference||Number(call.caller_id)===Number(user.id);
   if(endsAll) {
    await c.query(`UPDATE call_logs SET ended_at=NOW(),duration_seconds=CASE WHEN accepted_at IS NULL THEN 0 ELSE GREATEST(0,EXTRACT(EPOCH FROM NOW()-accepted_at)::integer) END WHERE id=$1`,[id]);
-   await c.query("UPDATE meetings SET status='ended' WHERE meeting_provider_id=$1",[call.meeting_code]);
+   await c.query("UPDATE meetings SET status='ended',ended_at=COALESCE(ended_at,NOW()) WHERE meeting_provider_id=$1",[call.meeting_code]);
    await emit(c,id,'call.ended',undefined,user.id);
    await c.query("SELECT pg_notify('onchat_meetings',$1)",[JSON.stringify({meetCode:call.meeting_code})]);
   }

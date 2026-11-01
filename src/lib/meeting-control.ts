@@ -9,7 +9,7 @@ export async function controlMeeting(code: string, userId: number, action: 'spee
         if (!meeting || meeting.status !== 'active') throw new MeetingAccessError(404, 'MEET_NOT_FOUND', 'Réunion introuvable ou terminée.');
         if (action !== 'hand' && Number(meeting.host_user_id) !== userId) throw new MeetingAccessError(403, 'HOST_REQUIRED', 'Action réservée à l’organisateur.');
         if (action === 'end') {
-            await connection.query("UPDATE meetings SET status = 'ended' WHERE id = $1", [meeting.id]);
+            await connection.query("UPDATE meetings SET status = 'ended',ended_at=COALESCE(ended_at,NOW()) WHERE id = $1", [meeting.id]);
             await connection.query('UPDATE meeting_participants SET left_at = NOW() WHERE meeting_id = $1 AND left_at IS NULL', [meeting.id]);
         } else {
             if (action === 'speech' && Number(targetUserId) === Number(meeting.host_user_id)) throw new MeetingAccessError(400, 'HOST_ROLE', 'Le rôle de l’organisateur ne peut pas être modifié.');

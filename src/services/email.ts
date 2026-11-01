@@ -17,6 +17,7 @@ const templatePaths = {
   alert: 'alert.html',
   welcome: 'welcome.html',
   new_message: 'new_message.html',
+  meeting: 'meeting.html',
   ticket: 'ticket.html',
   'product_boost_2-cols': 'product-boost-2-cols.html',
   'product_boost_3-cols': 'product-boost-3-cols.html',
@@ -81,11 +82,11 @@ export async function sendEmail(
         // Ensure data[key] is treated as a string and handle undefined values gracefully
         const value = data[key] !== undefined && data[key] !== null ? String(data[key]) : '';
         // This regex handles {{variable}} and {{{variable}}} syntax
-        finalHtml = finalHtml.replace(new RegExp(`{{{?${key}}}}?`, 'g'), value);
+        finalHtml = finalHtml.replace(new RegExp(`{{{?${key}}}}?`, 'g'), () => value);
     }
     // Inject the current year and subject
     finalHtml = finalHtml.replace(new RegExp('{{year}}', 'g'), new Date().getFullYear().toString());
-    finalHtml = finalHtml.replace(new RegExp('{{subject}}', 'g'), subject);
+    finalHtml = finalHtml.replace(new RegExp('{{subject}}', 'g'), () => subject.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
 
 
     // Create a Nodemailer transporter instance
