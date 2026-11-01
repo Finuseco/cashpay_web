@@ -21,7 +21,7 @@ export default function MeetPage() {
         (async () => {
             const me = await getAuthenticatedUser(); if (!active) return;
             setUser(me); if (!me) return;
-            const response = await fetch(`/api/v1/meetings/${encodeURIComponent(code)}/billing?currency=${encodeURIComponent(currency)}`, { cache: 'no-store' });
+            const response = await fetch(`/api/v1/meetings/${encodeURIComponent(code)}/billing?currency=${encodeURIComponent(currency)}`, { cache: 'no-store', signal:AbortSignal.timeout(20000) });
             const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Réunion indisponible.');
             if (active) { setQuote(result.quote); setTopic(result.topic); }
         })().catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
@@ -30,7 +30,7 @@ export default function MeetPage() {
     async function join() {
         if (!quote) return; setBusy(true); setError('');
         try {
-            const response = await fetch(`/api/v1/meetings/${encodeURIComponent(code)}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, currency: quote.currency, maxDebit: quote.totalDebit, consent: true, ticketCode }) });
+            const response = await fetch(`/api/v1/meetings/${encodeURIComponent(code)}/join`, { method: 'POST', signal:AbortSignal.timeout(20000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, currency: quote.currency, maxDebit: quote.totalDebit, consent: true, ticketCode }) });
             const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Admission refusée.');
             setPin(''); setEntered(true);
         } catch (e) { setError((e as Error).message); } finally { setBusy(false); }

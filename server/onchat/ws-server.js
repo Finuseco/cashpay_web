@@ -481,67 +481,9 @@ async function handleEvent(socket, user, message) {
     }
 
     if (event === 'chat.read') {
-        const conversationId =
-            typeof data.conversationId === 'string'
-                ? data.conversationId.trim()
-                : '';
-
-        if (!conversationId) {
-            return;
-        }
-
-        const allowed =
-            await verifyConversationParticipant(
-                conversationId,
-                user.id
-            );
-
-        if (!allowed) {
-            send(socket, 'error', {
-                code: 'FORBIDDEN',
-                message: 'Conversation inaccessible.',
-            });
-            return;
-        }
-
-        await pool.query(
-            `
-            UPDATE messages
-            SET
-                is_read = true,
-                status = 'read'
-            WHERE conversation_id = $1
-              AND sender_id <> $2
-            `,
-            [conversationId, user.id]
-        );
-
-        const otherUserId =
-            await getConversationOtherUser(
-                conversationId,
-                user.id
-            );
-
-        if (otherUserId) {
-            sendToUser(
-                otherUserId,
-                'chat.message.read',
-                {
-                    conversationId,
-                    userId: user.id,
-                }
-            );
-        }
-
-        send(
-            socket,
-            'chat.message.read',
-            {
-                conversationId,
-                userId: user.id,
-            }
-        );
-
+        const conversationId=typeof data.conversationId==='string'?data.conversationId.trim():'';
+        try { await pool.query('SELECT onchat_mark_read($1,$2)',[conversationId,user.id]); }
+        catch(error){send(socket,'error',{code:error.code==='42501'?'FORBIDDEN':'READ_UNAVAILABLE',message:'Lecture non confirmée.'});}
         return;
     }
 
@@ -605,10 +547,31 @@ async function handleEvent(socket, user, message) {
     });
 }
 
+const presenceStartup=pool.query("UPDATE users SET availabilitystatus='offline' WHERE availabilitystatus='online'").catch(error=>console.error('[Presence reset]',error.code || error.message));
+const presenceUpdates=new Map();
+async function syncPresence(user){
+ const previous=presenceUpdates.get(user.id)||Promise.resolve();
+ const next=previous.catch(()=>{}).then(async()=>{
+  await presenceStartup;
+  const online=users.has(user.id);
+  await pool.query('UPDATE users SET availabilitystatus=$2 WHERE id=$1',[user.id,online?'online':'offline']);
+  const peers=await pool.query(`SELECT DISTINCT cp.user_id FROM conversation_participants cp JOIN conversation_participants self ON self.conversation_id=cp.conversation_id WHERE self.user_id=$1`,[user.id]);
+  for(const peer of peers.rows)sendToUser(peer.user_id,online?'presence.online':'presence.offline',{userId:user.id,walletId:user.walletId});
+ });
+ presenceUpdates.set(user.id,next);
+ try{await next;}catch(error){console.error('[Presence]',error.code || error.message);}finally{if(presenceUpdates.get(user.id)===next)presenceUpdates.delete(user.id);}
+}
+async function sendPresenceSnapshot(socket,user){
+ try{
+  const result=await pool.query(`SELECT DISTINCT u.id AS "userId",u.id_wallet AS "walletId" FROM users u JOIN conversation_participants cp ON cp.user_id=u.id JOIN conversation_participants self ON self.conversation_id=cp.conversation_id WHERE self.user_id=$1 AND u.id=ANY($2::int[])`,[user.id,Array.from(users.keys())]);
+  send(socket,'presence.snapshot',{users:result.rows});
+ }catch(error){console.error('[Presence snapshot]',error.code || error.message);}
+}
+
 function chatMessageData(row) {
     return { conversationId: row.conversation_id, message: {
         id: String(row.id), conversationId: row.conversation_id,
-        senderId: row.sender_id, senderName: row.sender_name, content: row.content || '', type: row.type,
+        senderId: row.sender_id, senderName: row.sender_name, senderAvatar: row.sender_avatar, content: row.content || '', type: row.type,
         metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
         status: row.status, isRead: row.is_read, imageId: row.image_id,
         timestamp: new Date(row.created_at).toISOString(),
@@ -617,7 +580,7 @@ function chatMessageData(row) {
 
 async function replayPendingRealtime(socket, user) {
     try {
-        const { rows } = await pool.query(`SELECT m.*,sender.full_name AS sender_name FROM messages m
+        const { rows } = await pool.query(`SELECT m.*,sender.full_name AS sender_name,sender.profile_photo AS sender_avatar FROM messages m
             JOIN conversation_participants cp ON cp.conversation_id=m.conversation_id
             LEFT JOIN users sender ON sender.id=m.sender_id
             WHERE cp.user_id=$1 AND m.sender_id<>$1 AND COALESCE(m.is_read,FALSE)=FALSE
@@ -667,6 +630,24 @@ async function listenForMessages() {
         client.on('error', retry);
         client.on('end', retry);
         client.on('notification', async (notification) => {
+            if(notification.channel==='onchat_social'){
+                try{
+                    const data=JSON.parse(notification.payload);
+                    const creator=(await pool.query('SELECT full_name,profile_photo FROM users WHERE id=$1',[data.publisherId])).rows[0];
+                    const recipients=data.event==='social.follow.changed'?[{user_id:data.userId}]:[{user_id:data.publisherId},...(await pool.query('SELECT follower_user_id AS user_id FROM user_followers WHERE followed_user_id=$1',[data.publisherId])).rows];
+                    for(const id of new Set(recipients.map(row=>Number(row.user_id))))sendToUser(id,data.event,{...data,publisherName:creator?.full_name,publisherAvatar:creator?.profile_photo});
+                }catch(error){console.error('[Social realtime]',error.code || error.message);}
+                return;
+            }
+            if(notification.channel==='onchat_receipts'){
+                try{
+                    const data=JSON.parse(notification.payload);
+                    const group=/^g_([0-9]+)$/.exec(data.conversationId);
+                    const result=group?await pool.query("SELECT user_id FROM group_members WHERE group_id=$1 AND status='active'",[Number(group[1])]):await pool.query('SELECT user_id FROM conversation_participants WHERE conversation_id::text=$1',[data.conversationId]);
+                    for(const row of result.rows)sendToUser(row.user_id,'chat.message.read',data);
+                }catch(error){console.error('[Read receipt]',error.code || error.message);}
+                return;
+            }
             if (notification.channel === 'cashpay_notifications') {
                 try {
                     const { id } = JSON.parse(notification.payload);
@@ -700,12 +681,12 @@ async function listenForMessages() {
             if (notification.channel === 'onchat_group_messages') {
                 try {
                     const { id } = JSON.parse(notification.payload);
-                    const { rows } = await pool.query(`SELECT gm.*, sender.full_name AS sender_name, member.user_id AS recipient_id FROM group_messages gm
+                    const { rows } = await pool.query(`SELECT gm.*, sender.full_name AS sender_name,sender.profile_photo AS sender_avatar, member.user_id AS recipient_id FROM group_messages gm
                         LEFT JOIN users sender ON sender.id = gm.sender_id
                         JOIN group_members member ON member.group_id = gm.group_id AND member.status = 'active' WHERE gm.id = $1`, [id]);
                     for (const row of rows) sendToUser(row.recipient_id, 'chat.message.created', {
                         conversationId: `g_${row.group_id}`,
-                        message: { id: String(row.id), senderId: row.sender_id, senderName: row.sender_name, content: row.content, type: row.type,
+                        message: { id: String(row.id), senderId: row.sender_id, senderName: row.sender_name, senderAvatar: row.sender_avatar, content: row.content, type: row.type,
                             metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
                             status: 'sent', timestamp: new Date(row.created_at).toISOString() },
                     });
@@ -722,7 +703,7 @@ async function listenForMessages() {
                 const { id } = JSON.parse(notification.payload);
                 if (typeof id !== 'string') return;
                 const { rows } = await pool.query(`
-                    SELECT m.*, cp.user_id AS recipient_id, sender.full_name AS sender_name
+                    SELECT m.*, cp.user_id AS recipient_id, sender.full_name AS sender_name, sender.profile_photo AS sender_avatar
                     FROM messages m
                     LEFT JOIN users sender ON sender.id = m.sender_id
                     JOIN conversation_participants cp ON cp.conversation_id = m.conversation_id
@@ -733,6 +714,8 @@ async function listenForMessages() {
             } catch (error) { console.error('[ONCHAT WS NOTIFICATION]', error.message); }
         });
         await client.query('LISTEN cashpay_notifications');
+        await client.query('LISTEN onchat_social');
+        await client.query('LISTEN onchat_receipts');
         await client.query('LISTEN onchat_calls');
         await client.query('LISTEN inter_claim_activity');
         await client.query('LISTEN onchat_messages');
@@ -764,13 +747,8 @@ wss.on('connection', (socket, request, user) => {
         walletId: user.walletId,
     });
 
-    broadcastUsers(
-        'presence.online',
-        {
-            userId: user.id,
-        },
-        user.id
-    );
+    void syncPresence(user);
+    void sendPresenceSnapshot(socket,user);
 
     socket.on('message', async (raw) => {
         try {
@@ -804,13 +782,7 @@ wss.on('connection', (socket, request, user) => {
         );
 
         if (!users.has(user.id)) {
-            broadcastUsers(
-                'presence.offline',
-                {
-                    userId: user.id,
-                },
-                user.id
-            );
+            void syncPresence(user);
         }
     });
 

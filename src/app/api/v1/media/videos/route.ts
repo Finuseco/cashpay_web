@@ -349,6 +349,11 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
 
+    const publisherValue=searchParams.get('publisherId');
+    const publisherId=publisherValue===null?null:Number(publisherValue);
+    if(publisherId!==null&&(!Number.isSafeInteger(publisherId)||publisherId<=0))return NextResponse.json({success:false,error:'Créateur invalide.'},{status:400});
+    if(!userId&&!publisherId)return NextResponse.json({success:false,error:'Connectez-vous pour consulter vos abonnements.'},{status:401});
+
     const limitRaw = Number(searchParams.get("limit") || 20);
     const offsetRaw = Number(searchParams.get("offset") || 0);
 
@@ -417,17 +422,20 @@ export async function GET(request: NextRequest) {
       LEFT JOIN followable_entities publisher_entity ON m.owner_type <> 'user' AND publisher_entity.id = m.owner_id AND publisher_entity.entity_type = m.owner_type
       WHERE m.media_type = 'video'
         AND m.visibility = 'public'
-        AND m.expires_at > NOW()
+        AND (m.expires_at IS NULL OR m.expires_at > NOW())
+        AND ($4::integer IS NULL OR (m.owner_type='user' AND m.owner_id=$4))
+        AND ($4::integer IS NOT NULL OR (m.owner_type='user' AND (m.owner_id=$3 OR EXISTS(SELECT 1 FROM user_followers f WHERE f.follower_user_id=$3 AND f.followed_user_id=m.owner_id) OR EXISTS(SELECT 1 FROM onchat_video_sounds used JOIN media mine ON mine.id=used.media_id WHERE mine.owner_type='user' AND mine.owner_id=$3 AND used.source_media_id IS NOT NULL AND used.author_user_id=m.owner_id))))
 
       ORDER BY m.created_at DESC
       LIMIT $1
       OFFSET $2
       `,
-      [limit, offset, userId]
+      [limit, offset, userId, publisherId]
     );
 
     const videos = result.rows.map((row: any) => ({
       id: row.id,
+      shareUrl: `${BASE_URL}/onchat/videos/${row.id}`,
       type: "video",
       url:
         row.file_url ||

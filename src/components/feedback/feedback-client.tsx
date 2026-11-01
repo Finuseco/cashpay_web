@@ -162,10 +162,11 @@ export function FeedbackClient() {
         if (!currentUser || !activeGroup) return;
         let active = true;
         const groupId = activeGroup.id;
+        void markConversationAsRead(`g_${groupId}`,currentUser.id).catch(()=>undefined);
         const unsubscribe = subscribeOnChatRealtime((event, data) => {
-            if (event === 'reconnected' || (event === 'chat.message.created' && String(data?.conversationId) === `g_${groupId}`)) {
+            if (event === 'reconnected' || (event.startsWith('chat.') && String(data?.conversationId) === `g_${groupId}`)) {
                 void getGroupWithMessages(groupId, currentUser.id).then(fresh => {
-                    if (active && fresh) setActiveGroup(fresh);
+                    if (active && fresh) {setActiveGroup(fresh);if(event==='chat.message.created')void markConversationAsRead(`g_${groupId}`,currentUser.id).catch(()=>undefined);}
                 });
             }
         });

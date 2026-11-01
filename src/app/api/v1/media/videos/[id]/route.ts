@@ -24,6 +24,7 @@ async function getVideo(id: number, userId: number | null) {
       m.file_url,
       m.duration_seconds,
       m.thumbnail_url,
+      CASE WHEN $2::integer IS NULL OR m.owner_type<>'user' THEN FALSE ELSE EXISTS(SELECT 1 FROM user_followers f WHERE f.follower_user_id=$2 AND f.followed_user_id=m.owner_id) END AS is_following,
 
       COALESCE(
         (
@@ -57,7 +58,7 @@ async function getVideo(id: number, userId: number | null) {
     WHERE m.id = $1
       AND m.media_type = 'video'
       AND m.visibility = 'public'
-      AND m.expires_at > NOW()
+      AND (m.expires_at IS NULL OR m.expires_at > NOW())
     LIMIT 1
     `,
     [id, userId]
@@ -173,7 +174,9 @@ export async function GET(
         createdAt: video.created_at,
         updatedAt: video.updated_at,
         expiresAt: video.expires_at,
-        publisher
+        publisher,
+        follow: { isFollowing: Boolean(video.is_following) },
+        interactions: {likes:Number(video.likes_count),comments:Number(video.comments_count),isLiked:Boolean(video.is_liked)}
       },
       interactions: {
         likes: Number(video.likes_count),

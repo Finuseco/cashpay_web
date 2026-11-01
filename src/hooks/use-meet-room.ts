@@ -41,6 +41,14 @@ function wsUrl() {
     return onChatSocketAddress();
 }
 
+async function acquireMedia(constraints:MediaStreamConstraints):Promise<MediaStream>{
+ let expired=false;
+ let timer:ReturnType<typeof setTimeout>;
+ const media=navigator.mediaDevices.getUserMedia(constraints).then(stream=>{if(expired)stream.getTracks().forEach(track=>track.stop());return stream;});
+ try{return await Promise.race([media,new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>{expired=true;reject(new Error('Autorisez le micro et la caméra, puis réessayez.'));},20000);})]);}
+ finally{clearTimeout(timer!);}
+}
+
 export function useMeetRoom(meetCode: string, withVideo: boolean) {
     const [canSpeak, setCanSpeak] = useState(false);
     const permissionsRef = useRef<Map<number, boolean>>(new Map());
@@ -174,6 +182,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
     );
 
     const leave = useCallback(() => {
+        (window as any).OnChatAudio?.mediaStopped?.();
         closedRef.current = true;
         joinEpochRef.current += 1;
         sendWs('meet.leave', { meetCode });
@@ -206,14 +215,14 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
 
         let stream: MediaStream;
         try {
-            stream = await navigator.mediaDevices.getUserMedia({
+            stream = await acquireMedia({
                 audio: { echoCancellation: true, noiseSuppression: true },
                 video: withVideo ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
             });
         } catch {
             try {
                 // Repli : audio seul si la caméra est refusée/absente.
-                stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                stream = await acquireMedia({ audio: true, video: false });
             } catch {
                 setError("Accès au micro/à la caméra refusé. Autorisez-le dans le navigateur puis réessayez.");
                 setStatus('error');
@@ -222,21 +231,23 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
         }
         if (joinEpoch !== joinEpochRef.current || closedRef.current) { stream.getTracks().forEach(track => track.stop()); return; }
         stream.getTracks().forEach(track => { track.enabled = false; });
+        (window as any).OnChatAudio?.mediaState?.(withVideo);
         localRef.current = stream;
         setLocalStream(stream);
         setStatus('connecting');
 
         let socket: WebSocket;
         try { socket = await openOnChatSocket(wsUrl()); }
-        catch (failure) { stream.getTracks().forEach(track=>track.stop());setError((failure as Error).message);setStatus('error');return; }
+        catch (failure) { (window as any).OnChatAudio?.mediaStopped?.();stream.getTracks().forEach(track=>track.stop());setError((failure as Error).message);setStatus('error');return; }
         if (joinEpoch !== joinEpochRef.current || closedRef.current) { socket.close();stream.getTracks().forEach(track=>track.stop());return; }
         socketRef.current = socket;
 
         const admissionDeadline = setTimeout(() => {
             if (socketRef.current !== socket || closedRef.current) return;
-            setError('Le serveur temps réel ne confirme pas la réunion. Vérifiez le service /ws et les migrations de réunion.');
+            setError('La connexion à la réunion n’a pas été confirmée. Réessayez.');
             setStatus('error');
             stream.getTracks().forEach(track => track.stop());
+            (window as any).OnChatAudio?.mediaStopped?.();
             socket.close();
         }, 20000);
         socket.onmessage = async (ev) => {
@@ -285,6 +296,9 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
         };
         socket.onerror = () => {
             clearTimeout(admissionDeadline);
+            stream.getTracks().forEach(track => track.stop());
+            (window as any).OnChatAudio?.mediaStopped?.();
+            socket.close();
             if (!closedRef.current) {
                 setError('Connexion au serveur de signalisation impossible.');
                 setStatus('error');
@@ -292,6 +306,10 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
         };
         socket.onclose = () => {
             clearTimeout(admissionDeadline);
+            stream.getTracks().forEach(track => track.stop());
+            (window as any).OnChatAudio?.mediaStopped?.();
+            pcs.current.forEach(pc=>pc.close());pcs.current.clear();
+            remoteStreamsRef.current.clear();setPeers([]);setLocalStream(null);
             if (!closedRef.current) {
                 setError((prev) => prev ?? 'Connexion perdue avec le serveur.');
                 setStatus((s) => (s === 'ended' ? s : 'error'));
@@ -323,7 +341,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
                 if (flip) facingRef.current = facingRef.current === 'user' ? 'environment' : 'user';
                 const previous = localRef.current.getVideoTracks();
                 if (flip) previous.forEach(track => track.stop());
-                const capture = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facingRef.current }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+                const capture = await acquireMedia({ video: { facingMode: { ideal: facingRef.current }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
                 const track = capture.getVideoTracks()[0];
                 for (const pc of pcs.current.values()) {
                     const sender = pc.getTransceivers().find(item => item.receiver.track.kind === 'video')?.sender;

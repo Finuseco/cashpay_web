@@ -40,7 +40,7 @@ export async function getConversationsForUser(userId: number): Promise<Conversat
 
         return rows.map(row => {
             const formattedContact = formatUser(row);
-            formattedContact.availabilityStatus = 'available';
+            formattedContact.availabilityStatus = row.availabilitystatus || 'offline';
             
             return {
                 id: row.conversationid,
@@ -500,11 +500,11 @@ export async function getAiSpokenResponse(text: string): Promise<{ audioDataUri:
 }
 
 export async function markConversationAsRead(conversationId: string, userId: number): Promise<void> {
-    try {
-        await db.query('UPDATE messages SET is_read = true, status = \'read\' WHERE conversation_id = $1 AND sender_id != $2', [conversationId, userId]);
-    } catch(e) {
-        await handleDbError(e, 'marking conversation as read');
-    }
+    const {getAuthenticatedUser}=await import('./user.actions');
+    const user=await getAuthenticatedUser();
+    if(!user || Number(user.id)!==Number(userId))throw new Error('Session requise.');
+    const {markChatRead}=await import('@/lib/chat-receipts');
+    await markChatRead(conversationId,user.id);
 }
 
 export async function deleteMessage(messageId: string): Promise<{ success: boolean, error?: string }> {

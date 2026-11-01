@@ -1,4 +1,5 @@
 'use client';
+import { useOnChatPresence } from '@/hooks/use-onchat-presence';
 import { subscribeOnChatRealtime } from '@/lib/onchat-browser-socket';
 import { invitationCode } from '@/lib/meeting-invitation';
 import { MeetingInvitationCard } from '@/components/feedback/meeting-invitation-card';
@@ -446,6 +447,7 @@ const DateSeparator = ({ date }: { date: string }) => {
 };
 
 const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: () => void, contact: User, onViewProfile: () => void, onStartCall: (type: 'audio' | 'video' | 'meeting') => void }) => {
+    const online=useOnChatPresence(contact.id_wallet,contact.id);
     const shortcuts = [
         { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
         { href: "/shopping", label: "Shopping", icon: ShoppingCart },
@@ -466,11 +468,11 @@ const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: (
                       <AvatarImage src={contact.profile_photo || ''} alt={contact.full_name} data-ai-hint="person portrait" />
                       <AvatarFallback>{contact.first_name?.[0]}</AvatarFallback>
                   </Avatar>
-                  {contact.availabilityStatus === 'available' && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#141C38]" />}
+                  {online && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#141C38]" />}
               </div>
               <div className="min-w-0">
                   <h2 className="font-bold text-base truncate">{contact.full_name}</h2>
-                  <p className="text-xs text-zinc-400">{contact.availabilityStatus === 'available' ? 'En ligne' : 'Hors ligne'}</p>
+                  <p className="text-xs text-zinc-400">{online ? 'En ligne' : 'Hors ligne'}</p>
               </div>
             </div>
             <div className="ml-auto flex items-center gap-1">
