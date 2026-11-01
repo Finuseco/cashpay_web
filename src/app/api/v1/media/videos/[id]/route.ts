@@ -1,3 +1,4 @@
+import {soundForVideo} from '@/lib/video-sounds';
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
@@ -158,10 +159,13 @@ export async function GET(
       }
     }
 
+    const sound=await soundForVideo(id);
+    const favorites=(await db.query('SELECT COUNT(*)::int AS total,COALESCE(BOOL_OR(user_id=$2),FALSE) AS selected FROM onchat_video_favorites WHERE media_id=$1',[id,userId])).rows[0];
     return NextResponse.json({
       success: true,
       video: {
-        id: video.id,
+        id: video.id, sound,
+        shareUrl:`${BASE_URL}/onchat/videos/${video.id}`,
         type: "video",
         url:
           video.file_url ||
@@ -176,9 +180,10 @@ export async function GET(
         expiresAt: video.expires_at,
         publisher,
         follow: { isFollowing: Boolean(video.is_following) },
-        interactions: {likes:Number(video.likes_count),comments:Number(video.comments_count),isLiked:Boolean(video.is_liked)}
+        interactions: {isFavorite:Boolean(favorites.selected),favorites:Number(favorites.total),likes:Number(video.likes_count),comments:Number(video.comments_count),isLiked:Boolean(video.is_liked)}
       },
       interactions: {
+        isFavorite:Boolean(favorites.selected),favorites:Number(favorites.total),
         likes: Number(video.likes_count),
         comments: Number(video.comments_count),
         isLiked: Boolean(video.is_liked)

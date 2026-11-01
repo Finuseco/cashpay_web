@@ -1,4 +1,5 @@
 'use server';
+import {validatedLocation} from '@/lib/chat-location';
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
@@ -49,7 +50,11 @@ export async function POST(request: NextRequest, { params }: { params: { groupId
         if (body.fileUrl && !fileUrl) return NextResponse.json({ success: false, error: 'Fichier non autorisé.' }, { status: 400 });
         if (!content.trim() && !fileUrl) return NextResponse.json({ success: false, error: 'Message requis.' }, { status: 400 });
         const { postGroupMessage } = await import('@/lib/actions/message.actions');
-        const message = await postGroupMessage(groupId, user.id, content, type as any, undefined, undefined, fileUrl ? { fileUrl, fileName: String(body.fileName || 'Fichier') } : undefined);
+        const metadata:Record<string,string>={};
+        for(const key of ['duration','durationSeconds','mimeType','fileSize','width','height','meetCode'])if(typeof body.metadata?.[key]==='string'&&body.metadata[key].length<=512)metadata[key]=body.metadata[key];
+        if(type==='location')Object.assign(metadata,validatedLocation(body.metadata));
+        if(fileUrl)Object.assign(metadata,{fileUrl,fileName:String(body.fileName||'Fichier')});
+        const message = await postGroupMessage(groupId, user.id, content, type as any, undefined, undefined, Object.keys(metadata).length ? metadata : undefined);
         return NextResponse.json({ success: true, message: { ...message, metadata: message.metadata ? JSON.parse(message.metadata) : null } }, { status: 201 });
     } catch (error) { return NextResponse.json({ success: false, error: 'Envoi au groupe refusé ou indisponible.' }, { status: 400 }); }
 }

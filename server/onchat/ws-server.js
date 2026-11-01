@@ -378,13 +378,14 @@ async function handleMeetEvent(socket, user, event, data) {
         }
         sockets.add(socket);
         // Le nouvel arrivant reçoit la liste ; c'est lui qui envoie les offres.
-        const names = {};
-        for (const id of existing) names[id] = await meetUserName(id);
-        send(socket, 'meet.peers', { meetCode: code, selfId: user.id, peers: existing, names });
+        const names = {}, avatars = {};
+        const profiles=await pool.query('SELECT id,full_name,profile_photo FROM users WHERE id=ANY($1::int[])',[[...existing,user.id]]);
+        for (const profile of profiles.rows){names[profile.id]=profile.full_name || `Participant ${profile.id}`;avatars[profile.id]=profile.profile_photo || null;}
+        send(socket, 'meet.peers', { meetCode: code, selfId: user.id, peers: existing, names, avatars });
         if (isNewPeer) {
             const myName = await meetUserName(user.id);
             for (const peerId of existing) {
-                sendToMeetUser(code, peerId, 'meet.peer_joined', { meetCode: code, userId: user.id, name: myName });
+                sendToMeetUser(code, peerId, 'meet.peer_joined', { meetCode: code, userId: user.id, name: myName, avatar: avatars[user.id] });
             }
         }
         await broadcastMeetingState(code);

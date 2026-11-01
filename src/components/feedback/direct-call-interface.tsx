@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog,DialogContent,DialogHeader,DialogTitle } from '@/components/ui/dialog';
 
-async function api(path:string,body?:object){const response=await fetch(path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined,cache:'no-store'});const data=await response.json();if(!response.ok||!data.success)throw new Error(data.error || 'Appel indisponible.');return data;}
+async function api(path:string,body?:object){const response=await fetch(path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined,cache:'no-store',signal:AbortSignal.timeout(20000)});const data=await response.json();if(!response.ok||!data.success)throw Object.assign(new Error(data.error || 'Appel indisponible.'),{status:response.status});return data;}
 function closeSurface(){const bridge=(window as any).OnChatAudio;if(bridge?.closeCall)bridge.closeCall();else window.location.assign('/feedback');}
 export function DirectCallInterface({callId}:{callId:string}) {
  const [context,setContext]=useState<any>(null),[error,setError]=useState(''),[joining,setJoining]=useState(false);
@@ -23,6 +23,11 @@ function Stream({stream,muted=false,className=''}:{stream:MediaStream|null;muted
  useEffect(()=>{const video=ref.current;if(!video)return;video.srcObject=stream;void video.play().catch(()=>{});return()=>{video.srcObject=null;};},[stream]);
  return <video ref={ref} autoPlay playsInline muted={muted} className={className}/>;
 }
+function CallAvatar({name,avatar}:{name:string;avatar?:string|null}){
+ const [failed,setFailed]=useState(false);useEffect(()=>setFailed(false),[avatar]);
+ const initials=String(name||'').trim().split(/\s+/).filter(Boolean).slice(0,2).map(word=>word[0]).join('').toUpperCase()||'?';
+ return avatar&&!failed?<img src={avatar} onError={()=>setFailed(true)} alt={name} className="w-full h-full object-cover"/>:<span>{initials}</span>;
+}
 function ConnectedCall({callId,context}:{callId:string;context:any}) {
  const room=useMeetRoom(context.call.meeting_code,context.call.is_video);
  const [muted,setMuted]=useState(false),[camera,setCamera]=useState(Boolean(context.call.is_video)),[speaker,setSpeaker]=useState(false),[elapsed,setElapsed]=useState(0),[error,setError]=useState(''),[invite,setInvite]=useState(false),[wallet,setWallet]=useState(''),[busy,setBusy]=useState(false),[conference,setConference]=useState(Boolean(context.call.is_conference));
@@ -33,7 +38,7 @@ function ConnectedCall({callId,context}:{callId:string;context:any}) {
  const avatar=caller?context.call.receiver_photo:context.call.caller_photo;
  useEffect(()=>{void room.join();return()=>{room.leave();};},[]);
  useEffect(()=>{(window as any).OnChatAudio?.connected?.(connected);if(connected&&joinedAt.current===null)joinedAt.current=Date.now();const timer=setInterval(()=>{if(joinedAt.current!==null)setElapsed(Math.floor((Date.now()-joinedAt.current)/1000));},1000);return()=>clearInterval(timer);},[connected]);
- useEffect(()=>{const timer=setInterval(()=>{api(`/api/v1/calls/${callId}`).then(data=>setConference(Boolean(data.call.is_conference))).catch(()=>{room.leave();closeSurface();});},5000);return()=>clearInterval(timer);},[callId]);
+ useEffect(()=>{const timer=setInterval(()=>{api(`/api/v1/calls/${callId}`).then(data=>setConference(Boolean(data.call.is_conference))).catch((failure:any)=>{if([401,403,404,410].includes(failure.status)){room.leave();closeSurface();}else setError('Connexion momentanément interrompue. Nouvelle vérification en cours.');});},5000);return()=>clearInterval(timer);},[callId]);
  useEffect(()=>{if(connected)(window as any).OnChatAudio?.mediaState?.(camera);},[connected,camera]);
  useEffect(()=>{if(!caller)return;const timeout=setTimeout(()=>{if(joinedAt.current===null)void hangup();},45000);return()=>clearTimeout(timeout);},[]);
  async function hangup(){if(closing.current)return;closing.current=true;try{await api(`/api/v1/calls/${callId}/end`,{});room.leave();closeSurface();}catch(e:any){closing.current=false;setError(e.message);}}
@@ -46,8 +51,8 @@ function ConnectedCall({callId,context}:{callId:string;context:any}) {
  return <main className={`relative h-[100dvh] w-full overflow-hidden text-white ${videoMode?'bg-zinc-950':'bg-gradient-to-b from-[#4768ef] via-[#338cea] to-[#12add5]'}`}>
   {!connected&&camera&&!conference&&<div className="absolute inset-0"><Stream stream={room.localStream} muted className="w-full h-full object-cover"/><span className="absolute top-28 left-4 text-xs bg-black/40 p-2 rounded">Votre caméra — en attente du correspondant</span></div>}
   {remoteVideo&&!conference&&<Stream stream={remoteVideo.stream} className="absolute inset-0 h-full w-full object-cover"/>}
-  {conference&&<div className="absolute inset-0 grid grid-cols-2 gap-2 p-3 pt-28 pb-40 overflow-y-auto">{others.map(peer=><div key={peer.userId} className="rounded-2xl bg-zinc-800 overflow-hidden relative min-h-36"><Stream stream={peer.stream} className="w-full h-full object-cover"/><span className="absolute bottom-2 left-2 bg-black/50 rounded px-2 text-xs">{peer.name || 'Participant'}</span></div>)}</div>}
-  {!remoteVideo&&!conference&&(!camera||connected)&&<div className="absolute inset-x-0 top-[19%] flex flex-col items-center gap-5 px-4"><div className="rounded-full p-3 bg-white/10 ring-[12px] ring-white/5"><div className="w-40 h-40 sm:w-48 sm:h-48 rounded-full overflow-hidden bg-white/20 flex items-center justify-center text-6xl">{avatar?<img src={avatar} alt={name} className="w-full h-full object-cover"/>:String(name || '?').slice(0,1)}</div></div><h1 className="text-4xl font-normal text-center">{name}</h1><p className="text-xl">{connected?duration:room.status==='error'?'Connexion interrompue':'Attente · ·'}</p></div>}
+  {conference&&<div className="absolute inset-0 grid grid-cols-2 gap-2 p-3 pt-28 pb-40 overflow-y-auto">{others.map(peer=><div key={peer.userId} className="rounded-2xl bg-zinc-800 overflow-hidden relative min-h-36">{peer.cameraEnabled!==false&&peer.stream?.getVideoTracks().some(track=>!track.muted)?<Stream stream={peer.stream} className="w-full h-full object-cover"/>:<><Stream stream={peer.stream} className="hidden"/><div className="h-full min-h-36 flex items-center justify-center"><div className="w-20 h-20 rounded-full overflow-hidden bg-violet-700 flex items-center justify-center text-2xl"><CallAvatar name={peer.name||'Participant'} avatar={peer.avatar}/></div></div></>}<span className="absolute bottom-2 left-2 bg-black/50 rounded px-2 text-xs">{peer.name || 'Participant'}</span></div>)}</div>}
+  {!remoteVideo&&!conference&&(!camera||connected)&&<div className="absolute inset-x-0 top-[19%] flex flex-col items-center gap-5 px-4"><div className="rounded-full p-3 bg-white/10 ring-[12px] ring-white/5"><div className="w-40 h-40 sm:w-48 sm:h-48 rounded-full overflow-hidden bg-white/20 flex items-center justify-center text-6xl"><CallAvatar name={name} avatar={avatar}/></div></div><h1 className="text-4xl font-normal text-center">{name}</h1><p className="text-xl">{connected?duration:room.status==='error'?'Connexion interrompue':'Attente · ·'}</p></div>}
   {(remoteVideo||conference||(!connected&&camera))&&<div className="absolute top-[14%] inset-x-0 text-center pointer-events-none"><h1 className="text-3xl drop-shadow">{conference?'Appel de groupe':name}</h1><p>{connected?duration:'Connexion…'}</p></div>}
   {camera&&(connected||conference)&&<div className="absolute top-32 right-4 h-36 w-24 rounded-2xl overflow-hidden border border-white/40 bg-black"><Stream stream={room.localStream} muted className="w-full h-full object-cover"/><span className="absolute bottom-1 left-2 text-xs">Vous</span></div>}
   {!camera&&room.localStream&&<Stream stream={room.localStream} muted className="hidden"/>}

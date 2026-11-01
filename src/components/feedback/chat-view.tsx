@@ -308,6 +308,8 @@ const MessageBubble = ({
   const isDocument = message.type === 'doc';
   const isImage = message.type === 'image';
   const isProduct = message.type === 'product';
+  let locationPoint:{latitude:number;longitude:number;title:string}|null=null;
+  if(message.type==='location')try{const data=typeof message.metadata==='string'?JSON.parse(message.metadata):message.metadata;const latitude=Number(data?.latitude),longitude=Number(data?.longitude);if(data?.latitude!=null&&data?.longitude!=null&&Number.isFinite(latitude)&&Math.abs(latitude)<=90&&Number.isFinite(longitude)&&Math.abs(longitude)<=180)locationPoint={latitude,longitude,title:String(data.title||'Position partagée')};}catch{}
 
   if (message.content?.startsWith('{')) {
       try {
@@ -378,6 +380,8 @@ const MessageBubble = ({
       )}>
         {isProduct ? (
             <ProductCardMessage metadata={message.metadata!} />
+        ) : locationPoint ? (
+            <a href={`https://www.google.com/maps?q=${locationPoint.latitude},${locationPoint.longitude}`} target="_blank" rel="noopener noreferrer" className="block p-3"><Map className="mb-2 text-cyan-300"/><strong>{locationPoint.title}</strong><p>{locationPoint.latitude}, {locationPoint.longitude}</p><span className="underline">Ouvrir la position</span></a>
         ) : isDocument && fileData?.fileUrl ? (
             <a href={fileData.fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 bg-black/20 rounded-md p-2">
                 <FileText className="h-8 w-8 text-white"/>

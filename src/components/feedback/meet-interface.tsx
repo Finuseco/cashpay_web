@@ -49,12 +49,14 @@ function VideoTile({
     isHostTile?: boolean;
 }) {
     const ref = useRef<HTMLVideoElement>(null);
+    const [avatarFailed,setAvatarFailed]=useState(false);
+    useEffect(()=>setAvatarFailed(false),[avatar]);
     useEffect(() => {
         if (ref.current && ref.current.srcObject !== stream) ref.current.srcObject = stream;
     }, [stream]);
 
     const initials = label
-        .split(' ')
+        .trim().split(/\s+/).filter(Boolean)
         .slice(0, 2)
         .map((w) => w[0])
         .join('')
@@ -75,9 +77,10 @@ function VideoTile({
             {(off || !stream) && (
                 <div className="absolute inset-0 flex items-center justify-center"
                     style={{ background: 'linear-gradient(135deg, #13072e 0%, #0b0f1a 100%)' }}>
-                    {avatar ? (
+                    {avatar && !avatarFailed ? (
                         <img
                             src={avatar}
+                            onError={()=>setAvatarFailed(true)}
                             alt={label}
                             className="h-20 w-20 rounded-full object-cover ring-4"
                             style={{ outlineColor: isHostTile ? '#06b6d4' : '#8b5cf6' }}
@@ -299,7 +302,7 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
 
     const raiseHandCount = participants.filter((p) => p.raiseHand).length;
 
-    const userAvatar = (user as any).photo_url || (user as any).avatar || null;
+    const userAvatar = user.profile_photo || (user as any).photo_url || (user as any).avatar || null;
 
     return (
         <div className="relative flex flex-col h-[100dvh] text-white overflow-hidden" style={{ background: 'linear-gradient(160deg, #080c1e 0%, #13072e 50%, #080c1e 100%)' }}>
@@ -362,7 +365,7 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                     <VideoTile
                         stream={localStream}
                         muted
-                        label={`${user.first_name || user.full_name} (vous)`}
+                        label={`${user.full_name || [user.first_name,user.last_name].filter(Boolean).join(" ")} (vous)`}
                         avatar={userAvatar}
                         off={isCameraOff}
                         isMain={isHost}
@@ -377,7 +380,7 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                             <VideoTile
                                 key={p.userId}
                                 stream={p.stream}
-                                label={p.name || `Participant ${p.userId}`}
+                                label={pData?.name || p.name || `Participant ${p.userId}`}
                                 avatar={pData?.avatar}
                                 isMain={pData?.isHost || pData?.role === 'speaker'}
                                 isHostTile={pData?.isHost}
@@ -420,20 +423,9 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                                 <div key={p.userId}
                                     className="flex items-center gap-2 p-2 rounded-xl hover:bg-zinc-800/40 transition-colors">
                                     {/* Avatar participant */}
-                                    <div className="h-9 w-9 rounded-full overflow-hidden shrink-0 ring-2"
-                                        style={{ outlineColor: p.isHost ? '#06b6d4' : 'rgba(139,92,246,0.3)' }}>
-                                        {p.avatar ? (
-                                            <img src={p.avatar} alt={p.name} className="h-full w-full object-cover" />
-                                        ) : (
-                                            <div className="h-full w-full flex items-center justify-center text-sm font-bold"
-                                                style={{
-                                                    background: p.isHost
-                                                        ? 'linear-gradient(135deg, #06b6d4, #0891b2)'
-                                                        : 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
-                                                }}>
-                                                {(p.name || '?')[0].toUpperCase()}
-                                            </div>
-                                        )}
+                                    <div className="relative h-9 w-9 rounded-full overflow-hidden shrink-0 ring-2 bg-violet-700 flex items-center justify-center text-sm font-bold">
+                                        <span>{String(p.name||'').trim().split(/\s+/).filter(Boolean).slice(0,2).map(word=>word[0]).join('').toUpperCase()||'?'}</span>
+                                        {p.avatar&&<img src={p.avatar} alt={p.name} onError={event=>{event.currentTarget.style.display='none';}} className="absolute inset-0 h-full w-full object-cover"/>}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-xs font-medium truncate">{p.name}</p>

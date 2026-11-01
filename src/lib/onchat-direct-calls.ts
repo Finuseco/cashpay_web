@@ -3,16 +3,16 @@ import { randomUUID, randomBytes } from 'crypto';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import type { PoolClient } from 'pg';
 
-async function session() { const user=await getAuthenticatedUser();if(!user||String(user.status).toLowerCase()!=='active')throw new Error('Compte actif et authentification requis.');return user; }
+async function session() { const user=await getAuthenticatedUser();if(!user||String(user.status).toLowerCase()!=='active')throw Object.assign(new Error('Compte actif et authentification requis.'),{code:'AUTH_REQUIRED'});return user; }
 async function emit(c:PoolClient,callId:string,event:string,targetId?:number,actorId?:number) {
  await c.query("SELECT pg_notify('onchat_calls',$1)",[JSON.stringify({callId,event,targetId,actorId})]);
 }
 export async function directCallAccess(c:PoolClient,meetingCode:string,userId:number) {
  const {rows}=await c.query('SELECT * FROM call_logs WHERE meeting_code=$1',[meetingCode]);
  const call=rows[0];if(!call)return false;
- if(call.ended_at)throw new Error('Appel terminé.');
+ if(call.ended_at)throw Object.assign(new Error('Appel terminé.'),{code:'CALL_ENDED'});
  const invited=await c.query("SELECT 1 FROM onchat_call_invitees WHERE call_id=$1 AND user_id=$2 AND status<>'rejected'",[call.id,userId]);
- if(![Number(call.caller_id),Number(call.receiver_id)].includes(Number(userId))&&!invited.rows.length&&!call.allow_link_join)throw new Error('Une invitation personnelle est requise pour cet appel.');
+ if(![Number(call.caller_id),Number(call.receiver_id)].includes(Number(userId))&&!invited.rows.length&&!call.allow_link_join)throw Object.assign(new Error('Une invitation personnelle est requise pour cet appel.'),{code:'CALL_FORBIDDEN'});
  const active=await c.query('SELECT user_id FROM meeting_participants mp JOIN meetings m ON m.id=mp.meeting_id WHERE m.meeting_provider_id=$1 AND mp.left_at IS NULL',[meetingCode]);
  if(active.rows.length>=10&&!active.rows.some(row=>Number(row.user_id)===Number(userId)))throw new Error('Cet appel a atteint sa limite de dix participants.');
  return true;
@@ -39,7 +39,7 @@ export async function getDirectCall(id:string) {
   const {rows}=await c.query(`SELECT cl.*,caller.full_name AS caller_name,caller.profile_photo AS caller_photo,caller.id_wallet AS caller_wallet_id,
    receiver.full_name AS receiver_name,receiver.profile_photo AS receiver_photo,receiver.id_wallet AS receiver_wallet_id
    FROM call_logs cl JOIN users caller ON caller.id=cl.caller_id JOIN users receiver ON receiver.id=cl.receiver_id WHERE cl.id=$1`,[id]);
-  if(!rows[0]||!rows[0].meeting_code)throw new Error('Appel introuvable.');
+  if(!rows[0]||!rows[0].meeting_code)throw Object.assign(new Error('Appel introuvable.'),{code:'CALL_NOT_FOUND'});
   await directCallAccess(c,rows[0].meeting_code,user.id);
   return {success:true,call:rows[0],selfId:user.id};
  }finally{c.release();}
@@ -73,7 +73,7 @@ export async function inviteToDirectCall(id:string,input:{walletId?:string;allow
  const user=await session();const c=await db.getConnection();
  try {
   await c.query('BEGIN');const {rows}=await c.query('SELECT * FROM call_logs WHERE id=$1 FOR UPDATE',[id]);const call=rows[0];
-  if(!call||call.ended_at)throw new Error('Appel terminé.');
+  if(!call||call.ended_at)throw Object.assign(new Error('Appel terminé.'),{code:'CALL_ENDED'});
   await directCallAccess(c,call.meeting_code,user.id);
   const joined=await c.query('SELECT 1 FROM meeting_participants mp JOIN meetings m ON m.id=mp.meeting_id WHERE m.meeting_provider_id=$1 AND mp.user_id=$2 AND mp.left_at IS NULL',[call.meeting_code,user.id]);
   if(!joined.rows.length&&Number(call.caller_id)!==Number(user.id))throw new Error('Rejoignez l’appel avant d’inviter.');
@@ -98,7 +98,7 @@ export async function finishDirectCall(id:string) {
  const user=await session();const c=await db.getConnection();
  try {
   await c.query('BEGIN');const {rows}=await c.query('SELECT * FROM call_logs WHERE id=$1 FOR UPDATE',[id]);const call=rows[0];
-  if(!call)throw new Error('Appel introuvable.');
+  if(!call)throw Object.assign(new Error('Appel introuvable.'),{code:'CALL_NOT_FOUND'});
   if(![Number(call.caller_id),Number(call.receiver_id)].includes(Number(user.id))) {
    const member=await c.query('SELECT 1 FROM onchat_call_invitees WHERE call_id=$1 AND user_id=$2',[id,user.id]);
    const joined=await c.query('SELECT 1 FROM meeting_participants mp JOIN meetings m ON m.id=mp.meeting_id WHERE m.meeting_provider_id=$1 AND mp.user_id=$2 AND mp.left_at IS NULL',[call.meeting_code,user.id]);

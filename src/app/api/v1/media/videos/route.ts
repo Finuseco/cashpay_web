@@ -352,7 +352,9 @@ export async function GET(request: NextRequest) {
     const publisherValue=searchParams.get('publisherId');
     const publisherId=publisherValue===null?null:Number(publisherValue);
     if(publisherId!==null&&(!Number.isSafeInteger(publisherId)||publisherId<=0))return NextResponse.json({success:false,error:'Créateur invalide.'},{status:400});
-    if(!userId&&!publisherId)return NextResponse.json({success:false,error:'Connectez-vous pour consulter vos abonnements.'},{status:401});
+    const feed=searchParams.get('feed') || 'mine';
+    if(!['mine','following','explore','favorites'].includes(feed))return NextResponse.json({success:false,error:'Fil invalide.'},{status:400});
+    if(!userId&&!publisherId&&feed!=='explore')return NextResponse.json({success:false,error:'Connectez-vous pour consulter vos abonnements.'},{status:401});
 
     const limitRaw = Number(searchParams.get("limit") || 20);
     const offsetRaw = Number(searchParams.get("offset") || 0);
@@ -371,6 +373,12 @@ export async function GET(request: NextRequest) {
       `
       SELECT
         m.id,
+        EXISTS(SELECT 1 FROM onchat_video_favorites vf WHERE vf.media_id=m.id AND vf.user_id=$3) AS is_favorite,
+        (SELECT COUNT(*)::int FROM onchat_video_favorites vf WHERE vf.media_id=m.id) AS favorites_count,
+        sound.title AS sound_title,sound.author_user_id AS sound_author_id,sound_user.full_name AS sound_author_name,sound_user.profile_photo AS sound_author_avatar,
+        COALESCE(sound.source_media_id,sound.media_id) AS sound_source_id,
+        (sound_root.allow_reuse=TRUE AND sound_media.visibility='public' AND (sound_media.expires_at IS NULL OR sound_media.expires_at>NOW())) AS sound_allow_reuse,
+        CASE WHEN sound_media.visibility='public' AND (sound_media.expires_at IS NULL OR sound_media.expires_at>NOW()) THEN COALESCE(sound_media.file_url,'https://app.cashpay-all.com'||sound_media.file_path) ELSE '' END AS sound_url,
         m.owner_type,
         m.owner_id,
         m.media_type,
@@ -418,23 +426,28 @@ export async function GET(request: NextRequest) {
         END AS is_liked
 
       FROM media m
+      LEFT JOIN onchat_video_sounds sound ON sound.media_id=m.id
+      LEFT JOIN onchat_video_sounds sound_root ON sound_root.media_id=COALESCE(sound.source_media_id,sound.media_id)
+      LEFT JOIN media sound_media ON sound_media.id=sound_root.media_id
+      LEFT JOIN users sound_user ON sound_user.id=sound.author_user_id
       LEFT JOIN users publisher_user ON m.owner_type = 'user' AND publisher_user.id = m.owner_id
       LEFT JOIN followable_entities publisher_entity ON m.owner_type <> 'user' AND publisher_entity.id = m.owner_id AND publisher_entity.entity_type = m.owner_type
       WHERE m.media_type = 'video'
         AND m.visibility = 'public'
         AND (m.expires_at IS NULL OR m.expires_at > NOW())
         AND ($4::integer IS NULL OR (m.owner_type='user' AND m.owner_id=$4))
-        AND ($4::integer IS NOT NULL OR (m.owner_type='user' AND (m.owner_id=$3 OR EXISTS(SELECT 1 FROM user_followers f WHERE f.follower_user_id=$3 AND f.followed_user_id=m.owner_id) OR EXISTS(SELECT 1 FROM onchat_video_sounds used JOIN media mine ON mine.id=used.media_id WHERE mine.owner_type='user' AND mine.owner_id=$3 AND used.source_media_id IS NOT NULL AND used.author_user_id=m.owner_id))))
+        AND ($4::integer IS NOT NULL OR $5='explore' OR (m.owner_type='user' AND $5='mine' AND m.owner_id=$3) OR ($5='following' AND m.owner_type='user' AND EXISTS(SELECT 1 FROM user_followers f WHERE f.follower_user_id=$3 AND f.followed_user_id=m.owner_id)) OR ($5='favorites' AND EXISTS(SELECT 1 FROM onchat_video_favorites f WHERE f.user_id=$3 AND f.media_id=m.id)))
 
-      ORDER BY m.created_at DESC
+      ORDER BY m.created_at DESC, m.id DESC
       LIMIT $1
       OFFSET $2
       `,
-      [limit, offset, userId, publisherId]
+      [limit, offset, userId, publisherId, feed]
     );
 
     const videos = result.rows.map((row: any) => ({
       id: row.id,
+      sound: row.sound_source_id?{sourceId:row.sound_source_id,title:row.sound_title,authorId:row.sound_author_id,authorName:row.sound_author_name,authorAvatar:row.sound_author_avatar?.startsWith('/')?`${BASE_URL}${row.sound_author_avatar}`:row.sound_author_avatar,allowReuse:Boolean(row.sound_allow_reuse),url:row.sound_url||''}:null,
       shareUrl: `${BASE_URL}/onchat/videos/${row.id}`,
       type: "video",
       url:
@@ -456,6 +469,7 @@ export async function GET(request: NextRequest) {
       },
       follow: { isFollowing: Boolean(row.is_following) },
       interactions: {
+        isFavorite:Boolean(row.is_favorite), favorites:Number(row.favorites_count),
         likes: Number(row.likes_count),
         comments: Number(row.comments_count),
         isLiked: Boolean(row.is_liked)

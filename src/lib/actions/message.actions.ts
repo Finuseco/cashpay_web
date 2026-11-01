@@ -1,5 +1,6 @@
 
 'use server';
+import {validatedLocation} from '@/lib/chat-location';
 import {meetingCodeFromMessage,sendMeetingEmail,notifyGroupMeetingShare} from '@/lib/meeting-email';
 
 import type { Conversation, Message, User, AssistantSettings, Currency, GroupMessage, Product } from '@/lib/types';
@@ -291,7 +292,7 @@ export async function postMessage(
         }
 
         let imageId: string | null = null;
-        let metadata: Record<string, unknown> | null = attachmentMetadata || null;
+        let metadata: Record<string, unknown> | null = type==='location'?validatedLocation(attachmentMetadata):attachmentMetadata || null;
 
         if (attachmentMetadata?.fileUrl && (typeof attachmentMetadata.fileUrl !== 'string' || !ownedAttachmentPath(attachmentMetadata.fileUrl, senderId))) {
             throw new Error('Fichier non autorisé.');
@@ -819,7 +820,7 @@ export async function postGroupMessage(
     const membership = await db.query("SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2 AND status = 'active'", [groupId, user.id]);
     if (!membership.rows.length) throw new Error('Groupe inaccessible.');
     if (attachmentMetadata?.fileUrl && !ownedAttachmentPath(attachmentMetadata.fileUrl, user.id)) throw new Error('Fichier non autorisé.');
-    let metadata = attachmentMetadata ? JSON.stringify(attachmentMetadata) : null;
+    let metadata = type==='location'?JSON.stringify(validatedLocation(attachmentMetadata)):attachmentMetadata ? JSON.stringify(attachmentMetadata) : null;
     let imageId = null;
     if (fileDataUri) {
         const attachment = parseChatDataUri(fileDataUri);
