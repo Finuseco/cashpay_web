@@ -3,10 +3,11 @@ import { db } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
 
 export async function GET(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  context: { params: { id: string } }
 ) {
   try {
     const authenticatedUser = await getAuthenticatedUser();
@@ -63,7 +64,10 @@ export async function GET(
         status,
         user_document_id,
         created_at,
-        updated_at
+        updated_at,
+        (SELECT ic.rejection_reason FROM inter_claim_cases ic WHERE ic.claim_id=international_transfer_claims.id) AS rejection_reason,
+        (SELECT ic.status FROM inter_claim_cases ic WHERE ic.claim_id=international_transfer_claims.id) AS processing_status,
+        (SELECT ic.net_amount FROM inter_claim_cases ic WHERE ic.claim_id=international_transfer_claims.id) AS net_amount
       FROM international_transfer_claims
       WHERE id = $1
         AND user_id = $2
@@ -94,7 +98,10 @@ export async function GET(
         expectedCurrency: claim.expected_currency,
         senderCountry: claim.sender_country,
         receiveInCurrency: claim.receive_in_currency,
-        status: claim.status,
+        status: claim.processing_status==='disputed'?'disputed':claim.status,
+        processingStatus:claim.processing_status || null,
+        rejectionReason:claim.rejection_reason || null,
+        netAmount:claim.net_amount===null?null:Number(claim.net_amount),
         userDocumentId: claim.user_document_id,
         createdAt: claim.created_at,
         updatedAt: claim.updated_at

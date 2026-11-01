@@ -1,5 +1,5 @@
 'use client';
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import type {User,Country} from '@/lib/types';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -10,13 +10,16 @@ import {Loader2,ShieldCheck} from 'lucide-react';
 /** Client declarations are never presented as a successful provider lookup. */
 export function InternationalTransferForm({user,countries}:{user:User|null;countries:Country[]}) {
  const [provider,setProvider]=useState('western_union'),[tracking,setTracking]=useState(''),[amount,setAmount]=useState(''),[currency,setCurrency]=useState('USD'),[receive,setReceive]=useState('USD'),[country,setCountry]=useState(''),[consent,setConsent]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[confirmation,setConfirmation]=useState('');
+ const [claims,setClaims]=useState<any[]>([]),[historyError,setHistoryError]=useState('');
+ async function refreshClaims(){if(!user)return;try{const response=await fetch('/api/v1/international-transfer/claims',{cache:'no-store'});const data=await response.json();if(!response.ok||!data.success)throw new Error(data.error || 'Suivi indisponible.');setClaims(data.claims);setHistoryError('');}catch(e:any){setHistoryError(e.message);}}
+ useEffect(()=>{setClaims([]);void refreshClaims();},[user?.id]);
  async function submit(event:React.FormEvent) {
   event.preventDefault();if(!user||busy||!consent)return;setBusy(true);setError('');setConfirmation('');
   try {
    const response=await fetch('/api/v1/international-transfer/claims',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider,trackingNumber:tracking.trim(),expectedAmount:Number(amount),expectedCurrency:currency,receiveInCurrency:receive,senderCountry:country,feeConsent:true})});
    const result=await response.json();if(!response.ok||result.success!==true)throw new Error(result.error || 'La demande n’a pas été confirmée.');
    setConfirmation(`Réclamation #${result.claim.id} enregistrée. Un agent inter habilité vérifiera les informations et pourra effectuer le règlement depuis son wallet. Aucun montant n’a encore été crédité.`);
-   setTracking('');setAmount('');setConsent(false);
+   setTracking('');setAmount('');setConsent(false);await refreshClaims();
   }catch(e:any){setError(e.message);}finally{setBusy(false);}
  }
  const selectClass='w-full rounded-md border bg-background p-3';
@@ -32,5 +35,6 @@ export function InternationalTransferForm({user,countries}:{user:User|null;count
    <Button type="submit" disabled={!consent||busy} className="w-full">{busy&&<Loader2 className="h-4 w-4 animate-spin mr-2"/>}Soumettre ma réclamation</Button>
   </fieldset></form>}
   {error&&<p role="alert" className="text-red-500 mt-4">{error}</p>}{confirmation&&<p role="status" className="p-4 mt-4 border rounded-xl">{confirmation}</p>}
+ {user&&<section className="mt-8 space-y-4"><div className="flex justify-between items-center"><h3 className="font-semibold">Mes réclamations</h3><Button type="button" variant="outline" onClick={refreshClaims}>Actualiser</Button></div>{historyError&&<p role="alert">{historyError}</p>}{claims.map(claim=><article key={claim.id} className="rounded-xl border p-4 space-y-2"><p className="font-semibold">#{claim.id} · {claim.provider} · {claim.expectedAmount} {claim.expectedCurrency}</p><p>État : {claim.status}</p>{claim.rejectionReason&&<p className="whitespace-pre-wrap" role="status">{claim.rejectionReason}</p>}</article>)}</section>}
  </CardContent></Card>;
 }
