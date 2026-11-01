@@ -1,6 +1,6 @@
 'use client';
 
-import { openOnChatSocket } from '@/lib/onchat-browser-socket';
+import { openOnChatSocket, whenOnChatSocketOpen, onChatSocketAddress } from '@/lib/onchat-browser-socket';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
@@ -38,8 +38,7 @@ function wsUrl() {
     if (typeof native === 'string' && native.startsWith('wss://')) return native;
     const custom = process.env.NEXT_PUBLIC_ONCHAT_WS_URL;
     if (custom) return custom;
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${window.location.host}/ws`;
+    return onChatSocketAddress();
 }
 
 export function useMeetRoom(meetCode: string, withVideo: boolean) {
@@ -110,7 +109,10 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
                 stream.getTracks().forEach(track => { track.enabled = permissionsRef.current.get(userId) === true; });
                 updatePeer(userId, { stream });
             };
-            pc.onconnectionstatechange = () => updatePeer(userId, { state: pc.connectionState });
+            pc.onconnectionstatechange = () => {
+                updatePeer(userId, { state: pc.connectionState });
+                if (pc.connectionState === 'failed') setError('La liaison audio/vidéo a échoué. Vérifiez la connexion et le relais TURN du serveur.');
+            };
             updatePeer(userId, {});
             return pc;
         },
@@ -230,7 +232,13 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
         if (joinEpoch !== joinEpochRef.current || closedRef.current) { socket.close();stream.getTracks().forEach(track=>track.stop());return; }
         socketRef.current = socket;
 
-        socket.onopen = () => sendWs('meet.join', { meetCode });
+        const admissionDeadline = setTimeout(() => {
+            if (socketRef.current !== socket || closedRef.current) return;
+            setError('Le serveur temps réel ne confirme pas la réunion. Vérifiez le service /ws et les migrations de réunion.');
+            setStatus('error');
+            stream.getTracks().forEach(track => track.stop());
+            socket.close();
+        }, 20000);
         socket.onmessage = async (ev) => {
             let msg: any;
             try { msg = JSON.parse(ev.data); } catch { return; }
@@ -255,6 +263,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
                 }
                 pcs.current.get(userId)?.getReceivers().forEach(receiver => { if (receiver.track) receiver.track.enabled = Boolean(data.canSpeak); });
             } else if (event === 'meet.peers') {
+                clearTimeout(admissionDeadline);
                 selfIdRef.current = Number(data.selfId);
                 setStatus('joined');
                 for (const id of data.peers as number[]) {
@@ -268,23 +277,27 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             } else if (event === 'meet.signal') {
                 await handleSignal(Number(data.from), data.payload);
             } else if (event === 'error' && String(data?.code || '').startsWith('MEET_')) {
+                clearTimeout(admissionDeadline);
                 setError(data.message || 'Erreur de réunion.');
                 setStatus('error');
                 localRef.current?.getTracks().forEach((t) => t.stop());
             }
         };
         socket.onerror = () => {
+            clearTimeout(admissionDeadline);
             if (!closedRef.current) {
                 setError('Connexion au serveur de signalisation impossible.');
                 setStatus('error');
             }
         };
         socket.onclose = () => {
+            clearTimeout(admissionDeadline);
             if (!closedRef.current) {
                 setError((prev) => prev ?? 'Connexion perdue avec le serveur.');
                 setStatus((s) => (s === 'ended' ? s : 'error'));
             }
         };
+        whenOnChatSocketOpen(socket, () => sendWs('meet.join', { meetCode }));
     }, [callPeer, handleSignal, meetCode, removePeer, sendWs, updatePeer, withVideo, leave]);
 
     const setMicEnabled = useCallback((enabled: boolean) => {

@@ -1,4 +1,5 @@
 'use client';
+import { subscribeOnChatRealtime } from '@/lib/onchat-browser-socket';
 import { invitationCode } from '@/lib/meeting-invitation';
 import { MeetingInvitationCard } from '@/components/feedback/meeting-invitation-card';
 
@@ -656,7 +657,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
       const current = conversationRef.current.messages.filter(m => !String(m.id).startsWith('temp-'));
       const lastFresh = fresh[fresh.length - 1];
       const lastCurrent = current[current.length - 1];
-      if (fresh.length !== current.length || (lastFresh && lastCurrent && lastFresh.id !== lastCurrent.id)) {
+      if (fresh.length !== current.length || fresh.some((message, index) => message.id !== current[index]?.id || message.status !== current[index]?.status || message.content !== current[index]?.content)) {
         const last = fresh[fresh.length - 1];
         onUpdateConversation({
           ...conversationRef.current,
@@ -669,8 +670,11 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
         }
       }
     };
+    const unsubscribe = subscribeOnChatRealtime((event, data) => {
+      if (event === 'reconnected' || (event.startsWith('chat.') && String(data?.conversationId) === String(conversationRef.current.id))) void tick();
+    });
     const timer = setInterval(tick, 3000);
-    return () => { stopped = true; clearInterval(timer); };
+    return () => { stopped = true; unsubscribe(); clearInterval(timer); };
   }, [conversation.id, currentUser.id, onUpdateConversation]);
 
   const handleCall = (type: 'audio' | 'video' | 'meeting') => {

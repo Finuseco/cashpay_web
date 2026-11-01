@@ -500,7 +500,7 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                     <span>{error}</span>
                     {status === 'error' && (
-                        <Button size="sm" variant="outline" className="ml-auto shrink-0" onClick={() => join()}>Réessayer</Button>
+                        <Button size="sm" variant="outline" className="ml-auto shrink-0" onClick={() => window.location.reload()}>Réessayer</Button>
                     )}
                 </div>
             )}

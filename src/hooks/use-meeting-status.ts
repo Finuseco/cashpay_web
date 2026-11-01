@@ -1,14 +1,21 @@
 'use client';
+import { openOnChatSocket, onChatSocketAddress, whenOnChatSocketOpen } from '@/lib/onchat-browser-socket';
 import { useEffect, useState } from 'react';
 type State = { status: string; participants: number };
 const listeners = new Map<string, Set<(state: State) => void>>();
 let socket: WebSocket | null = null;
 let retry: ReturnType<typeof setTimeout> | null = null;
-function connect() {
-    if (!listeners.size || socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
-    const url = process.env.NEXT_PUBLIC_ONCHAT_WS_URL || `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
-    const current = new WebSocket(url); socket = current;
-    current.onopen = () => { for (const meetCode of listeners.keys()) current.send(JSON.stringify({ event: 'meet.watch', data: { meetCode } })); };
+let connecting = false;
+async function connect() {
+    if (connecting || !listeners.size || socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
+    connecting = true;
+    let current: WebSocket;
+    try { current = await openOnChatSocket(onChatSocketAddress()); }
+    catch { if (listeners.size) retry = setTimeout(connect, 3000); return; }
+    finally { connecting = false; }
+    if (!listeners.size) { current.close(); return; }
+    socket = current;
+    whenOnChatSocketOpen(current, () => { for (const meetCode of listeners.keys()) current.send(JSON.stringify({ event: 'meet.watch', data: { meetCode } })); });
     current.onmessage = event => { try { const { event: name, data } = JSON.parse(event.data); if (name === 'meet.updated') listeners.get(data.meetCode)?.forEach(fn => fn(data)); } catch { /* Ignore malformed events. */ } };
     current.onclose = () => { if (socket === current) { socket = null; if (listeners.size) retry = setTimeout(connect, 3000); } };
     current.onerror = () => current.close();

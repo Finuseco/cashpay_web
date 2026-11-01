@@ -38,16 +38,19 @@ const pool = new Pool({
     ...sslConfig,
 });
 
+let realtimeReady = false;
 const server = http.createServer((req, res) => {
     if (req.url === '/health') {
-        res.writeHead(200, {
+        res.writeHead(realtimeReady ? 200 : 503, {
             'Content-Type': 'application/json',
         });
 
         res.end(JSON.stringify({
-            success: true,
+            success: realtimeReady,
             service: 'onchat-websocket',
-            status: 'online',
+            protocol: 'cashpay-shared-realtime-v1',
+            websocketPath: '/ws',
+            status: realtimeReady ? 'online' : 'database-listener-unavailable',
         }));
 
         return;
@@ -292,7 +295,7 @@ function leaveMeetRoom(code, user, socket) {
     if (sockets.size > 0) return;
     room.delete(user.id);
     const disconnectedAt=new Date();
-    pool.query('UPDATE meeting_participants SET left_at=NOW() WHERE meeting_id=(SELECT id FROM meetings WHERE meeting_provider_id=$1) AND user_id=$2 AND joined_at <= $3',[code,user.id,disconnectedAt]).catch(error=>console.error('[Meeting disconnect]',error.code));
+    pool.query('UPDATE meeting_participants SET left_at=NOW() WHERE meeting_id=(SELECT id FROM meetings WHERE meeting_provider_id=$1) AND user_id=$2 AND joined_at <= $3',[code,user.id,disconnectedAt]).then(() => broadcastMeetingState(code)).catch(error=>console.error('[Meeting disconnect]',error.code));
     for (const peerId of room.keys()) {
         sendToMeetUser(code, peerId, 'meet.peer_left', { meetCode: code, userId: user.id });
     }
@@ -619,11 +622,27 @@ async function listenForMessages() {
         const retry = () => {
             if (messageListener !== client) return;
             messageListener = null;
+            realtimeReady = false;
             release();
             if (!shuttingDown) listenerRetry = setTimeout(listenForMessages, 3000);
         };
         client.on('error', retry);
         client.on('notification', async (notification) => {
+            if (notification.channel === 'cashpay_notifications') {
+                try {
+                    const { id } = JSON.parse(notification.payload);
+                    const { rows } = await pool.query('SELECT * FROM notifications WHERE id = $1', [id]);
+                    const row = rows[0];
+                    if (!row) return;
+                    // Preserve Wallet-final's raw NotificationDto contract on the shared /ws.
+                    const frame = JSON.stringify({id: Number(row.id), title: row.title, description: row.description,
+                        timestamp: new Date(row.created_at).toISOString(), read: Boolean(row.is_read), type: row.type, link: row.link});
+                    for (const socket of users.get(Number(row.user_id)) || []) {
+                        if (socket.readyState === WebSocket.OPEN) socket.send(frame);
+                    }
+                } catch (error) { console.error('[Wallet notification]', error.message); }
+                return;
+            }
             if (notification.channel === 'onchat_calls') {
                 try {
                     const payload=JSON.parse(notification.payload);
@@ -642,7 +661,8 @@ async function listenForMessages() {
             if (notification.channel === 'onchat_group_messages') {
                 try {
                     const { id } = JSON.parse(notification.payload);
-                    const { rows } = await pool.query(`SELECT gm.*, member.user_id AS recipient_id FROM group_messages gm
+                    const { rows } = await pool.query(`SELECT gm.*, sender.full_name AS sender_name, member.user_id AS recipient_id FROM group_messages gm
+                        LEFT JOIN users sender ON sender.id = gm.sender_id
                         JOIN group_members member ON member.group_id = gm.group_id AND member.status = 'active' WHERE gm.id = $1`, [id]);
                     for (const row of rows) sendToUser(row.recipient_id, 'chat.message.created', {
                         conversationId: `g_${row.group_id}`,
@@ -682,13 +702,15 @@ async function listenForMessages() {
                 }
             } catch (error) { console.error('[ONCHAT WS NOTIFICATION]', error.message); }
         });
+        await client.query('LISTEN cashpay_notifications');
         await client.query('LISTEN onchat_calls');
         await client.query('LISTEN inter_claim_activity');
         await client.query('LISTEN onchat_messages');
         await client.query('LISTEN onchat_meetings');
         await client.query('LISTEN onchat_group_messages');
+        realtimeReady = true;
     } catch (error) {
-        if (messageListener === client) messageListener = null;
+        if (messageListener === client) { messageListener = null; realtimeReady = false; }
         release();
         console.error('[ONCHAT WS LISTEN]', error.message);
         if (!shuttingDown) listenerRetry = setTimeout(listenForMessages, 3000);
@@ -730,8 +752,8 @@ wss.on('connection', (socket, request, user) => {
             );
 
             send(socket, 'error', {
-                code: 'INVALID_MESSAGE',
-                message: 'Message WebSocket invalide.',
+                code: ['42703', '42P01'].includes(error.code) ? 'MEET_SCHEMA_UNAVAILABLE' : 'INVALID_MESSAGE',
+                message: ['42703', '42P01'].includes(error.code) ? 'Le schéma de la base est incomplet. Appliquez les migrations OnChat avant de rejoindre la réunion.' : 'Message WebSocket invalide.',
             });
         }
     });
