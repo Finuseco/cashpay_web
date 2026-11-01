@@ -12,11 +12,11 @@ Quatre raccourcis : identité non concordante, pièce non vérifiable, référen
 
 Le responsable national peut reprendre un dossier réservé non encaissé : son propre wallet finance la réservation et l’ancienne réservation est restituée atomiquement. Aucun transfert de responsabilité pour un dossier déjà encaissé, payé ou en litige. Les responsables doivent être explicitement nommés et disposer des fonds ; le rôle de superviseur ne permet pas de créditer gratuitement un client.
 
-## Routes client et Wallet-final
+## Routes client et Wallet_best
 
-Les GET `/api/v1/international-transfer/claims` et `/api/v1/international-transfer/claims/{id}` restent strictement liés à la session : état de traitement, motif détaillé et montant net sont renvoyés sans images KYC ni journal interne. La liste et le détail Wallet-final utilisent ces routes ; OnChat n’a pas été modifié dans cette phase. La nouvelle demande associe la pièce la plus récente du compte.
+Les GET `/api/v1/international-transfer/claims` et `/api/v1/international-transfer/claims/{id}` restent strictement liés à la session : état de traitement, motif détaillé et montant net sont renvoyés sans images KYC ni journal interne. La liste et le détail Wallet_best utilisent ces routes ; OnChat n’a pas été modifié dans cette phase. La nouvelle demande associe la pièce la plus récente du compte.
 
-Crédits : le contrat existant utilise `remaining_balance`, `repaid_amount`, `principal_amount`, `installment_number`, `due_date`, `payment_date`. Wallet-final les lit désormais exactement. Le prêt courant expose aussi échéancier et remboursements, avec le principal réel. L’historique applique l’intérêt forfaitaire déjà utilisé à l’approbation, sans le multiplier une seconde fois par la durée. Les soldes et historiques existants ne sont pas réécrits. Les échéanciers anciens déjà enregistrés ne sont pas recalculés automatiquement.
+Crédits : le contrat existant utilise `remaining_balance`, `repaid_amount`, `principal_amount`, `installment_number`, `due_date`, `payment_date`. Wallet_best les lit désormais exactement. Le prêt courant expose aussi échéancier et remboursements, avec le principal réel. L’historique applique l’intérêt forfaitaire déjà utilisé à l’approbation, sans le multiplier une seconde fois par la durée. Les soldes et historiques existants ne sont pas réécrits. Les échéanciers anciens déjà enregistrés ne sont pas recalculés automatiquement.
 
 ## Migration et validation
 

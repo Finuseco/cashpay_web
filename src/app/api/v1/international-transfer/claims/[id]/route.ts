@@ -98,7 +98,7 @@ export async function GET(
         expectedCurrency: claim.expected_currency,
         senderCountry: claim.sender_country,
         receiveInCurrency: claim.receive_in_currency,
-        status: claim.processing_status==='disputed'?'disputed':claim.status,
+        status: ({reserved:'reserved',disputed:'disputed',paid:'completed',rejected:'rejected'} as Record<string,string>)[claim.processing_status] || claim.status,
         processingStatus:claim.processing_status || null,
         rejectionReason:claim.rejection_reason || null,
         netAmount:claim.net_amount===null?null:Number(claim.net_amount),

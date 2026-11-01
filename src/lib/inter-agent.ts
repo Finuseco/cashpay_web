@@ -170,7 +170,7 @@ export async function resolveInterClaim(input:{id:number;action:'pay'|'reject';p
    const verified=await identityDetail(c,{id:item.claim_id,user_id:item.user_id});
    if(!verified.identityReady || !input.verification || !['identity','document','signature','tracking'].every(key=>input.verification?.[key as 'identity']===true) || !input.verification.beneficiaryName?.trim()) throw new Error('Vérifiez la pièce, la signature et le bénéficiaire du transfert avant paiement.');
    const normalize=(name:string)=>name.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
-   if(normalize(input.verification.beneficiaryName)!==normalize(verified.full_name || ''))throw new Error('Le nom du bénéficiaire vérifié doit correspondre au nom complet du compte.');
+   if(!normalize(verified.full_name || '') || !normalize(input.verification.beneficiaryName) || normalize(input.verification.beneficiaryName)!==normalize(verified.full_name || ''))throw new Error('Le nom du bénéficiaire vérifié doit correspondre au nom complet du compte.');
    await audit(c,item.claim_id,a.user.id,'IDENTITY_VERIFIED',{documentId:verified.user_document_id,beneficiaryName:input.verification.beneficiaryName.trim(),checks:input.verification});
    if (input.collected!==true || !input.receipt?.trim() || input.receipt.trim().length<4) throw new Error('Confirmez la réception externe et sa référence justificative.');
    await c.query(`UPDATE wallets SET balances=jsonb_set(COALESCE(balances,'{}'::jsonb),ARRAY[$2::text],to_jsonb(COALESCE((balances->>$2)::numeric,0)+$3::numeric)) WHERE user_id=$1`,[item.user_id,item.currency,item.net_amount]);
@@ -277,7 +277,15 @@ async function identityDetail(c:PoolClient,claim:any) {
  if(!data)return claim;
  const {signature_image,id_front_image,id_back_image,...fields}=data;
  const base=`/api/v1/inter-agent/claims/${claim.id}/identity`;
- return {...claim,...fields,identityReady:Boolean(signature_image&&id_front_image&&data.id_number&&(!data.id_expiry_date||new Date(data.id_expiry_date)>new Date())),identityMedia:{front:id_front_image?`${base}/front`:null,back:id_back_image?`${base}/back`:null,signature:signature_image?`${base}/signature`:null}};
+ const identityIssues:string[]=[];
+ for(const [value,label] of [[data.full_name,'Nom complet du compte manquant'],[data.id_type,'Type de pièce manquant'],[data.id_number,'Numéro de pièce manquant'],[id_front_image,'Capture de la pièce manquante'],[signature_image,'Signature enregistrée manquante']]) {
+  if(typeof value!=='string'||!value.trim())identityIssues.push(label);
+ }
+ if(data.id_expiry_date){
+  const expiry=new Date(data.id_expiry_date);expiry.setUTCHours(23,59,59,999);
+  if(!Number.isFinite(expiry.getTime())||expiry.getTime()<Date.now())identityIssues.push('Pièce expirée ou date de validité incorrecte');
+ }
+ return {...claim,...fields,identityReady:identityIssues.length===0,identityIssues,identityMedia:{front:id_front_image?`${base}/front`:null,back:id_back_image?`${base}/back`:null,signature:signature_image?`${base}/signature`:null}};
 }
 
 export async function interIdentityAsset(id:number,asset:string) {
