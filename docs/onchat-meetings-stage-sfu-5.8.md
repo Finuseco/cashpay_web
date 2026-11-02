@@ -27,7 +27,7 @@ Le WebSocket Wallet Best/OnChat `/ws` conserve chat, notifications et événemen
 - `POST /api/v1/meetings/{meetCode}/connection` : session authentifiée et admission active exigées ; retourne le transport et, en SFU, un JWT court limité à la salle et aux permissions du membre. Aucune clé API secrète n’est envoyée à l’application. Sans SFU configuré, retourne le maillage à huit personnes.
 - `GET/POST /api/v1/meetings/{meetCode}/messages` : cent derniers messages de réunion, insertion authentifiée, 2 000 caractères maximum, identité de l’auteur déterminée par la session. Les comptes retirés n’ont plus accès.
 - `POST /api/onchat/media/webhook` : événements LiveKit signés ; vérification de signature avant toute écriture. Rapproche SID/admission/départ et rejette une connexion non admise ou retirée.
-- Les commandes de parole, retrait, silence global et fin synchronisent le serveur média. Les révocations et arrêts média précèdent la confirmation en base ; les autorisations de publication ne sont accordées qu’après autorisation en base. Une panne de contrôle reste une erreur, pas un faux succès.
+- Les commandes de parole, retrait, silence global et fin synchronisent le serveur média. Le silence global ne coupe que les microphones et conserve les caméras, présentations et droits de scène. Les révocations et arrêts média précèdent la confirmation en base ; les autorisations de publication ne sont accordées qu’après autorisation en base. Une panne de contrôle reste une erreur, pas un faux succès.
 
 Migration manuelle : `migrations/20261102_onchat_meeting_media.sql`.
 
@@ -54,7 +54,7 @@ Ordre de mise en service : sauvegarde/contrôle du schéma ; application volonta
 ## Vérifications effectuées
 
 1. Serveur LiveKit **réel** local en conteneur, clés éphémères, PostgreSQL/PGlite isolé et SDK RTC natif Node : **105 sessions connectées simultanément**, compteur confirmé par l’API du serveur, JWT/admissions et webhooks signés vérifiés. Un flux vidéo encodé de vérification a traversé le SFU jusqu’à un autre client. Les 105 sessions ne constituent pas un test de 105 caméras physiques.
-2. Essai réel complémentaire à trois sessions après les changements de modération : autorisation/retrait de publication, expulsion, rejet de réadmission et fin de salle, discussion persistée et départ par SID.
+2. Essai réel complémentaire à trois sessions après les changements de modération : autorisation/retrait de publication, silence global d’une véritable piste micro sans révocation du droit de publier, expulsion, rejet de réadmission et fin de salle, discussion persistée et départ par SID.
 3. Fonction d’admission réelle sur base isolée : limite de huit en maillage, admission supplémentaire en SFU, limite de 250 vérifiée avant PIN/débit et refus des membres retirés. Un départ HTTP ancien ne modifie pas une session SFU plus récente.
 4. Composant web réel dans un banc de test temporaire : permutation scène/vignette, conservation de l’ancienne scène, grille de six tuiles paginée et priorité de présentation. Hook SFU : audio indépendant, vidéo limitée à la fenêtre visible, qualité scène/vignettes. Ces bancs utilisent des doublures hors Git ; ils ne sont pas des captures d’écran sur appareil physique.
 5. Configuration Compose validée, syntaxe du serveur WS vérifiée, compilation Next.js et builds Android debug/release. Les contrôles TypeScript sont ciblés sur les fichiers changés ; les erreurs globales historiques et le fait que le build Next ignore types/lint restent ceux documentés dans les livraisons précédentes.

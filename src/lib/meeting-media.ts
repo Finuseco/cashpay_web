@@ -1,4 +1,4 @@
-import {AccessToken,RoomServiceClient} from 'livekit-server-sdk';
+import {AccessToken,RoomServiceClient,TrackSource} from 'livekit-server-sdk';
 import {db} from '@/lib/db';
 import {MeetingAccessError} from '@/lib/meeting-access';
 export function sfuConfigured(){return Boolean(process.env.LIVEKIT_URL&&process.env.LIVEKIT_API_KEY&&process.env.LIVEKIT_API_SECRET);}
@@ -31,3 +31,10 @@ export async function syncMediaPermission(code:string,userId:number,enabled:bool
 }
 export async function removeMediaParticipant(code:string,userId:number){if(sfuConfigured())await mediaService().removeParticipant(mediaRoomName(code),String(userId),{revokeTokenTs:BigInt(Math.floor(Date.now()/1000))}).catch((error:any)=>{if(error?.status!==404&&error?.code!=='not_found')throw error;});}
 export async function endMediaRoom(code:string){if(sfuConfigured())await mediaService().deleteRoom(mediaRoomName(code)).catch((error:any)=>{if(error?.status!==404&&error?.code!=='not_found')throw error;});}
+
+/** A global microphone mute must not revoke camera or presentation permissions. */
+export async function muteMediaMicrophones(code:string,exceptUserId:number){
+ if(!sfuConfigured())return;
+ const service=mediaService(),participants=await service.listParticipants(mediaRoomName(code));
+ for(const participant of participants)if(participant.identity!==String(exceptUserId))for(const track of participant.tracks)if(track.source===TrackSource.MICROPHONE&&!track.muted)await service.mutePublishedTrack(mediaRoomName(code),participant.identity,track.sid,true);
+}

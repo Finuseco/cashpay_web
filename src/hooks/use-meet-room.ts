@@ -263,6 +263,10 @@ export function useMeshMeetRoom(meetCode: string, withVideo: boolean) {
             const { event, data } = msg || {};
             if (event === 'meet.updated') {
                 window.dispatchEvent(new CustomEvent('onchat-meeting-updated', { detail: data }));
+            } else if(event==='meet.mute'&&data?.meetCode===meetCode){
+                desiredMicRef.current=false;localRef.current?.getAudioTracks().forEach(track=>{track.enabled=false;});
+                if(localRef.current)setLocalStream(new MediaStream(localRef.current.getTracks()));
+                pcs.current.forEach((_pc,id)=>signal(id,{type:'media-state',microphoneEnabled:false}));
             } else if(event==='meet.kicked'){
                 leave();setError('L’organisateur a retiré votre accès à cette réunion.');
             } else if (event === 'meet.ended') {

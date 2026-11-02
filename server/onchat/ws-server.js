@@ -703,7 +703,11 @@ async function listenForMessages() {
                 return;
             }
             if (notification.channel === 'onchat_meetings') {
-                try { const code = normalizeMeetCode(JSON.parse(notification.payload).meetCode); if (code) await broadcastMeetingState(code); }
+                try {
+                    const payload=JSON.parse(notification.payload),code=normalizeMeetCode(payload.meetCode);
+                    if(code&&payload.muteAll===true){const members=await pool.query('SELECT p.user_id FROM meeting_participants p JOIN meetings m ON m.id=p.meeting_id WHERE m.meeting_provider_id=$1 AND p.left_at IS NULL AND p.removed_at IS NULL AND p.user_id<>$2',[code,Number(payload.exceptUserId)]);for(const row of members.rows)sendToUser(row.user_id,'meet.mute',{meetCode:code});}
+                    if(code)await broadcastMeetingState(code);
+                }
                 catch (error) { console.error('[ONCHAT WS MEETING]', error.message); }
                 return;
             }

@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { MeetingAccessError } from '@/lib/meeting-access';
-import {syncMediaPermission,endMediaRoom,removeMediaParticipant} from '@/lib/meeting-media';
+import {syncMediaPermission,endMediaRoom,removeMediaParticipant,muteMediaMicrophones} from '@/lib/meeting-media';
 export async function controlMeeting(code:string,userId:number,action:'speech'|'hand'|'end'|'mute-all'|'kick',targetUserId?:number,enabled=false){
  const connection=await db.getConnection();
  try{
@@ -16,9 +16,7 @@ export async function controlMeeting(code:string,userId:number,action:'speech'|'
    await connection.query("UPDATE meetings SET status='ended',ended_at=COALESCE(ended_at,NOW()) WHERE id=$1",[meeting.id]);
    await connection.query('UPDATE meeting_participants SET left_at=NOW() WHERE meeting_id=$1 AND left_at IS NULL',[meeting.id]);
   }else if(action==='mute-all'){
-   const active=await connection.query('SELECT user_id FROM meeting_participants WHERE meeting_id=$1 AND user_id<>$2 AND left_at IS NULL',[meeting.id,userId]);
-   for(const row of active.rows)await syncMediaPermission(code,Number(row.user_id),false);
-   await connection.query('UPDATE meeting_participants SET can_speak=FALSE,raise_hand=FALSE WHERE meeting_id=$1 AND user_id<>$2 AND left_at IS NULL',[meeting.id,userId]);
+   await muteMediaMicrophones(code,userId);
   }else{
    if(action==='speech'&&!enabled)await syncMediaPermission(code,Number(targetUserId),false);
    if(action==='kick')await removeMediaParticipant(code,Number(targetUserId));
@@ -27,7 +25,7 @@ export async function controlMeeting(code:string,userId:number,action:'speech'|'
     :await connection.query('UPDATE meeting_participants SET raise_hand=$1 WHERE meeting_id=$2 AND user_id=$3 AND left_at IS NULL RETURNING id',[enabled,meeting.id,userId]);
    if(!updated.rows.length)throw new MeetingAccessError(404,'PARTICIPANT_NOT_FOUND','Participant actif introuvable.');
   }
-  await connection.query("SELECT pg_notify('onchat_meetings',$1)",[JSON.stringify({meetCode:code})]);
+  await connection.query("SELECT pg_notify('onchat_meetings',$1)",[JSON.stringify({meetCode:code,...(action==='mute-all'?{muteAll:true,exceptUserId:userId}:{})})]);
   await connection.query('COMMIT');
   // Grants fail closed: the database authorizes first, then the SFU permits publication.
   if(action==='speech'&&enabled)await syncMediaPermission(code,Number(targetUserId),true);
