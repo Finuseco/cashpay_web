@@ -172,7 +172,7 @@ export async function GET(
           (video.file_path
             ? `${BASE_URL}${video.file_path}`
             : null),
-        thumbnailUrl: video.thumbnail_url,
+        thumbnailUrl: video.thumbnail_url || `${BASE_URL}/api/v1/media/videos/${video.id}/thumbnail`,
         durationSeconds: video.duration_seconds,
         visibility: video.visibility,
         createdAt: video.created_at,

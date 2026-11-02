@@ -181,7 +181,7 @@ export async function GET(request: NextRequest) {
                 INNER JOIN users u
                     ON u.id = uf.follower_user_id
                 WHERE uf.followed_user_id = $1
-                ORDER BY uf.created_at DESC, uf.id DESC
+                ORDER BY uf.created_at DESC
                 `,
                 [userId]
             );
@@ -216,7 +216,7 @@ export async function GET(request: NextRequest) {
                 INNER JOIN users u
                     ON u.id = uf.followed_user_id
                 WHERE uf.follower_user_id = $1
-                ORDER BY uf.created_at DESC, uf.id DESC
+                ORDER BY uf.created_at DESC
                 `,
                 [userId]
             );

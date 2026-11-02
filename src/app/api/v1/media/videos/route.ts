@@ -1,3 +1,4 @@
+import {generateVideoThumbnail} from '@/lib/video-thumbnail';
 import { insertPublishedVideo } from '@/lib/video-sounds';
 import { verifiedVideoDuration, VideoPolicyError } from '@/lib/video-policy';
 import { NextRequest, NextResponse } from "next/server";
@@ -207,7 +208,7 @@ export async function POST(request: NextRequest) {
     }
 
     const thumbnailUrlRaw = formData.get("thumbnailUrl");
-    const thumbnailUrl =
+    let thumbnailUrl =
       typeof thumbnailUrlRaw === "string" && thumbnailUrlRaw.trim()
         ? thumbnailUrlRaw.trim()
         : null;
@@ -238,6 +239,7 @@ export async function POST(request: NextRequest) {
     await fs.writeFile(absoluteFilePath, buffer);
 
     const fileUrl = `${BASE_URL}/${relativeDirectory}/${fileName}`;
+    if(!thumbnailUrl){const posterName=`${fileName}.jpg`;if(await generateVideoThumbnail(absoluteFilePath,path.join(absoluteDirectory,posterName)))thumbnailUrl=`${BASE_URL}/${relativeDirectory}/${posterName}`;}
 
     const result = await insertPublishedVideo(
       `
@@ -455,7 +457,7 @@ export async function GET(request: NextRequest) {
         (row.file_path
           ? `${BASE_URL}${row.file_path}`
           : null),
-      thumbnailUrl: row.thumbnail_url,
+      thumbnailUrl: row.thumbnail_url || `${BASE_URL}/api/v1/media/videos/${row.id}/thumbnail`,
       durationSeconds: row.duration_seconds,
       visibility: row.visibility,
       createdAt: row.created_at,
