@@ -326,6 +326,10 @@ async function broadcastMeetingState(code) {
     }
     const { rows: permissions } = await pool.query(`SELECT mp.user_id, mp.can_speak, mp.is_host FROM meeting_participants mp
         JOIN meetings m ON m.id = mp.meeting_id WHERE m.meeting_provider_id = $1 AND mp.left_at IS NULL`, [code]);
+    const activeIds=new Set(permissions.map(row=>Number(row.user_id)));
+    for(const id of Array.from(room.keys()))if(!activeIds.has(id))for(const socket of Array.from(room.get(id)||[])){
+        send(socket,'meet.kicked',{meetCode:code});leaveMeetRoom(code,{id},socket);
+    }
     for (const peerId of room.keys()) for (const permission of permissions) sendToMeetUser(code, peerId, 'meet.permissions', {
         meetCode: code, userId: Number(permission.user_id), canSpeak: Boolean(permission.can_speak || permission.is_host),
     });
@@ -631,6 +635,10 @@ async function listenForMessages() {
         client.on('error', retry);
         client.on('end', retry);
         client.on('notification', async (notification) => {
+            if(notification.channel==='onchat_meeting_chat'){
+                try{const data=JSON.parse(notification.payload);const recipients=await pool.query('SELECT p.user_id FROM meeting_participants p JOIN meetings m ON m.id=p.meeting_id WHERE m.meeting_provider_id=$1 AND p.left_at IS NULL AND p.removed_at IS NULL',[data.meetCode]);for(const row of recipients.rows)sendToUser(row.user_id,'meet.chat.created',data);}catch(error){console.error('[Meeting chat]',error.code||error.message);}return;
+            }
+
             if(notification.channel==='onchat_social'){
                 try{
                     const data=JSON.parse(notification.payload);
@@ -716,6 +724,7 @@ async function listenForMessages() {
         });
         await client.query('LISTEN cashpay_notifications');
         await client.query('LISTEN onchat_social');
+        await client.query('LISTEN onchat_meeting_chat');
         await client.query('LISTEN onchat_receipts');
         await client.query('LISTEN onchat_calls');
         await client.query('LISTEN inter_claim_activity');

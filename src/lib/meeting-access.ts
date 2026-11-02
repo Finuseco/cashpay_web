@@ -72,7 +72,13 @@ export async function admitMeeting(code: string, user: User, body: { pin?: strin
         await connection.query('BEGIN');
         // Serializes admission, tariff changes and concurrent retries for this meeting.
         const meeting = await getMeeting(connection, code, true);
+        const removed=await connection.query('SELECT 1 FROM meeting_participants WHERE meeting_id=$1 AND user_id=$2 AND removed_at IS NOT NULL',[meeting.id,user.id]);
+        if(removed.rows.length)throw new MeetingAccessError(403,'PARTICIPANT_REMOVED','L’organisateur a retiré votre accès à cette réunion.');
         let access = await quote(connection, meeting, user, body.currency);
+        const {sfuConfigured,mediaCapacity}=await import('@/lib/meeting-media');
+        const capacity=sfuConfigured()?mediaCapacity():8;
+        const count=await connection.query('SELECT COUNT(*)::int AS total FROM meeting_participants WHERE meeting_id=$1 AND left_at IS NULL AND user_id<>$2',[meeting.id,user.id]);
+        if(count.rows[0].total>=capacity)throw new MeetingAccessError(409,'MEETING_FULL','La réunion a atteint sa capacité de participation.');
         let charged = false;
         if (access.requiresTicket) {
             const { rows } = await connection.query(`SELECT id FROM tickets WHERE event_id = $1 AND user_id = $2 AND ticket_code = $3 AND status IN ('valid', 'used') FOR UPDATE`, [access.eventId, user.id, String(body.ticketCode || '').trim()]);

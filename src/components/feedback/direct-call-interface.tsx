@@ -33,6 +33,8 @@ function ConnectedCall({callId,context}:{callId:string;context:any}) {
  const [muted,setMuted]=useState(false),[camera,setCamera]=useState(Boolean(context.call.is_video)),[speaker,setSpeaker]=useState(false),[elapsed,setElapsed]=useState(0),[error,setError]=useState(''),[invite,setInvite]=useState(false),[wallet,setWallet]=useState(''),[busy,setBusy]=useState(false),[conference,setConference]=useState(Boolean(context.call.is_conference));
  const joinedAt=useRef<number|null>(null),closing=useRef(false);
  const others=room.peers, connected=others.some(peer=>peer.state==='connected');
+ const visibleIds=others.map(peer=>String(peer.userId)).join(',');
+ useEffect(()=>{room.setVisibleTracks?.(visibleIds?visibleIds.split(','):[],visibleIds.split(',')[0]||'');},[visibleIds,room.setVisibleTracks]);
  const caller=Number(context.call.caller_id)===Number(context.selfId);
  const name=caller?context.call.receiver_name:context.call.caller_name;
  const avatar=caller?context.call.receiver_photo:context.call.caller_photo;

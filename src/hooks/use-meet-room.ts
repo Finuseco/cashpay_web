@@ -1,6 +1,7 @@
 'use client';
 
 import { openOnChatSocket, whenOnChatSocketOpen, onChatSocketAddress } from '@/lib/onchat-browser-socket';
+import {useSfuMeetRoom} from '@/hooks/use-sfu-meet-room';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
@@ -14,6 +15,10 @@ export interface RemotePeer {
     userId: number;
     name?: string;
     avatar?: string | null;
+    microphoneEnabled?: boolean;
+    isSpeaking?: boolean;
+    screenStream?: MediaStream | null;
+    isScreenSharing?: boolean;
     cameraEnabled?: boolean;
     stream: MediaStream | null;
     state: RTCPeerConnectionState | 'new';
@@ -50,7 +55,7 @@ async function acquireMedia(constraints:MediaStreamConstraints):Promise<MediaStr
  finally{clearTimeout(timer!);}
 }
 
-export function useMeetRoom(meetCode: string, withVideo: boolean) {
+export function useMeshMeetRoom(meetCode: string, withVideo: boolean) {
     const [canSpeak, setCanSpeak] = useState(false);
     const permissionsRef = useRef<Map<number, boolean>>(new Map());
     const selfIdRef = useRef<number | null>(null);
@@ -106,8 +111,9 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             if (existing) return existing;
             const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
             pcs.current.set(userId, pc);
-            localRef.current?.getTracks().forEach((t) => pc.addTrack(t, localRef.current!));
-            if (!localRef.current?.getVideoTracks().length) pc.addTransceiver('video', { direction: 'sendrecv' });
+            const video=screenRef.current?.getVideoTracks()||localRef.current?.getVideoTracks()||[];
+            [...(localRef.current?.getAudioTracks()||[]),...video].forEach(track=>pc.addTrack(track,screenRef.current||localRef.current!));
+            if (!video.length) pc.addTransceiver('video', { direction: 'sendrecv' });
             pc.onicecandidate = (e) => {
                 if (e.candidate) signal(userId, { type: 'ice', candidate: e.candidate.toJSON() });
             };
@@ -134,7 +140,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             signal(userId, { type: 'offer', sdp: pc.localDescription });
-            signal(userId, { type: 'media-state', cameraEnabled: desiredCameraRef.current });
+            signal(userId, { type: 'media-state', cameraEnabled: desiredCameraRef.current, microphoneEnabled:desiredMicRef.current&&canSpeakRef.current, screenSharing:Boolean(screenRef.current) });
         },
         [createPc, signal]
     );
@@ -150,7 +156,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
     const handleSignal = useCallback(
         async (from: number, payload: any) => {
             try {
-                if (payload?.type === 'media-state') { updatePeer(from, { cameraEnabled: payload.cameraEnabled === true }); return; }
+                if (payload?.type === 'media-state') { updatePeer(from, {...(typeof payload.cameraEnabled==='boolean'?{cameraEnabled:payload.cameraEnabled}:{}),...(typeof payload.screenSharing==='boolean'?{isScreenSharing:payload.screenSharing}:{}),...(typeof payload.microphoneEnabled==='boolean'?{microphoneEnabled:payload.microphoneEnabled}:{})}); return; }
                 if (payload?.type === 'offer') {
                     const pc = createPc(from);
                     await pc.setRemoteDescription(payload.sdp);
@@ -158,7 +164,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
                     const answer = await pc.createAnswer();
                     await pc.setLocalDescription(answer);
                     signal(from, { type: 'answer', sdp: pc.localDescription });
-                    signal(from, { type: 'media-state', cameraEnabled: desiredCameraRef.current });
+                    signal(from, { type: 'media-state', cameraEnabled: desiredCameraRef.current, microphoneEnabled:desiredMicRef.current&&canSpeakRef.current, screenSharing:Boolean(screenRef.current) });
                 } else if (payload?.type === 'answer') {
                     const pc = pcs.current.get(from);
                     if (pc) {
@@ -187,7 +193,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
         closedRef.current = true;
         joinEpochRef.current += 1;
         sendWs('meet.leave', { meetCode });
-        fetch(`/api/v1/meetings/${encodeURIComponent(meetCode)}/leave`, { method: 'POST', keepalive: true }).catch(() => undefined);
+        if(socketRef.current||localRef.current)fetch(`/api/v1/meetings/${encodeURIComponent(meetCode)}/leave`, { method: 'POST', keepalive: true }).catch(() => undefined);
         socketRef.current?.close();
         socketRef.current = null;
         pcs.current.forEach((pc) => pc.close());
@@ -257,6 +263,8 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             const { event, data } = msg || {};
             if (event === 'meet.updated') {
                 window.dispatchEvent(new CustomEvent('onchat-meeting-updated', { detail: data }));
+            } else if(event==='meet.kicked'){
+                leave();setError('L’organisateur a retiré votre accès à cette réunion.');
             } else if (event === 'meet.ended') {
                 leave(); setError('L’organisateur a terminé la réunion.');
             } else if (event === 'meet.permissions') {
@@ -270,9 +278,12 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
                     localRef.current?.getVideoTracks().forEach(track => { track.enabled = Boolean(data.canSpeak) && desiredCameraRef.current; });
                     if (!data.canSpeak) {
                         localRef.current?.getVideoTracks().forEach(track => { track.enabled = false; });
-                        screenRef.current?.getTracks().forEach(track => track.stop());
+                        desiredMicRef.current=false;desiredCameraRef.current=false;
+                        screenRef.current?.getTracks().forEach(track => track.stop());screenRef.current=null;setScreenStream(null);setIsScreenSharing(false);
+                        (window as any).OnChatAudio?.mediaStopped?.();
                     }
                 }
+                if(!data.canSpeak)updatePeer(userId,{cameraEnabled:false,microphoneEnabled:false,isScreenSharing:false});
                 pcs.current.get(userId)?.getReceivers().forEach(receiver => { if (receiver.track) receiver.track.enabled = Boolean(data.canSpeak); });
             } else if (event === 'meet.peers') {
                 clearTimeout(admissionDeadline);
@@ -322,10 +333,12 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
     const setMicEnabled = useCallback((enabled: boolean) => {
         desiredMicRef.current = enabled;
         localRef.current?.getAudioTracks().forEach((t) => (t.enabled = enabled && canSpeakRef.current));
-    }, []);
+        pcs.current.forEach((_pc,id)=>signal(id,{type:'media-state',microphoneEnabled:enabled&&canSpeakRef.current}));
+    }, [signal]);
     const facingRef = useRef<'user'|'environment'>('user');
     const switchCamera = useCallback(async (enabled: boolean, flip = false) => {
         if (!canSpeakRef.current || !localRef.current) return false;
+        if(screenRef.current){setError('Arrêtez le partage d’écran avant de changer de caméra.');return false;}
         try {
             if (!enabled) {
                 desiredCameraRef.current = false;
@@ -354,6 +367,7 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             }
             desiredCameraRef.current = enabled;
             localRef.current.getVideoTracks().forEach(track => { track.enabled = enabled; });
+            if(enabled)for(const pc of pcs.current.values()){const sender=pc.getTransceivers().find(item=>item.receiver.track.kind==='video')?.sender;if(sender)await sender.replaceTrack(localRef.current.getVideoTracks()[0]||null);}
             pcs.current.forEach((_pc,id) => signal(id,{type:'media-state',cameraEnabled:enabled}));
             return true;
         } catch { setError('Impossible d’activer cette caméra. Vérifiez les autorisations.'); return false; }
@@ -363,18 +377,20 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
 
     const replaceVideoTrack = useCallback((track: MediaStreamTrack | null) => {
         pcs.current.forEach((pc) => {
-            const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
+            const sender = pc.getTransceivers().find(item=>item.receiver.track.kind==='video')?.sender;
             if (sender) sender.replaceTrack(track).catch(() => undefined);
         });
     }, []);
 
+    const [screenStream,setScreenStream]=useState<MediaStream|null>(null);
     const toggleScreenShare = useCallback(async () => {
         if (!canSpeakRef.current) return;
         if (screenRef.current) {
             screenRef.current.getTracks().forEach((t) => t.stop());
             screenRef.current = null;
             replaceVideoTrack(localRef.current?.getVideoTracks()[0] ?? null);
-            setIsScreenSharing(false);
+            setIsScreenSharing(false);setScreenStream(null);
+            pcs.current.forEach((_pc,id)=>signal(id,{type:'media-state',cameraEnabled:desiredCameraRef.current,screenSharing:false}));
             return;
         }
         try {
@@ -384,14 +400,38 @@ export function useMeetRoom(meetCode: string, withVideo: boolean) {
             track.onended = () => {
                 screenRef.current = null;
                 replaceVideoTrack(localRef.current?.getVideoTracks()[0] ?? null);
-                setIsScreenSharing(false);
+                setIsScreenSharing(false);setScreenStream(null);
+                pcs.current.forEach((_pc,id)=>signal(id,{type:'media-state',cameraEnabled:desiredCameraRef.current,screenSharing:false}));
             };
             replaceVideoTrack(track);
-            setIsScreenSharing(true);
-        } catch { /* annulé par l'utilisateur */ }
-    }, [replaceVideoTrack]);
+            setScreenStream(screen);setIsScreenSharing(true);
+            pcs.current.forEach((_pc,id)=>signal(id,{type:'media-state',cameraEnabled:true,screenSharing:true}));
+        } catch { setError('Le partage d’écran a été annulé ou n’est pas disponible sur cet appareil.'); }
+    }, [replaceVideoTrack,signal]);
 
     useEffect(() => () => { if (!closedRef.current) leave(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return { status, error, canSpeak, peers, localStream, isScreenSharing, join, leave, setMicEnabled, setCameraEnabled, flipCamera, toggleScreenShare };
+    return { status, error, canSpeak, peers, localStream, screenStream, isScreenSharing, join, leave, setMicEnabled, setCameraEnabled, flipCamera, toggleScreenShare };
+}
+
+/** Admission is complete before transport selection; a media token never bypasses billing. */
+export function useMeetRoom(meetCode:string,withVideo:boolean){
+ const mesh=useMeshMeetRoom(meetCode,withVideo),sfu=useSfuMeetRoom(meetCode,withVideo);
+ const [transport,setTransport]=useState<'mesh'|'livekit'>('mesh'),[connecting,setConnecting]=useState(false),[connectionError,setConnectionError]=useState<string|null>(null);
+ const generation=useRef(0),transportRef=useRef<'mesh'|'livekit'>('mesh');
+ async function join(){
+  const epoch=++generation.current;setConnecting(true);setConnectionError(null);
+  try{
+   const response=await fetch(`/api/v1/meetings/${encodeURIComponent(meetCode)}/connection`,{method:'POST',cache:'no-store',signal:AbortSignal.timeout(20000)});const ticket=await response.json();
+   if(!response.ok||!ticket.success)throw new Error(ticket.error||'Admission média indisponible.');
+   if(epoch!==generation.current)return;
+   const mode=ticket.transport==='livekit'?'livekit':'mesh';transportRef.current=mode;setTransport(mode);
+   if(mode==='livekit')await sfu.join(ticket);else await mesh.join();
+  }catch(error){if(epoch===generation.current)setConnectionError((error as Error).message);}
+  finally{if(epoch===generation.current)setConnecting(false);}
+ }
+ function leave(){generation.current++;if(transportRef.current==='livekit'){sfu.leave();void fetch(`/api/v1/meetings/${encodeURIComponent(meetCode)}/leave`,{method:'POST',keepalive:true});}else mesh.leave();}
+ useEffect(()=>()=>{generation.current++;},[]);
+ const active=transport==='livekit'?sfu:mesh;
+ return {...active,setVisibleTracks:transport==='livekit'?sfu.setVisibleTracks:undefined,transport,status:connectionError?'error' as const:connecting?'connecting' as const:active.status,error:connectionError||active.error,join,leave};
 }
