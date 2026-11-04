@@ -191,7 +191,7 @@ export async function toggleProductStatus(productId: string, currentStatus: bool
 
 export async function getCountryTvRequests(countryName: string) {
     const scope = await regionalScope(countryName);
-    const { rows } = await db.query(`
+    try { const { rows } = await db.query(`
         SELECT s.*, u.full_name, t.currency
         FROM subscriptions s
         JOIN users u ON s.user_id = u.id
@@ -200,6 +200,7 @@ export async function getCountryTvRequests(countryName: string) {
         ORDER BY s.created_at DESC
     `, scope.values);
     return rows;
+    }catch(error:any){if(error.code==='42P01')throw new Error('Schéma des abonnements absent : exécutez la migration 20261104_service_subscriptions.sql dans Adminer.');throw error;}
 }
 
 /**

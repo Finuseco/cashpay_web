@@ -8,7 +8,7 @@ import { calculateTransactionFee } from '@/lib/actions/wallet.actions';
 import { verifyUserPin } from '@/lib/actions/auth.actions';
 import { confirmWithdrawal } from '@/lib/actions/agent.actions';
 import { countries } from '@/lib/countries';
-import { createSubscription } from '@/lib/actions/subscription.actions';
+import { createVerifiedSubscription as createSubscription } from '@/lib/subscription-settlement';
 import { purchaseCard } from '@/lib/actions/card.actions';
 import config from '@/config';
 import { getExchangeRatesForCountry } from '@/lib/actions/exchange.actions';
@@ -337,7 +337,9 @@ export async function executeTvSubscription(
   smartcard: string,
   packageData: any,
   currency: string,
-  pin: string
+  pin: string,
+  maxDebit?: number,
+  requestKey?: string
 ) {
   const verification = await verifyUserPin(user.id, pin);
   if (!verification.success) {
@@ -464,7 +466,9 @@ export async function executeTvSubscription(
       };
     }
 
+    if(maxDebit!==undefined&&(!Number.isFinite(maxDebit)||maxDebit<=0||paymentAmount>maxDebit))return {success:false,error:'Le tarif a changé. Actualisez et confirmez le nouveau montant.'};
     return await createSubscription({
+      requestKey,
       user,
       serviceName: `Abonnement ${pkg.provider_name || operator} - ${pkg.package_name}`,
       amount: paymentAmount,
