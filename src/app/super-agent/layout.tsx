@@ -7,7 +7,7 @@ import {
     ArrowRightLeft, LifeBuoy, Globe, Tv, Landmark, Wallet, Coins, Briefcase,
     ChevronDown, ShieldCheck, History, UserPlus, Menu, PackageSearch, Handshake, PiggyBank, Megaphone, Ticket, Plane, Link2
 } from 'lucide-react';
-import { getAuthenticatedUser } from '@/lib/actions/user.actions';
+
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
@@ -50,25 +50,20 @@ export default function SuperAgentLayout({ children }: { children: React.ReactNo
     const { openAlert } = useAlertDialog();
 
     useEffect(() => {
-        const checkAuth = async () => {
-            const fetchedUser = await getAuthenticatedUser();
-            const allowedRoles = ['SuperAgent', 'SubSuperAgent', 'Admin'];
-            if (!fetchedUser || !allowedRoles.includes(fetchedUser.role)) {
-                openAlert({
-                    title: 'Accès Refusé',
-                    description: "Vous n'avez pas les droits de gestionnaire pour accéder à cet espace.",
-                    variant: 'error',
-                    onClose: () => router.replace('/dashboard')
-                });
-                return;
-            }
-            setUser(fetchedUser);
-            setIsLoading(false);
-        };
-        checkAuth().catch(() => { setLoadError('Impossible de vérifier la session.'); setIsLoading(false); });
-    }, [router, openAlert]);
+        const controller=new AbortController();let active=true;
+        const timeout=setTimeout(()=>controller.abort(),20000);
+        setIsLoading(true);setLoadError('');
+        fetch('/api/v1/management/session',{cache:'no-store',signal:controller.signal}).then(async response=>{
+            const data=await response.json();
+            if(!response.ok||!data.success)throw new Error(data.error||'Session indisponible.');
+            if(active)setUser(data.user);
+        }).catch(error=>{if(active)setLoadError(controller.signal.aborted?'La vérification de session a pris trop de temps. Réessayez.':error.message);})
+          .finally(()=>{clearTimeout(timeout);if(active)setIsLoading(false);});
+        return()=>{active=false;clearTimeout(timeout);controller.abort();};
+    }, []);
 
     const groups = [
+        {title:"État des services",links:[{href:"/super-agent/diagnostics",label:"Diagnostic des services",icon:ShieldCheck}]},
         {
             title: "Commandes & Marché",
             links: [
@@ -126,7 +121,7 @@ export default function SuperAgentLayout({ children }: { children: React.ReactNo
     ];
 
     if (loadError) return <div role="alert" className="p-8">{loadError} <Button onClick={() => window.location.reload()}>Réessayer</Button></div>;
-    if (!isLoading && !user) return null;
+    if (!isLoading && !user) return <main className="p-8"><p role="alert">Session de gestion indisponible.</p><Link href="/login">Se reconnecter</Link></main>;
     if (isLoading) {
         return <div className="flex h-screen w-full items-center justify-center bg-zinc-900"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
     }

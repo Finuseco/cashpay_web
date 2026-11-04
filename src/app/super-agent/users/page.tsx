@@ -1,4 +1,5 @@
 'use client';
+import {KycImage} from '@/components/super-agent/kyc-image';
 
 import { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
@@ -471,7 +472,7 @@ export default function SuperAgentUsers() {
                                             <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3">Signature</h4>
                                             <div className="aspect-video bg-white rounded-lg flex items-center justify-center p-4 border-2 border-zinc-800">
                                                 {userKyc?.signature_image ? (
-                                                    <img src={userKyc.signature_image} alt="Signature" className="max-h-full object-contain" />
+                                                    <KycImage src={userKyc.signature_image} label="Signature"/>
                                                 ) : <p className="text-zinc-400 italic">Non disponible.</p>}
                                             </div>
                                         </div>
@@ -482,7 +483,7 @@ export default function SuperAgentUsers() {
                                             <div className="space-y-4">
                                                 <div className="relative aspect-[1.6/1] bg-zinc-800 rounded-lg overflow-hidden border-2 border-zinc-700">
                                                     {userKyc?.document?.id_front_image ? (
-                                                        <Image src={userKyc.document.id_front_image} alt="ID Front" fill className="object-cover" />
+                                                        <KycImage src={userKyc.document.id_front_image} label="Recto de la pièce d’identité"/>
                                                     ) : <div className="flex items-center justify-center h-full text-zinc-600"><UserIcon className="h-12 w-12"/></div>}
                                                     <div className="absolute top-2 left-2 bg-black/60 px-2 py-0.5 rounded text-[10px] font-bold">RECTO</div>
                                                 </div>
