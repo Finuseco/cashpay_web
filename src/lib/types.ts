@@ -73,7 +73,7 @@ export const SUPPORTED_LANGUAGES: SupportedLanguage[] = ['en', 'fr', 'es', 'pt',
 
 export interface User {
     id: number;
-    role: 'Client' | 'Agent' | 'Admin' | 'Seller' | 'Manager' | 'PartnerB2B' | 'Publisher' | 'Guarantor' | 'SuperAgent' | 'SubSuperAgent' | 'StationService';
+    role: 'Client' | 'Agent' | 'Admin' | 'Seller' | 'Manager' | 'PartnerB2B' | 'Publisher' | 'Guarantor' | 'SuperAgent' | 'SubSuperAgent' | 'InterAgent' | 'InterAgentSupervisor' | 'StationService';
     status: 'Active' | 'Inactive' | 'Suspended' | 'Pending';
     suspension_reason?: string | null;
     account_type: 'national' | 'diaspora' | 'business';
