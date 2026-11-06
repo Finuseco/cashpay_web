@@ -12,8 +12,9 @@ export function parseScan(value:string):any {
   let data:any;try{data=JSON.parse(text);}catch{throw new Error('QR JSON invalide.');}
   if(!data||Array.isArray(data)||!['POS_SALE','PRODUCT','PAYMENT_REQUEST','WALLET','BARCODE'].includes(data.type))throw new Error('Type de QR non pris en charge.');return data;
  }
- if(text.startsWith('cashpay:'))return {type:'WALLET',walletId:text.slice(8).split('?')[0]};
- if(/^[A-Z]{2}-?[0-9]{6,32}$/.test(text))return {type:'WALLET',walletId:text};
+ if(/^cashpay:/i.test(text))return {type:'WALLET',walletId:decodeURIComponent(text.replace(/^cashpay:(\/\/)?/i,'').split('?')[0])};
+ if(/^https?:/i.test(text)){let url:URL;try{url=new URL(text);}catch{throw new Error('Lien invalide.');}if(url.hostname!=='app.cashpay-all.com')throw new Error('Ce lien ne correspond pas à un code CashPay.');const wallet=url.searchParams.get('walletId')||url.searchParams.get('wallet');if(wallet)return {type:'WALLET',walletId:wallet};throw new Error('Lien de paiement non pris en charge.');}
+ if(/^[A-Z]{2,6}-?[0-9]{6,32}$/.test(text))return {type:'WALLET',walletId:text};
  if(/^[A-Za-z0-9._-]{3,80}$/.test(text))return {type:'BARCODE',barcode:text};
  throw new Error('Code non reconnu. Utilisez un QR CashPay ou un code-barres produit.');
 }
@@ -21,12 +22,12 @@ export async function lookupScan(value:string){
  const scan=parseScan(value);
  if(scan.type==='PRODUCT'||scan.type==='BARCODE'){
   const id=scan.type==='PRODUCT'?String(scan.productId||''):null;
-  const rows=await db.query(`SELECT p.id,p.name,p.selling_price,p.stock,p.barcode,p.agent_id,p.boutique_id,u.full_name AS seller_name,u.id_wallet AS seller_wallet_id,b.name AS boutique_name
+  const rows=await db.query(`SELECT p.id,p.name,p.selling_price,p.promotional_packages,p.stock,p.barcode,p.agent_id,p.boutique_id,u.full_name AS seller_name,u.id_wallet AS seller_wallet_id,b.name AS boutique_name
   FROM products p JOIN users u ON u.id=p.agent_id LEFT JOIN boutiques b ON b.id=p.boutique_id AND b.agent_id=p.agent_id
   WHERE LOWER(u.status)='active' AND ${id?'p.id::text=$1':'p.barcode=ANY($1::text[]) AND p.is_public=TRUE'} ORDER BY p.id LIMIT 51`,[id||[scan.barcode,...(/^\d{12}$/.test(scan.barcode)?['0'+scan.barcode]:/^0\d{12}$/.test(scan.barcode)?[scan.barcode.slice(1)]:[])]]);
   if(!rows.rows.length)throw new Error('Aucun article disponible pour ce code.');
   if(rows.rows.length>50)throw new Error('Code trop ambigu. Demandez le QR produit du magasin.');
-  return {type:'PRODUCTS',products:rows.rows.map(p=>({id:String(p.id),name:p.name,price:Number(p.selling_price),currency:'USD',stock:Number(p.stock),sellerWalletId:p.seller_wallet_id,sellerName:p.seller_name,boutiqueName:p.boutique_name||p.seller_name}))};
+  return {type:'PRODUCTS',products:rows.rows.map(p=>({id:String(p.id),name:p.name,price:Math.round(currentPrice({sellingPrice:p.selling_price,promotionalPackages:parse(p.promotional_packages)},1)*100)/100,currency:'USD',stock:Number(p.stock),sellerWalletId:p.seller_wallet_id,sellerName:p.seller_name,boutiqueName:p.boutique_name||p.seller_name}))};
  }
  if(scan.type==='WALLET'){
   const user=(await db.query("SELECT id_wallet,full_name FROM users WHERE id_wallet=$1 AND LOWER(status)='active'",[String(scan.walletId||'').trim()])).rows[0];
@@ -61,7 +62,7 @@ async function pricePayment(c:PoolClient,user:any,scan:any,paymentCurrency:strin
  }else throw new Error('Ce code ne permet pas un paiement.');
  if(Number(user.id)===Number(sale.sellerId))throw new Error('Vous ne pouvez pas vous payer vous-même.');
  let rate=1;if(paymentCurrency!==sale.currency){const fx=(await c.query('SELECT rate FROM exchange_rates WHERE country_code=$1 AND from_currency=$2 AND to_currency=$3',[countryToCode(user.country)||'GBL',sale.currency,paymentCurrency])).rows[0];rate=Number(fx?.rate);if(!Number.isFinite(rate)||rate<=0)throw new Error('Taux de change indisponible.');}
- const debitAmount=sale.amount*rate;const fee=Number(await calculateTransactionFee(debitAmount,paymentCurrency,'TR',user.country,c));if(!Number.isFinite(debitAmount)||!Number.isFinite(debitAmount+fee)||debitAmount+fee>Number.MAX_SAFE_INTEGER/100)throw new Error('Montant hors des limites de précision.');if(!Number.isFinite(fee)||fee<0)throw new Error('Frais indisponibles.');
+ const debitAmount=sale.amount*rate;const fee=sale.type==='POS_SALE'?0:Number(await calculateTransactionFee(debitAmount,paymentCurrency,'TR',user.country,c));if(!Number.isFinite(debitAmount)||!Number.isFinite(debitAmount+fee)||debitAmount+fee>Number.MAX_SAFE_INTEGER/100)throw new Error('Montant hors des limites de précision.');if(!Number.isFinite(fee)||fee<0)throw new Error('Frais indisponibles.');
  return {sale,paymentCurrency,debitAmount,fee,totalDebit:debitAmount+fee,rate};
 }
 function key(){if(!process.env.JWT_SECRET)throw new Error('Signature des devis non configurée.');return process.env.JWT_SECRET;}

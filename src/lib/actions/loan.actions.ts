@@ -800,7 +800,7 @@ export async function getAgentLoanRepaymentTarget(identifier:string,currency:str
       JOIN loans l ON l.user_id=u.id
       WHERE (u.id_wallet=$1 OR u.phone=$1 OR u.phone=$2 OR u.phone=$3)
         AND l.status='approved' AND l.remaining_balance>0
-        AND UPPER(l.currency)=UPPER($4)
+        AND ($4='' OR UPPER(l.currency)=UPPER($4))
       ORDER BY l.id DESC LIMIT 1
     `,[cleaned,cleaned,cleaned.startsWith('0')?`243${cleaned.slice(1)}`:`+${cleaned}`,String(currency||'').toUpperCase()]);
     if(!rows.length) return {success:false,error:'Client créancier ou prêt actif introuvable.'};
@@ -813,7 +813,7 @@ export async function getAgentLoanRepaymentTarget(identifier:string,currency:str
  * the agent's main wallet is debited, the client's active loan is reduced, and 7%
  * of the repayment amount is credited to the agent commission balance.
  */
-export async function repayLoanByAgent(args:{agentId:number;clientId:number;loanId:number;amount:number;currency:string;pin:string}):Promise<{success:boolean;error?:string;paid?:number;remaining?:number;commission?:number;currency?:string;reference?:string}> {
+export async function repayLoanByAgent(args:{agentId:number;clientId:number;loanId:number;amount:number;currency:string;pin:string;acceptedFee?:number;operationId?:string}):Promise<{success:boolean;error?:string;paid?:number;remaining?:number;commission?:number;currency?:string;reference?:string}> {
     const {agentId,clientId,loanId,pin}=args;
     const amount=roundMoney(args.amount);
     const currency=String(args.currency||'').toUpperCase();
@@ -824,9 +824,16 @@ export async function repayLoanByAgent(args:{agentId:number;clientId:number;loan
     const connection=await db.getConnection();
     try{
       await connection.query('BEGIN');
+      if (args.operationId) {
+        await connection.query('SELECT pg_advisory_xact_lock(hashtext($1))',['agent-loan:'+agentId+':'+args.operationId]);
+        const replay = await connection.query("SELECT reference_code,metadata FROM transactions WHERE sender_id=$1 AND status='Completed' AND metadata->>'agentLoanOperationId'=$2 LIMIT 1",[agentId,args.operationId]);
+        if (replay.rows.length) { const saved=replay.rows[0]; const data=typeof saved.metadata==='string'?JSON.parse(saved.metadata):saved.metadata;
+          await connection.query('COMMIT'); return {success:true,paid:Number(data.agentLoanPaid),remaining:Number(data.agentLoanRemaining),commission:Number(data.agentLoanCommission),currency:data.agentLoanCurrency,reference:saved.reference_code}; }
+      }
       const {rows:agentRows}=await connection.query('SELECT * FROM users WHERE id=$1 LIMIT 1 FOR UPDATE',[agentId]);
       if(!agentRows.length) throw new Error('Agent introuvable.');
       const agent=formatUser(agentRows[0]);
+      if (String(agent.role).toLowerCase() !== 'agent' || String(agent.status).toLowerCase() !== 'active') throw new Error('Un compte Agent actif est requis.');
       const {rows:clientRows}=await connection.query('SELECT * FROM users WHERE id=$1 LIMIT 1',[clientId]);
       if(!clientRows.length) throw new Error('Client introuvable.');
       const client=formatUser(clientRows[0]);
@@ -858,13 +865,14 @@ export async function repayLoanByAgent(args:{agentId:number;clientId:number;loan
         amount,
         currency,
         description:`Remboursement LoanMe pour ${client.full_name||client.first_name||'Client'}`,
-        metadata:{channel:'USSD',loan_id:loanId,client_id:clientId,method:'agent',commission_rate:commissionRate,commission_amount:commission},
+        metadata:{channel:args.operationId?'mobile':'USSD',agentLoanOperationId:args.operationId,loan_id:loanId,client_id:clientId,method:'agent',commission_rate:commissionRate,commission_amount:commission},
         referenceCode:reference,
         connection
       });
       if(!debitTx.success || !debitTx.transactionId) {
         throw new Error(debitTx.error||'Échec du débit du portefeuille agent.');
       }
+      if (args.acceptedFee !== undefined && Math.abs(Number(debitTx.fee)-args.acceptedFee)>0.000001) throw new Error('Frais modifiés. Actualisez et confirmez le devis.');
       const debitTransactionId=debitTx.transactionId;
 
       // createTransaction a déjà débité le Wallet principal avec les frais.
@@ -899,6 +907,7 @@ export async function repayLoanByAgent(args:{agentId:number;clientId:number;loan
       await connection.query(`UPDATE loans SET remaining_balance=GREATEST(0,remaining_balance-$1),status=CASE WHEN GREATEST(0,remaining_balance-$1)<=0 THEN 'repaid' ELSE status END WHERE id=$2`,[amount,loanId]);
       await connection.query(`INSERT INTO loan_repayments (loan_id,amount,type,transaction_id) VALUES ($1,$2,'repayment',$3)`,[loanId,amount,debitTransactionId]);
 
+      if (args.operationId) await connection.query('UPDATE transactions SET metadata=metadata || $2::jsonb WHERE id=$1',[debitTransactionId,JSON.stringify({agentLoanPaid:amount,agentLoanRemaining:newDebt,agentLoanCommission:commission,agentLoanCurrency:currency})]);
       await connection.query('COMMIT');
 
       const clientDebtMessage=newDebt>0.005

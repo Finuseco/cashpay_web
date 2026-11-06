@@ -7,7 +7,7 @@ import { db } from '../db';
 import { handleDbError } from './helpers';
 import { calculateTransactionFee } from './wallet.actions';
 import { createTransaction } from './transaction.actions';
-import { verifyCurrentUserPin } from './auth.actions';
+import { verifyCurrentUserPin, getAuthenticatedUser } from './user.actions';
 
 export interface AgentSubscription {
     id?: number;
@@ -44,7 +44,9 @@ export async function getAgentSubscription(userId: number): Promise<AgentSubscri
  * Active ou renouvelle un abonnement agent en débitant réellement le compte de l'utilisateur.
  * Calcule une période de 30 jours.
  */
-export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal', pin: string): Promise<{ success: boolean; error?: string }> {
+export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal', pin: string, acceptedFee?: number): Promise<{ success: boolean; error?: string }> {
+    const actor = await getAuthenticatedUser();
+    if (!actor || Number(actor.id) !== Number(userId)) return {success:false,error:'Session du titulaire requise.'};
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
@@ -53,6 +55,10 @@ export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal',
         const { rows: userRows } = await connection.query('SELECT * FROM users WHERE id = $1::integer FOR UPDATE', [userId]);
         if (userRows.length === 0) throw new Error('Utilisateur non trouvé.');
         const user = userRows[0] as User;
+
+        if (!['client','agent'].includes(String(user.role).toLowerCase()) || String(user.status).toLowerCase() !== 'active') throw new Error('Compte Client ou Agent actif requis.');
+        const subscription = await connection.query("SELECT status,current_period_end FROM agent_subscriptions WHERE user_id=$1 FOR UPDATE",[userId]);
+        if (subscription.rows.some(row => row.status === 'active' && new Date(row.current_period_end).getTime() > Date.now())) throw new Error('Votre abonnement est déjà actif. Aucun nouveau débit.');
 
         // 2. Vérifier le PIN
         const pinVerification = await verifyCurrentUserPin(pin);
@@ -64,9 +70,11 @@ export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal',
         const feeCode = plan === 'promo' ? 'AGENT_SUB_PROMO' : 'AGENT_SUB_NORMAL';
         const fee = await calculateTransactionFee(1, 'USD', feeCode, user.country, connection);
 
-        if (fee <= 0) {
+        if (!Number.isFinite(fee) || fee <= 0) {
             throw new Error(`Le tarif pour le plan '${plan}' n'est pas encore configuré pour votre pays.`);
         }
+
+        if (acceptedFee !== undefined && (!Number.isFinite(acceptedFee) || Math.abs(acceptedFee - fee) > 0.000001)) throw new Error('Tarif modifié. Actualisez et confirmez le nouveau montant.');
 
         // 4. Débiter le compte
         const transactionResult = await createTransaction({

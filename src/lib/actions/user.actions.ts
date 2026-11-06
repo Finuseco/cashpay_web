@@ -1,5 +1,6 @@
 'use server';
 
+import { contactPhone, contactCandidates } from '@/lib/contact-phone';
 import { blockedAccountMessage } from '@/lib/account-status';
 
 import type { User } from '../types';
@@ -18,7 +19,6 @@ import { UAParser } from 'ua-parser-js';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import type { PoolClient } from 'pg';
-import { setCardPin as setMarqetaPin } from '@/services/marqeta';
 import crypto from 'crypto';
 
 async function generateUniqueWalletId(agencyPrefix: string, connection: PoolClient): Promise<string> {
@@ -968,14 +968,34 @@ export async function checkContacts(phoneNumbers: string[]): Promise<{
 
 interface UpdateUserArgs {
     userId: number;
-    updates: Partial<Pick<User, 'first_name' | 'last_name' | 'profession' | 'activity_description' | 'address' | 'city' | 'profile_photo' | 'cover_photo' | 'full_name'>>;
+    pin?: string;
+    updates: Partial<Pick<User, 'first_name' | 'last_name' | 'profession' | 'activity_description' | 'address' | 'city' | 'profile_photo' | 'cover_photo' | 'full_name' | 'phone' | 'email' | 'language'>>;
 }
 
-export async function updateUser({ userId, updates }: UpdateUserArgs): Promise<{ success: boolean; user?: User; error?: string; }> {
+export async function updateUser({ userId, updates, pin }: UpdateUserArgs): Promise<{ success: boolean; user?: User; error?: string; }> {
+    const actor = await getAuthenticatedUser();
+    if (!actor || Number(actor.id) !== Number(userId)) return { success:false, error:'Session du titulaire requise.' };
+    const allowed = new Set(['first_name','last_name','full_name','phone','email','city','address','profession','activity_description','language','profile_photo','cover_photo']);
+    if (!updates || !Object.keys(updates).length || Object.keys(updates).some(key => !allowed.has(key) || typeof updates[key] !== 'string')) return { success:false, error:'Champ de profil non autorisé.' };
+    if (Object.keys(updates).some(key => !['profile_photo','cover_photo'].includes(key))) {
+        if (!pin || !(await verifyUserPin(Number(userId), pin)).success) return {success:false,error:'Code PIN incorrect ou manquant.'};
+    }
+    updates = { ...updates };
+    if (updates.phone !== undefined) {
+        const phone = contactPhone(updates.phone, actor.country);
+        if (!phone) return { success:false, error:'Numéro invalide. Utilisez l’indicatif international.' };
+        updates.phone = phone;
+    }
+    if (updates.email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.email)) return { success:false, error:'Adresse e-mail invalide.' };
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
 
+        if (updates.phone) {
+            await connection.query('SELECT pg_advisory_xact_lock(hashtext($1))',['profile-phone:'+updates.phone]);
+            const duplicates=await connection.query("SELECT phone,country FROM users WHERE id<>$1 AND REGEXP_REPLACE(phone,'[^0-9]','','g')=ANY($2::text[])",[userId,contactCandidates(updates.phone)]);
+            if(duplicates.rows.some(row=>contactPhone(row.phone,row.country)===updates.phone)) throw new Error('Ce numéro est déjà utilisé par un autre compte.');
+        }
         // Check if profile_photo or cover_photo are base64 and save them
         if (updates.profile_photo && updates.profile_photo.startsWith('data:image')) {
             const savedPath = await saveBase64Image(updates.profile_photo, 'avatars', `user_${userId}`);
@@ -999,7 +1019,7 @@ export async function updateUser({ userId, updates }: UpdateUserArgs): Promise<{
 
         const firstName = updates.first_name || existingUser.first_name;
         const lastName = updates.last_name || existingUser.last_name;
-        updates.full_name = `${firstName} ${lastName}`;
+        if (updates.first_name !== undefined || updates.last_name !== undefined) updates.full_name = [firstName, lastName].filter(Boolean).join(' ');
 
         const setClauses = Object.keys(updates).map((key, i) => `${key.toLowerCase()} = $${i + 1}`);
         const values = Object.values(updates);
@@ -1031,42 +1051,24 @@ interface UpdatePinArgs {
 }
 
 /**
- * Met à jour le code PIN de l'utilisateur et synchronise le changement avec ses cartes Marqeta.
+ * Met à jour le PIN du portefeuille ; les PIN des cartes disposent de leur propre API.
  */
 export async function updatePin({ userId, oldPin, newPin }: UpdatePinArgs): Promise<{ success: boolean; error?: string }> {
     const authenticated = await getAuthenticatedUser();
-    if (!authenticated || authenticated.id !== userId) return { success: false, error: 'Session du titulaire requise.' };
+    if (!authenticated || Number(authenticated.id) !== Number(userId)) return { success: false, error: 'Session du titulaire requise.' };
     if (!/^\d{4}$/.test(oldPin) || !/^\d{4}$/.test(newPin) || oldPin === newPin) return { success: false, error: 'PIN invalide ou identique à l’ancien.' };
     const connection = await db.getConnection();
-    const headerList = headers();
-    const ipAddress = (headerList.get('x-forwarded-for') ?? '127.0.0.1').split(',')[0].trim();
 
     try {
         await connection.query('BEGIN');
 
         // 1. Vérifier l'ancien PIN
-        const { rows: userRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1', [userId]);
-        if (userRows.length === 0) throw new Error('Utilisateur non trouvé.');
-
-        const user = userRows[0];
-        if (!user.pin_hash) throw new Error('Aucun PIN configuré. Contactez le support.');
-
-        const isMatch = await bcrypt.compare(oldPin, user.pin_hash);
-        if (!isMatch) throw new Error('Votre ancien code PIN est incorrect.');
-
-        // 2. Récupérer toutes les cartes actives pour synchronisation
-        const { rows: cardRows } = await connection.query('SELECT id, marqeta_card_token FROM cards WHERE user_id = $1 AND status = $2', [userId, 'active']);
-
-        // 3. Mettre à jour le PIN chez Marqeta pour chaque carte
-        for (const card of cardRows) {
-            if (card.marqeta_card_token) {
-                // Marqeta nécessite une idempotencyKey unique par requête
-                const idempotencyKey = crypto.randomUUID();
-                await setMarqetaPin(card.marqeta_card_token, newPin, idempotencyKey, ipAddress);
-            }
-        }
-
-        // 4. Mettre à jour le hash local dans la base CashPay
+        const { rows: userRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1 FOR UPDATE', [userId]);
+        const current = userRows[0]?.pin_hash;
+        if (!current) throw new Error('Aucun PIN configuré. Contactez le support.');
+        const valid = String(current).startsWith('$2') ? await bcrypt.compare(oldPin, current) : oldPin === String(current);
+        if (!valid) throw new Error('Votre ancien code PIN est incorrect.');
+        // The wallet PIN and the provider card PIN are separate credentials.
         const newHash = await bcrypt.hash(newPin, 10);
         await connection.query('UPDATE users SET pin_hash = $1 WHERE id = $2', [newHash, userId]);
 

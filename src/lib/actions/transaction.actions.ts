@@ -207,6 +207,7 @@ export async function createTransaction(args: CreateTransactionArgs): Promise<{ 
             !isCreditTransaction &&
             typeCode !== 'EXCHANGE' &&
             typeCode !== 'AGENT_SUB' &&
+            typeCode !== 'POS_SALE' &&
             !typeCode.startsWith('BUY_CARDS')
         ) {
              feeNum = await calculateTransactionFee(amountToDebit, debitCurrency, effectiveTypeCode, user.country, conn);

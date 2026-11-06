@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { calculateTransactionFee } from '@/lib/actions/wallet.actions';
 
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 
@@ -32,6 +33,8 @@ type LoanOperation = {
   clientWalletId: string;
 
   loanId: number;
+  fee?: number;
+  totalDebit?: number;
   loanCurrency: string;
 
   debtBefore?: number;
@@ -45,7 +48,7 @@ type LoanOperation = {
 
 function getSecret() {
   const secret =
-    process.env.AGENT_OPERATION_SECRET;
+    process.env.AGENT_OPERATION_SECRET || process.env.JWT_SECRET;
 
   if (!secret) {
     throw new Error(
@@ -596,6 +599,9 @@ export async function POST(
         );
       }
 
+      const fee = Number(await calculateTransactionFee(amount, currency, 'LR_AGENT', user.country));
+      if (!Number.isFinite(fee) || fee < 0) return errorResponse('Tarif de remboursement indisponible.');
+      const totalDebit = amount + fee;
       const next =
         nextToken(
           operation,
@@ -604,6 +610,8 @@ export async function POST(
               'confirm_amount',
 
             currency,
+            fee,
+            totalDebit,
 
             amount,
 
@@ -633,6 +641,8 @@ export async function POST(
           'confirm_amount',
 
         amount,
+        fee,
+        totalDebit,
 
         currency,
 
@@ -803,6 +813,8 @@ export async function POST(
         );
       }
 
+      if (!Number.isFinite(operation.fee)) return errorResponse('Actualisez le devis des frais.');
+
       const pin =
         String(
           body?.pin || ''
@@ -884,6 +896,8 @@ export async function POST(
             operation.currency,
 
           pin,
+          acceptedFee: operation.fee,
+          operationId: operation.operationId,
         });
 
       if (!result.success) {
