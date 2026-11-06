@@ -302,7 +302,7 @@ export async function getLoanForUser(userId: number): Promise<Loan | null> {
             repayment_frequency: loan.repayment_frequency, installment_count: loan.installment_count,
             installment_amount: money(loan.installment_amount || loan.monthly_payment)
         } as any;
-    } catch (error) { await handleDbError(error, 'fetching user loan'); return null; }
+    } catch (error) { await handleDbError(error, 'fetching user loan'); throw new Error('Impossible de charger le crédit actuel. Réessayez.'); }
 }
 
 /** Execute all due installments. Safe to call from cron and from the LoanMe USSD entry. */
@@ -695,7 +695,7 @@ export async function getLoanHistory(userId:number):Promise<LoanHistory[]> {
             } as any);
         }
         return history;
-    }catch(error){await handleDbError(error,'fetching loan history');return[];}
+    }catch(error){await handleDbError(error,'fetching loan history');throw new Error('Impossible de charger l’historique des crédits. Réessayez.');}
 }
 
 /** Pay one scheduled installment in advance or on its due date. */

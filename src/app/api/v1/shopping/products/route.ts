@@ -5,7 +5,7 @@ import {
   getAgentProducts,
   addOrUpdateProduct,
 } from '@/lib/actions/agent.actions';
-import { countryToCode } from '@/lib/countries';
+import { countryToCode } from '@/lib/utils';
 
 function isFiniteNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value);
@@ -22,7 +22,7 @@ export async function GET() {
       );
     }
 
-    if (user.role !== 'agent') {
+    if (String(user.role).toLowerCase() !== 'agent') {
       return NextResponse.json(
         { success: false, error: 'Accès réservé aux agents.' },
         { status: 403 }
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (user.role !== 'agent') {
+    if (String(user.role).toLowerCase() !== 'agent') {
       return NextResponse.json(
         { success: false, error: 'Accès réservé aux agents.' },
         { status: 403 }

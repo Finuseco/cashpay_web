@@ -169,7 +169,8 @@ export async function getAgentProducts(agentId: number): Promise<Product[]> {
             };
         });
     } catch (error) {
-        return [];
+        await handleDbError(error, 'fetching agent products');
+        throw new Error('Impossible de charger les produits de votre boutique. Réessayez.');
     }
 }
 
