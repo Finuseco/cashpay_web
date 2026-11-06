@@ -5,6 +5,8 @@ import {
   addOrUpdateBoutique,
 } from '@/lib/actions/agent.actions';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const user = await getAuthenticatedUser();
@@ -16,7 +18,7 @@ export async function GET() {
       );
     }
 
-    if (String(user.role).toLowerCase() !== 'agent') {
+    if (String(user.role).trim().toLowerCase() !== 'agent') {
       return NextResponse.json(
         { success: false, error: 'Accès réservé aux agents.' },
         { status: 403 }
@@ -28,7 +30,9 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       boutiques,
-    });
+      account: { id: Number(user.id), walletId: user.id_wallet, role: user.role },
+      loadedAt: new Date().toISOString(),
+    }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error: any) {
     return NextResponse.json(
       {
@@ -51,7 +55,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (String(user.role).toLowerCase() !== 'agent') {
+    if (String(user.role).trim().toLowerCase() !== 'agent') {
       return NextResponse.json(
         { success: false, error: 'Accès réservé aux agents.' },
         { status: 403 }

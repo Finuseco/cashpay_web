@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     const candidates = [...new Set(canonical.flatMap(phone => phone ? contactCandidates(phone, viewer.country) : []))];
     const { rows } = candidates.length ? await db.query(`
       SELECT id_wallet, full_name, first_name, last_name, phone, country, profile_photo, role
-      FROM users WHERE id_wallet IS NOT NULL AND REGEXP_REPLACE(phone, '[^0-9]', '', 'g') = ANY($1::text[])
+      FROM users WHERE id_wallet IS NOT NULL AND LOWER(TRIM(status::text))='active' AND REGEXP_REPLACE(phone, '[^0-9]', '', 'g') = ANY($1::text[])
     `, [candidates]) : { rows: [] };
     const matches = new Map<string, typeof rows>();
     for (const row of rows) {
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       const user = found?.length === 1 ? found[0] : null;
       return { phone, found: !!user, profile: user ? {
         walletId: user.id_wallet, fullName: user.full_name || [user.first_name, user.last_name].filter(Boolean).join(' '),
-        profilePhoto: user.profile_photo, role: user.role,
+        profilePhoto: user.profile_photo, profilePhotoUrl: user.profile_photo, role: user.role, country: user.country,
       } : null };
     });
     return NextResponse.json({ success: true, contacts }, { headers: { 'Cache-Control': 'private, no-store' } });

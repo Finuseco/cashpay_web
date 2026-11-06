@@ -9,7 +9,7 @@ export function contactPhone(raw: string, country: string | null | undefined): s
     const international = clean.startsWith('00') ? digits.slice(2) : digits;
     return /^[1-9]\d{6,14}$/.test(international) ? international : null;
   }
-  const region = countries.find(c => c.code.toLowerCase() === String(country).toLowerCase() || c.name.toLowerCase() === String(country).toLowerCase());
+  const region = countries.find(c => c.code.toLowerCase() === String(country).trim().toLowerCase() || c.name.toLowerCase() === String(country).trim().toLowerCase());
   if (!region) return null;
   const dial = region.dial_code.replace(/\D/g, '');
   const national = region.code === 'IT' ? digits : digits.replace(/^0/, '');
