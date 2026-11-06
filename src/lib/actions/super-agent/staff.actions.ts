@@ -277,6 +277,7 @@ export async function processTvSubscription(args: { requestId: number; adminId: 
             if (!result.success) throw new Error(result.error || 'Remboursement impossible.');
             await connection.query("UPDATE transactions SET status = 'Reversed' WHERE id = $1", [payment.id]);
             await connection.query("UPDATE subscriptions SET status = 'cancelled' WHERE id = $1", [request.id]);
+            await connection.query("INSERT INTO notifications(user_id,title,description,type,link,is_read) VALUES($1,'Abonnement TV rejeté et remboursé',$2,'general','/tv-subscription',FALSE)",[request.user_id,`Demande #${request.id} : ${amount} ${payment.currency} remboursés.`]);
             await logIntervention(args.adminId, request.user_id, 'TV_REFUND', `Abonnement #${request.id}, remboursement ${amount} ${payment.currency}, paiement #${payment.id}`, connection);
             await connection.query('COMMIT');
             return { success: true, refundedAmount: amount, currency: payment.currency };
@@ -287,6 +288,7 @@ export async function processTvSubscription(args: { requestId: number; adminId: 
         const { rows: payments } = await connection.query("SELECT id FROM transactions WHERE id = $1 AND sender_id = $2 AND status = 'Completed'", [request.transaction_id, request.user_id]);
         if (!payments.length) throw new Error('Paiement confirmé introuvable.');
         await connection.query("UPDATE subscriptions SET status = 'active' WHERE id = $1", [args.requestId]);
+        await connection.query("INSERT INTO notifications(user_id,title,description,type,link,is_read) VALUES($1,'Abonnement TV activé',$2,'general','/tv-subscription',FALSE)",[request.user_id,`Demande #${request.id} activée. Confirmation fournisseur : ${reference}`]);
         await logIntervention(args.adminId, request.user_id, 'TV_ACTIVATION', `Abonnement #${args.requestId}, confirmation fournisseur : ${reference}`, connection);
         await connection.query('COMMIT');
         return { success: true };

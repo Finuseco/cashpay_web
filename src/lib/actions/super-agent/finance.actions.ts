@@ -70,8 +70,12 @@ export async function approveInternationalClaim(claimId: number, adminId: number
         if (!rows.length) throw new Error('Réclamation internationale introuvable.');
         await assertTerritory(adminId, Number(rows[0].user_id), connection);
         const current = String(rows[0].status || '').toLowerCase();
-        if (['approved', 'completed', 'paid', 'claimed'].includes(current)) throw new Error('Cette réclamation est déjà traitée.');
+        if (current !== 'pending') throw new Error('Seule une réclamation en attente peut être approuvée.');
+        const processing = await connection.query('SELECT status FROM inter_claim_cases WHERE claim_id=$1', [claimId]);
+        if(processing.rows.length)throw new Error('Dossier déjà pris en charge : utilisez le traitement inter-agent.');
         await connection.query(`UPDATE international_transfer_claims SET status='approved' WHERE id=$1`, [claimId]);
+        await connection.query("INSERT INTO inter_claim_audit(claim_id,actor_user_id,action,detail) VALUES($1,$2,'ADMIN_APPROVED',$3::jsonb)",[claimId,adminId,JSON.stringify({administrativeApproval:true,noWalletCredit:true})]);
+        await connection.query("INSERT INTO notifications(user_id,title,description,type,link,is_read) VALUES($1,'Réclamation approuvée','Votre réclamation a été autorisée pour traitement. Le crédit sera effectué après vérification et règlement par un agent inter.','general','/receive',FALSE)",[rows[0].user_id]);
         await logIntervention(adminId, Number(rows[0].user_id), 'INTERNATIONAL_CLAIM_APPROVE', `Approbation de la réclamation internationale #${claimId}`, connection);
         await connection.query('COMMIT');
         return { success: true };

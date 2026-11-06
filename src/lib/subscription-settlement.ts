@@ -57,6 +57,8 @@ export async function createVerifiedSubscription(args: {
             ]
         );
 
+        await connection.query("INSERT INTO notifications(user_id,title,description,type,link,is_read) VALUES($1,'Paiement TV enregistré',$2,'general','/tv-subscription',FALSE)",[args.user.id,`${args.amount} ${args.currency || 'USD'} débités. Activation en attente de validation manuelle.`]);
+        await connection.query("INSERT INTO notifications(user_id,title,description,type,link,is_read) SELECT id,'Activation TV à traiter',$1,'general','/super-agent/tv-subscriptions',FALSE FROM users WHERE role='Admin' AND LOWER(status::text)='active'",[`Nouvelle demande TV de ${args.user.id_wallet}. Paiement enregistré, activation fournisseur à confirmer.`]);
         await connection.query('COMMIT');
         return { success: true };
     } catch (error: any) {
