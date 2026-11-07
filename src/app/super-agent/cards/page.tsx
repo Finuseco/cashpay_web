@@ -169,7 +169,7 @@ export default function SuperAgentCards() {
 
             {/* Dialog Annuler Commande */}
             <Dialog open={!!requestToCancel} onOpenChange={(open) => !open && setRequestToCancel(null)}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
                         <DialogTitle>Annuler la Commande & Rembourser</DialogTitle>
                         <DialogDescription className="text-zinc-400">
@@ -205,7 +205,7 @@ export default function SuperAgentCards() {
 
             {/* Dialog Assigner Carte */}
             <Dialog open={!!selectedRequest} onOpenChange={(open) => !open && setSelectedRequest(null)}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
                         <DialogTitle>Assigner une Carte Physique</DialogTitle>
                         <DialogDescription className="text-zinc-400">

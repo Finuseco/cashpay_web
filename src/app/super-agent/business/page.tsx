@@ -89,7 +89,7 @@ export default function BusinessManagementPage() {
             </div>
 
             <Dialog open={!!selectedPartner} onOpenChange={(open) => !open && setSelectedPartner(null)}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
                         <DialogTitle>Réinitialiser les Clés API</DialogTitle>
                         <DialogDescription>

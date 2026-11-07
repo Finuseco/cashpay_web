@@ -96,7 +96,7 @@ export default function InternationalClaimsPage() {
             </div>
 
             <Dialog open={isPinOpen} onOpenChange={setIsPinOpen}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
                         <DialogTitle>Confirmer le Crédit Client</DialogTitle>
                         <DialogDescription className="text-zinc-400">

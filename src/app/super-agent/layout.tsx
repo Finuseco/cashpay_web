@@ -175,7 +175,7 @@ export default function SuperAgentLayout({ children }: { children: React.ReactNo
                         <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon"><Menu className="h-6 w-6"/></Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-64 bg-zinc-900 border-zinc-800 text-white">
+                        <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-2rem)] max-h-[70dvh] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                             <DropdownMenuLabel>Menu Gestionnaire</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             {groups.flatMap(g => g.links).map(link => (

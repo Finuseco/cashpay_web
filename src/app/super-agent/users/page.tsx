@@ -43,7 +43,7 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { Separator } from '@/components/ui/separator';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { TransactionReceipt } from '@/components/transactions/transaction-receipt';
 import { Logo } from '@/components/logo';
 import { Textarea } from '@/components/ui/textarea';
@@ -409,7 +409,7 @@ export default function SuperAgentUsers() {
             <div className="flex justify-between items-center gap-3"><Button disabled={isLoading || page === 0} onClick={() => superAgent && loadUsers(superAgent.id, searchTerm, page - 1)}>Précédent</Button><span>Page {page + 1}</span><Button disabled={isLoading || users.length < 100} onClick={() => superAgent && loadUsers(superAgent.id, searchTerm, page + 1)}>Suivant</Button></div>
             {/* Dialog Dossier Client */}
             <Dialog open={!!selectedUser} onOpenChange={(open) => !open && setSelectedUser(null)}>
-                <DialogContent className="max-w-4xl bg-zinc-900 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0 overflow-hidden">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto max-w-4xl bg-zinc-900 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0 overflow-hidden">
                     <DialogHeader className="p-6 border-b border-zinc-800">
                         <div className="flex items-center gap-4">
                             <div className="relative group cursor-pointer" onClick={() => photoInputRef.current?.click()}>
@@ -587,7 +587,7 @@ export default function SuperAgentUsers() {
 
             {/* Receipt Modal */}
             <Dialog open={!!selectedTransaction} onOpenChange={(open) => !open && setSelectedTransaction(null)}>
-                <DialogContent className="max-w-sm p-0 border-none bg-transparent shadow-none">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto max-w-sm p-0 border-none bg-transparent shadow-none">
                     {selectedTransaction && (
                         <Card className="bg-white text-black p-4 font-mono text-xs">
                             <div className="text-center mb-4">
@@ -603,7 +603,7 @@ export default function SuperAgentUsers() {
             </Dialog>
 
             <Dialog open={isEditContactOpen} onOpenChange={setIsEditContactOpen}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader><DialogTitle>Modifier les coordonnées</DialogTitle></DialogHeader>
                     <Form {...contactForm}>
                         <form onSubmit={contactForm.handleSubmit(handleUpdateContact)} className="space-y-4 py-4">
@@ -619,13 +619,13 @@ export default function SuperAgentUsers() {
             </Dialog>
 
             <Dialog open={isDepositOpen} onOpenChange={setIsDepositOpen}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader><DialogTitle>Dépôt Souverain (Sans Frais)</DialogTitle></DialogHeader>
                     <Form {...depositForm}>
                         <form onSubmit={depositForm.handleSubmit(handleSovereignDeposit)} className="space-y-4 py-4">
                             <FormField control={depositForm.control} name="amount" render={({ field }) => ( <FormItem><FormLabel>Montant</FormLabel><FormControl><Input type="number" {...field} className="bg-zinc-800 border-zinc-700"/></FormControl></FormItem> )}/>
                             <FormField control={depositForm.control} name="currency" render={({ field }) => (
-                                <FormItem><FormLabel>Devise</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger></FormControl><SelectContent className="bg-zinc-800 text-white"><SelectItem value="USD">USD</SelectItem><SelectItem value="EUR">EUR</SelectItem><SelectItem value="CDF">CDF</SelectItem></SelectContent></Select></FormItem>
+                                <FormItem><FormLabel>Devise</FormLabel><FormControl><RadioGroup aria-label="Devise" onValueChange={field.onChange} value={field.value} className="flex flex-wrap gap-3">{['USD','EUR','CDF'].map(currency=><label key={currency} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-zinc-700 px-3"><RadioGroupItem value={currency}/><span>{currency}</span></label>)}</RadioGroup></FormControl></FormItem>
                             )}/>
                             <FormField control={depositForm.control} name="adminPin" render={({ field }) => (
                                 <FormItem><FormLabel className="text-center block">PIN Super Agent</FormLabel><FormControl><div className="flex justify-center"><InputOTP maxLength={4} {...field}><InputOTPGroup><InputOTPSlot index={0} /><InputOTPSlot index={1} /><InputOTPSlot index={2} /><InputOTPSlot index={3} /></InputOTPGroup></InputOTP></div></FormControl></FormItem>
@@ -637,7 +637,7 @@ export default function SuperAgentUsers() {
             </Dialog>
 
             <Dialog open={isSuspensionDialogOpen} onOpenChange={setIsSuspensionDialogOpen}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
                         <DialogTitle className="text-red-500">Suspendre l'utilisateur</DialogTitle>
                         <DialogDescription>Cette action bloquera l'accès à l'application pour {selectedUser?.full_name}.</DialogDescription>
@@ -661,7 +661,7 @@ export default function SuperAgentUsers() {
             </Dialog>
 
             <Dialog open={isBusinessUpgradeOpen} onOpenChange={setIsBusinessUpgradeOpen}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
                         <DialogTitle>Surclassement Entreprise & API</DialogTitle>
                         <DialogDescription>Transformez ce compte en Compte Entreprise. L'identité du compte sera remplacée par le nom commercial.</DialogDescription>

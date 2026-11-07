@@ -106,7 +106,7 @@ export default function SuperAgentRates() {
         <div className="space-y-6">
             {error && <p role="alert" className="text-red-400">{error}</p>}
             <Dialog open={!!pendingRate} onOpenChange={open => { if (!open && !isSaving) { setPendingRate(null); setPin(''); } }}>
-                <DialogContent><DialogHeader><DialogTitle>Confirmer le taux {pendingRate?.from_currency}/{pendingRate?.to_currency}</DialogTitle></DialogHeader>
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto"><DialogHeader><DialogTitle>Confirmer le taux {pendingRate?.from_currency}/{pendingRate?.to_currency}</DialogTitle></DialogHeader>
                     <p>Nouveau taux : {pendingRate?.rate}</p>
                     <Input aria-label="PIN du gestionnaire" type="password" inputMode="numeric" autoComplete="off" value={pin} onChange={event => setPin(event.target.value)} />
                     <Button disabled={!!isSaving || !pin} onClick={() => handleUpdate(pendingRate)}>Confirmer</Button>

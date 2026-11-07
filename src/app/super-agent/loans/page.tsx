@@ -230,7 +230,7 @@ export default function SuperAgentLoans() {
 
             {/* Dialog Action (Approve/Reject/Collect) */}
             <Dialog open={!!selectedLoan && actionType !== 'view_schedule'} onOpenChange={(open) => !open && setSelectedLoan(null)}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
                         <DialogTitle>
                             {actionType === 'collect' ? 'Recouvrement Forcé' : (actionType === 'approve' ? 'Approuver le Prêt' : 'Rejeter la demande')}
@@ -292,7 +292,7 @@ export default function SuperAgentLoans() {
                     }
                 }}
             >
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
                         <DialogTitle>Recouvrement national</DialogTitle>
                         <DialogDescription className="text-zinc-400">
@@ -369,7 +369,7 @@ export default function SuperAgentLoans() {
 
             {/* Dialog Échéancier */}
             <Dialog open={!!selectedLoan && actionType === 'view_schedule'} onOpenChange={(open) => !open && setSelectedLoan(null)}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-lg">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white max-w-lg">
                     <DialogHeader>
                         <DialogTitle>Échéancier : {selectedLoan?.full_name}</DialogTitle>
                         <DialogDescription>Plan de remboursement et statut des paiements.</DialogDescription>
