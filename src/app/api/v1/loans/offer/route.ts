@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
-import { getLoanOffer } from '@/lib/actions/loan.actions';
+import { getLoanOffer, getLoanQuote } from '@/lib/actions/loan.actions';
 
 const ALLOWED_LOAN_CURRENCIES = ['CDF', 'USD', 'EUR'] as const;
 
@@ -30,6 +30,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    if(request.nextUrl.searchParams.has('amount')){
+      const quote=await getLoanQuote(user.id,requestedCurrency,Number(request.nextUrl.searchParams.get('amount')),Number(request.nextUrl.searchParams.get('durationMonths')));
+      return NextResponse.json({success:true,quote},{headers:{'Cache-Control':'private, no-store'}});
+    }
     const offer = await getLoanOffer(user.id, requestedCurrency);
 
     return NextResponse.json({

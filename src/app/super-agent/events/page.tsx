@@ -24,7 +24,7 @@ export default function SuperAgentEventsPage() {
     const [superAgent, setSuperAgent] = useState<any>(null);
     const [filter, setFilter] = useState('');
     const [processingId, setProcessingId] = useState<number | null>(null);
-    
+
     const { openAlert } = useAlertDialog();
     const { toast } = useToast();
 
@@ -40,11 +40,11 @@ export default function SuperAgentEventsPage() {
     };
 
     useEffect(() => {
-        fetchData();
+        fetchData().catch(() => { setIsLoading(false); openAlert({ title: 'Chargement impossible', description: 'Données indisponibles. Actualisez la page pour réessayer.', variant: 'error' }); });
     }, []);
 
     const filteredEvents = useMemo(() => {
-        return events.filter(e => 
+        return events.filter(e =>
             e.name.toLowerCase().includes(filter.toLowerCase()) ||
             e.organizerName.toLowerCase().includes(filter.toLowerCase())
         );
@@ -85,8 +85,8 @@ export default function SuperAgentEventsPage() {
                 </div>
                 <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-                    <Input 
-                        placeholder="Chercher événement ou auteur..." 
+                    <Input
+                        placeholder="Chercher événement ou auteur..."
                         className="pl-9 bg-zinc-800 border-zinc-700"
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
@@ -153,9 +153,9 @@ export default function SuperAgentEventsPage() {
                                             <Button variant="ghost" size="icon" asChild className="h-8 w-8 text-zinc-400 hover:text-white">
                                                 <Link href={`/events/${event.id}`} target="_blank"><Eye className="h-4 w-4"/></Link>
                                             </Button>
-                                            <Button 
-                                                variant="ghost" 
-                                                size="icon" 
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
                                                 className={cn("h-8 w-8", event.status === 'active' ? "text-red-400 hover:bg-red-400/10" : "text-green-400 hover:bg-green-400/10")}
                                                 onClick={() => handleToggleStatus(event)}
                                                 disabled={processingId === event.id}

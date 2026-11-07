@@ -1,6 +1,7 @@
 
 'use server';
 
+import { regionalScope, assertManagedUser } from '@/lib/super-agent-access';
 import { db } from '@/lib/db';
 import { handleDbError, saveBase64Image } from './helpers';
 import { getAuthenticatedUser } from './user.actions';
@@ -45,20 +46,20 @@ export async function createPaymentLink(data: any): Promise<{ success: boolean; 
 
         const { rows } = await db.query(`
             INSERT INTO payment_links (
-                user_id, title, description, amount, is_fixed, 
+                user_id, title, description, amount, is_fixed,
                 currency, category, image_url, status, visit_count, collected_amount
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0)
             RETURNING id
         `, [
-            user.id, 
-            data.title, 
-            data.description, 
-            amount, 
-            isFixed, 
-            data.currency || 'USD', 
-            data.category, 
-            finalImageUrl, 
+            user.id,
+            data.title,
+            data.description,
+            amount,
+            isFixed,
+            data.currency || 'USD',
+            data.category,
+            finalImageUrl,
             'active'
         ]);
 
@@ -75,13 +76,13 @@ export async function createPaymentLink(data: any): Promise<{ success: boolean; 
 export async function getPaymentLinks(userId: number): Promise<PaymentLink[]> {
     try {
         const { rows } = await db.query(`
-            SELECT 
-                id, user_id as "userId", title, description, amount, 
-                is_fixed as "isFixed", currency, category, image_url as "imageUrl", 
-                status, visit_count as "visitCount", collected_amount as "collectedAmount", 
+            SELECT
+                id, user_id as "userId", title, description, amount,
+                is_fixed as "isFixed", currency, category, image_url as "imageUrl",
+                status, visit_count as "visitCount", collected_amount as "collectedAmount",
                 created_at as "createdAt"
-            FROM payment_links 
-            WHERE user_id = $1 
+            FROM payment_links
+            WHERE user_id = $1
             ORDER BY created_at DESC
         `, [userId]);
         return rows.map(r => ({
@@ -101,7 +102,7 @@ export async function getPaymentLinks(userId: number): Promise<PaymentLink[]> {
 export async function getPaymentLinkById(id: number): Promise<PaymentLink | null> {
     try {
         const { rows } = await db.query(`
-            SELECT 
+            SELECT
                 pl.*, u.full_name as "ownerName", u.id_wallet as "ownerWalletId"
             FROM payment_links pl
             JOIN users u ON pl.user_id = u.id
@@ -146,20 +147,21 @@ export async function deletePaymentLink(id: number): Promise<{ success: boolean 
  * Admin : Récupère tous les liens d'un pays.
  */
 export async function getCountryPaymentLinks(countryName: string): Promise<PaymentLink[]> {
+    const scope = await regionalScope(countryName);
     try {
         const { rows } = await db.query(`
-            SELECT 
+            SELECT
                 pl.*, u.full_name as "ownerName", u.id_wallet as "ownerWalletId"
             FROM payment_links pl
             JOIN users u ON pl.user_id = u.id
-            WHERE u.country = $1
+            WHERE ${scope.sql}
             ORDER BY pl.created_at DESC
-        `, [countryName]);
+        `, scope.values);
         return rows.map(r => ({
             ...r,
             amount: r.amount ? parseFloat(r.amount) : null,
             collectedAmount: parseFloat(r.collected_amount || 0),
-            createdAt: new Date(r.createdAt).toISOString()
+            createdAt: new Date(r.created_at).toISOString()
         })) as any;
     } catch (error) {
         return [];
@@ -173,16 +175,20 @@ export async function superAgentBlockLink(args: { linkId: number, adminId: numbe
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
-        
+
         const { linkId, adminId, status, reason } = args;
 
+        if (!['blocked', 'active'].includes(status) || !reason?.trim()) throw new Error('Statut et motif requis.');
+        const { rows } = await connection.query('SELECT user_id FROM payment_links WHERE id = $1 FOR UPDATE', [linkId]);
+        if (!rows[0]) throw new Error('Lien introuvable.');
+        await assertManagedUser(adminId, rows[0].user_id, connection);
         await connection.query('UPDATE payment_links SET status = $1 WHERE id = $2', [status, linkId]);
-        
+
         await logIntervention(
-            adminId, 
-            null, 
-            status === 'blocked' ? 'PAYMENT_LINK_BLOCK' : 'PAYMENT_LINK_UNBLOCK', 
-            `Lien #${linkId} ${status === 'blocked' ? 'bloqué' : 'débloqué'}. Motif: ${reason}`, 
+            adminId,
+            null,
+            status === 'blocked' ? 'PAYMENT_LINK_BLOCK' : 'PAYMENT_LINK_UNBLOCK',
+            `Lien #${linkId} ${status === 'blocked' ? 'bloqué' : 'débloqué'}. Motif: ${reason}`,
             connection
         );
 

@@ -5,13 +5,15 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { randomInt } from 'crypto';
+import { sendSms } from '@/services/sms';
+import { sendEmail } from '@/services/email';
 
 const loginSchema = z.object({
   cpNumber: z.string().min(1, 'Le numéro de compte est requis.'),
 });
 
 // A remplacer par un système de clés API sécurisé en base de données
-const VALID_API_KEYS = ['CASHIOS_API_KEY_12345'];
+const VALID_API_KEYS = [process.env.CASHPAY_CLIENT_API_KEY].filter(Boolean);
 
 // Function to generate a 6-digit OTP
 const generateOtp = () => {
@@ -19,11 +21,9 @@ const generateOtp = () => {
 };
 
 async function sendOtp(destination: string, otp: string, method: 'sms' | 'email') {
-    // In a real scenario, you would trigger an SMS or email service here.
-    // For now, we log it to the console for testing purposes.
-    console.log(`********************************************`);
-    console.log(`* OTP for ${destination} via ${method}: ${otp}   *`);
-    console.log(`********************************************`);
+    const result = method === 'sms' ? await sendSms(destination, `CashPay : votre code de connexion est ${otp}. Ne le partagez pas.`)
+        : await sendEmail(destination, 'Code de connexion CashPay', 'otp', { otpCode: otp });
+    if (!result.success) throw new Error('Le fournisseur a refusé l’envoi du code.');
 }
 
 export async function POST(request: Request) {

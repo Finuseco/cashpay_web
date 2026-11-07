@@ -2,6 +2,9 @@
 
 'use server';
 
+import { db } from '@/lib/db';
+import { getAuthenticatedUser } from './user.actions';
+import { assertManagedUser, countryIdentity } from '@/lib/super-agent-access';
 import { createTransaction } from './transaction.actions';
 import type { User } from '@/lib/types';
 import { sendSms } from '@/services/sms';
@@ -15,6 +18,8 @@ import { countryToCode } from '../utils';
 
 export async function initiateClientAirtimePurchase(args: { clientWalletId: string; amount: number; agentName: string; }) {
   const { clientWalletId, amount, agentName } = args;
+  const actor = await getAuthenticatedUser();
+  if (!actor || !['Agent','SuperAgent','SubSuperAgent','Admin'].includes(actor.role) || !Number.isFinite(amount) || amount <= 0) return { success: false, error: 'Session agent et montant valide requis.' };
   console.log('--- Initiate Client Airtime Purchase ---');
 
   const client = await getUserFromDb({ walletId: clientWalletId });
@@ -22,6 +27,11 @@ export async function initiateClientAirtimePurchase(args: { clientWalletId: stri
     return { success: false, error: 'Client non trouvé.' };
   }
 
+  if (actor.role === 'Agent') {
+    if (!actor.country || !client.country || countryIdentity(actor.country) !== countryIdentity(client.country)) return { success: false, error: 'Client hors de votre pays.' };
+  } else {
+    try { await assertManagedUser(actor.id, client.id); } catch { return { success: false, error: 'Client hors de votre juridiction.' }; }
+  }
   // Send OTP
   const otpResult = await sendAndStoreOtp(client.id, `un achat de crédit de ${amount} USD`, 'sms');
 
@@ -32,18 +42,22 @@ export async function confirmClientAirtimePurchase(args: { clientWalletId: strin
     const { clientWalletId, otp, phoneNumber, operator, amount } = args;
 
     console.log('--- Confirm Client Airtime Purchase ---');
-    console.log(`Verifying OTP ${otp} for client ${clientWalletId}`);
-
-    if (otp !== '123456') { // Mock OTP check, replace with DB verification
-        return { success: false, error: 'Le code de vérification est incorrect.' };
-    }
-    console.log('OTP Verified.');
-
+    const actor = await getAuthenticatedUser();
+    if (!actor || !['Agent', 'SuperAgent', 'SubSuperAgent', 'Admin'].includes(actor.role)) return { success: false, error: 'Session agent requise.' };
+    if (!Number.isFinite(amount) || amount <= 0 || !/^\d{6}$/.test(otp)) return { success: false, error: 'Montant ou code invalide.' };
     const client = await getUserFromDb({ walletId: clientWalletId });
-    if (!client) {
-        return { success: false, error: 'Client non trouvé.' };
+    if (!client) return { success: false, error: 'Client non trouvé.' };
+    if (actor.role === 'Agent') {
+        if (!actor.country || !client.country || countryIdentity(actor.country) !== countryIdentity(client.country)) return { success: false, error: 'Client hors de votre pays.' };
+    } else {
+        try { await assertManagedUser(actor.id, client.id); } catch { return { success: false, error: 'Client hors de votre juridiction.' }; }
     }
-    
+    const { rows: codes } = await db.query(`UPDATE otps SET used = TRUE WHERE id = (
+        SELECT id FROM otps WHERE user_id = $1 AND code = $2 AND type = $3
+        AND expires_at > NOW() AND COALESCE(used, FALSE) = FALSE ORDER BY id DESC LIMIT 1 FOR UPDATE
+    ) RETURNING id`, [client.id, otp, `un achat de crédit de ${amount} USD`]);
+    if (!codes.length) return { success: false, error: 'Code invalide, expiré ou déjà utilisé.' };
+
     // Debit Client
     const transactionResult = await createTransaction({
         user: client,

@@ -35,6 +35,7 @@ function date(v: unknown): string {
   return Number.isNaN(d.getTime())
     ? 'Non disponible'
     : d.toLocaleDateString('fr-FR', {
+        weekday: 'long',
         day: '2-digit',
         month: 'long',
         year: 'numeric',
@@ -278,7 +279,7 @@ export function LoanHistoryClient({
               const repayments = Array.isArray((loan as any).repayments)
                 ? (loan as any).repayments
                 : [];
-              const active = status === 'approved' && remaining > 0.005;
+              const active = ['approved','defaulted','overdue'].includes(status) && remaining > 0.005;
 
               return (
                 <article

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslation } from 'react-i18next';
-import { MessageSquare, Phone, Users, Newspaper } from 'lucide-react';
+import { MessageSquare, Phone, Users, Newspaper, Clapperboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NavItem = ({ href, icon: Icon, label, onClick, isActive }: { href: string; icon: React.ElementType; label: string; onClick?: () => void; isActive: boolean }) => {
@@ -35,10 +35,11 @@ export function OnChatFooter({ activeView, onNavigate }: { activeView: string, o
     
     return (
         <footer className="absolute bottom-0 left-0 right-0 z-10 border-t" style={{ background: 'rgba(8,12,30,0.92)', backdropFilter: 'blur(16px)', borderColor: 'rgba(139,92,246,0.2)' }}>
-            <nav className="grid grid-cols-4 items-center h-16">
+            <nav className="grid grid-cols-5 items-center h-16">
                <NavItem href="#" onClick={() => onNavigate('list')} label="Discussions" icon={MessageSquare} isActive={activeView === 'list'}/>
                <NavItem href="#" onClick={() => onNavigate('calls')} label="Appels" icon={Phone} isActive={activeView === 'calls'} />
                <NavItem href="#" onClick={() => onNavigate('groups')} label="Groupes" icon={Users} isActive={activeView === 'groups'} />
+               <NavItem href="/feedback/videos" label="Vidéos" icon={Clapperboard} isActive={false}/>
                <NavItem href="#" onClick={() => onNavigate('news')} label="Actualités" icon={Newspaper} isActive={activeView === 'news'} />
             </nav>
         </footer>

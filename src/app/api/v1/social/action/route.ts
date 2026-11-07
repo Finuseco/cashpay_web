@@ -12,11 +12,12 @@ export async function POST(request: NextRequest) {
         await connection.query('BEGIN');
         // Serialize operations for this account using the existing user row; no new schema.
         await connection.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [user.id]);
-        const exists = await connection.query('SELECT id FROM users WHERE id = $1', [target]);
+        const exists = await connection.query("SELECT id FROM users WHERE id = $1 AND LOWER(status)='active'", [target]);
         if (!exists.rows.length) { await connection.query('ROLLBACK'); return NextResponse.json({ success: false, error: 'Créateur introuvable.' }, { status: 404 }); }
         if (action === 'follow') await connection.query('INSERT INTO user_followers(follower_user_id, followed_user_id) SELECT $1,$2 WHERE NOT EXISTS (SELECT 1 FROM user_followers WHERE follower_user_id = $1 AND followed_user_id = $2)', [user.id, target]);
         else await connection.query('DELETE FROM user_followers WHERE follower_user_id = $1 AND followed_user_id = $2', [user.id, target]);
         const { rows } = await connection.query('SELECT (SELECT COUNT(*) FROM user_followers WHERE followed_user_id = $1) AS followers, (SELECT COUNT(*) FROM user_followers WHERE follower_user_id = $1) AS following', [target]);
+        await connection.query("SELECT pg_notify('onchat_social',$1)",[JSON.stringify({event:'social.follow.changed',userId:user.id,publisherId:target})]);
         await connection.query('COMMIT');
         return NextResponse.json({ success: true, relation: { following: action === 'follow' }, stats: { followers: Number(rows[0].followers), following: Number(rows[0].following) } });
     } catch (error) {

@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
+    if(body.acceptTerms!==true||!body.acceptedTerms)return NextResponse.json({success:false,error:'Veuillez lire et accepter les conditions du prêt.'},{status:400});
     const amount = Number(body.amount);
     const currency = String(body.currency || '').trim().toUpperCase();
     const durationMonths = Number(body.durationMonths);
@@ -86,7 +87,8 @@ export async function POST(request: NextRequest) {
       interestRate: 0,
       durationMonths,
       purpose: '',
-      repaymentFrequency,
+      acceptedTerms:body.acceptedTerms,
+      repaymentFrequency:repaymentFrequency as 'weekly'|'monthly'|'quarterly'|undefined,
       installmentCount,
     });
 

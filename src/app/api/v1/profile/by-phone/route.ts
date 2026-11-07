@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { contactPhone, contactCandidates } from '@/lib/contact-phone';
 import { getUserAstroProfile } from '@/lib/actions/astro.actions';
 import { getAgentBoutiques } from '@/lib/actions/agent.actions';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
@@ -16,16 +17,6 @@ const getPublicUrl = (path: string | null | undefined) => {
     return `https://app.cashpay-all.com${
         path.startsWith('/') ? path : `/${path}`
     }`;
-};
-
-const normalizePhone = (phone: string) => {
-    const digits = phone.replace(/\D/g, '');
-
-    if (digits.length < 9) {
-        return null;
-    }
-
-    return digits.slice(-9);
 };
 
 const getOptionalAuthenticatedUser = async () => {
@@ -50,14 +41,15 @@ export async function GET(request: NextRequest) {
             );
         }
 
-        const normalizedPhone = normalizePhone(phone);
+        const authenticatedUser = await getOptionalAuthenticatedUser();
+        const normalizedPhone = contactPhone(phone, authenticatedUser?.country || 'CD');
 
         if (!normalizedPhone) {
             return NextResponse.json(
                 {
                     success: false,
                     error:
-                        'Le numéro doit être fourni avec ou sans le 0 national, avec 243, +243 ou directement avec les 9 chiffres.'
+                        'Fournissez un numéro valide avec son indicatif international.'
                 },
                 { status: 400 }
             );
@@ -68,6 +60,7 @@ export async function GET(request: NextRequest) {
             SELECT
                 id,
                 role,
+                phone,
                 id_wallet,
                 full_name,
                 first_name,
@@ -86,16 +79,13 @@ export async function GET(request: NextRequest) {
                 verification_status,
                 created_at
             FROM users
-            WHERE RIGHT(
-                REGEXP_REPLACE(phone, '[^0-9]', '', 'g'),
-                9
-            ) = $1
-            LIMIT 1
+            WHERE REGEXP_REPLACE(phone, '[^0-9]', '', 'g') = ANY($1::text[])
             `,
-            [normalizedPhone]
+            [contactCandidates(normalizedPhone, authenticatedUser?.country || 'CD')]
         );
 
-        if (rows.length === 0) {
+        const matches = rows.filter(row => contactPhone(row.phone || '', row.country) === normalizedPhone);
+        if (matches.length !== 1) {
             return NextResponse.json({
                 success: true,
                 found: false,
@@ -103,11 +93,8 @@ export async function GET(request: NextRequest) {
             });
         }
 
-        const user = rows[0];
+        const user = matches[0];
         const userId = Number(user.id);
-
-        const authenticatedUser =
-            await getOptionalAuthenticatedUser();
 
         const viewerId =
             authenticatedUser?.id != null
@@ -181,7 +168,7 @@ export async function GET(request: NextRequest) {
                 INNER JOIN users u
                     ON u.id = uf.follower_user_id
                 WHERE uf.followed_user_id = $1
-                ORDER BY uf.created_at DESC, uf.id DESC
+                ORDER BY uf.created_at DESC
                 `,
                 [userId]
             );
@@ -216,7 +203,7 @@ export async function GET(request: NextRequest) {
                 INNER JOIN users u
                     ON u.id = uf.followed_user_id
                 WHERE uf.follower_user_id = $1
-                ORDER BY uf.created_at DESC, uf.id DESC
+                ORDER BY uf.created_at DESC
                 `,
                 [userId]
             );

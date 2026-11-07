@@ -1,6 +1,7 @@
 
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { getCountryPendingDeposits } from '@/lib/actions/super-agent/finance.actions';
@@ -13,18 +14,22 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 export default function SuperAgentSupport() {
+    const [error, setError] = useState('');
     const [deposits, setDeposits] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [filter, setFilter] = useState('');
 
     const fetchData = async () => {
         setIsLoading(true);
+        setError('');
+        try {
         const current = await getAuthenticatedUser();
+        if (!current) throw new Error('Session expirée.');
         if (current?.country) {
             const data = await getCountryPendingDeposits(current.country);
             setDeposits(data);
         }
-        setIsLoading(false);
+        } catch { setError('Dépôts indisponibles. Réessayez.'); } finally { setIsLoading(false); }
     };
 
     useEffect(() => {
@@ -32,8 +37,8 @@ export default function SuperAgentSupport() {
     }, []);
 
     const filteredDeposits = deposits.filter(d => 
-        d.reference_code.toLowerCase().includes(filter.toLowerCase()) ||
-        d.full_name.toLowerCase().includes(filter.toLowerCase())
+        String(d.reference_code || '').toLowerCase().includes(filter.toLowerCase()) ||
+        String(d.full_name || '').toLowerCase().includes(filter.toLowerCase())
     );
 
     const getDepositTypeIcon = (meta: any) => {
@@ -46,6 +51,7 @@ export default function SuperAgentSupport() {
 
     return (
         <div className="space-y-6">
+            {error && <p role="alert">{error}</p>}
             <div className="flex justify-between items-center">
                 <div>
                     <h1 className="text-2xl font-bold">Flux Entrants & Support</h1>
@@ -100,7 +106,7 @@ export default function SuperAgentSupport() {
                                     </TableCell>
                                     <TableCell className="font-bold text-green-400">+{parseFloat(d.amount).toFixed(2)} {d.currency}</TableCell>
                                     <TableCell className="text-right">
-                                        <Button size="sm" variant="outline" className="border-zinc-600 hover:bg-primary hover:text-white">Créditer Manuellement</Button>
+                                        <Button size="sm" variant="outline" asChild><Link href={`/super-agent/users?search=${encodeURIComponent(d.id_wallet || d.full_name || '')}`}>Ouvrir le dossier client</Link></Button>
                                     </TableCell>
                                 </TableRow>
                             )) : <TableRow><TableCell colSpan={5} className="text-center py-10 text-zinc-500">Aucun dépôt bloqué détecté.</TableCell></TableRow>}

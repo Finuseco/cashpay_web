@@ -17,6 +17,7 @@ const templatePaths = {
   alert: 'alert.html',
   welcome: 'welcome.html',
   new_message: 'new_message.html',
+  meeting: 'meeting.html',
   ticket: 'ticket.html',
   'product_boost_2-cols': 'product-boost-2-cols.html',
   'product_boost_3-cols': 'product-boost-3-cols.html',
@@ -36,7 +37,7 @@ const templatePaths = {
 /**
  * Sends an email using a direct SMTP transport as configured in the environment variables.
  * It can now render HTML templates with dynamic data.
- * 
+ *
  * @param to The recipient's email address.
  * @param subject The email subject.
  * @param template The name of the HTML template to use (e.g., 'otp', 'welcome').
@@ -44,8 +45,8 @@ const templatePaths = {
  * @returns A promise that resolves with the email response.
  */
 export async function sendEmail(
-    to: string, 
-    subject: string, 
+    to: string,
+    subject: string,
     template: keyof typeof templatePaths,
     data: Record<string, any>
 ): Promise<EmailResponse> {
@@ -55,16 +56,10 @@ export async function sendEmail(
   const smtpPass = process.env.SMTP_PASSWORD;
 
   if (!smtpHost || !smtpUser || !smtpPass) {
-    const errorMessage = 'SMTP configuration is incomplete. Email will be logged to console instead of being sent.';
-    console.warn(`[Email Service] ${errorMessage}`);
-    console.log(`--- MOCK EMAIL to ${to} ---`);
-    console.log(`Subject: ${subject}`);
-    console.log(`Template: ${template}`);
-    console.log(`Data:`, data);
-    console.log(`--- END MOCK EMAIL ---`);
-    return { success: true, message: 'Email service not configured, logged to console.' };
+    console.error('[Email Service] Configuration SMTP incomplète, aucun envoi effectué.');
+    return { success: false, message: 'Service email non configuré.' };
   }
-  
+
   try {
     // 1. Read base template and specific template
     const templateFileName = templatePaths[template];
@@ -87,11 +82,11 @@ export async function sendEmail(
         // Ensure data[key] is treated as a string and handle undefined values gracefully
         const value = data[key] !== undefined && data[key] !== null ? String(data[key]) : '';
         // This regex handles {{variable}} and {{{variable}}} syntax
-        finalHtml = finalHtml.replace(new RegExp(`{{{?${key}}}}?`, 'g'), value);
+        finalHtml = finalHtml.replace(new RegExp(`{{{?${key}}}}?`, 'g'), () => value);
     }
     // Inject the current year and subject
     finalHtml = finalHtml.replace(new RegExp('{{year}}', 'g'), new Date().getFullYear().toString());
-    finalHtml = finalHtml.replace(new RegExp('{{subject}}', 'g'), subject);
+    finalHtml = finalHtml.replace(new RegExp('{{subject}}', 'g'), () => subject.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
 
 
     // Create a Nodemailer transporter instance
@@ -104,7 +99,7 @@ export async function sendEmail(
             pass: smtpPass,
         },
         tls: {
-          rejectUnauthorized: process.env.NODE_ENV === 'production' 
+          rejectUnauthorized: process.env.NODE_ENV === 'production'
         }
     });
 
@@ -114,9 +109,9 @@ export async function sendEmail(
         subject: subject,
         html: finalHtml,
     };
-    
+
     const info = await transporter.sendMail(mailOptions);
-    console.log(`[Email Service] Email sent to ${to}. Message ID: ${info.id || info.messageId}`);
+    console.log(`[Email Service] Email sent to ${to}. Message ID: ${info.messageId}`);
     return { success: true, message: 'Email sent successfully.' };
 
   } catch (error: any) {

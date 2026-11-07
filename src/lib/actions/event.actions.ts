@@ -193,7 +193,7 @@ export async function deleteEvent(eventId: string, userId: number): Promise<{ su
         const sold = await connection.query('SELECT 1 FROM tickets WHERE event_id = $1 LIMIT 1', [eventId]);
         if (sold.rows.length) throw new Error('Des billets ont déjà été émis. La suppression exige un traitement explicite des remboursements.');
         if (owned.rows[0].onchat_meeting_id) {
-            await connection.query("UPDATE meetings SET status = 'ended' WHERE id = $1", [owned.rows[0].onchat_meeting_id]);
+            await connection.query("UPDATE meetings SET status = 'ended',ended_at=COALESCE(ended_at,NOW()) WHERE id = $1", [owned.rows[0].onchat_meeting_id]);
         }
 
         await connection.query('DELETE FROM tickets WHERE event_id = $1::int', [eventId]);

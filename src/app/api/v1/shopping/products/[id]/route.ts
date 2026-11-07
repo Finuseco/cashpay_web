@@ -11,6 +11,8 @@ function isFiniteNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -25,7 +27,7 @@ export async function GET(
       );
     }
 
-    if (user.role !== 'agent') {
+    if (String(user.role).trim().toLowerCase() !== 'agent') {
       return NextResponse.json(
         { success: false, error: 'Accès réservé aux agents.' },
         { status: 403 }
@@ -73,7 +75,7 @@ export async function PUT(
       );
     }
 
-    if (user.role !== 'agent') {
+    if (String(user.role).trim().toLowerCase() !== 'agent') {
       return NextResponse.json(
         { success: false, error: 'Accès réservé aux agents.' },
         { status: 403 }
@@ -373,7 +375,7 @@ export async function DELETE(
       );
     }
 
-    if (user.role !== 'agent') {
+    if (String(user.role).trim().toLowerCase() !== 'agent') {
       return NextResponse.json(
         { success: false, error: 'Accès réservé aux agents.' },
         { status: 403 }

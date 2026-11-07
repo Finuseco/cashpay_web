@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { subscribeAsAgent } from '@/lib/actions/agent-application.actions';
-import { getAuthenticatedUser } from '@/lib/actions/auth.actions';
+import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,7 +40,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await subscribeAsAgent(user.id, plan, pin);
+    if (typeof body.acceptedFee !== 'number' || !Number.isFinite(body.acceptedFee) || body.acceptedFee <= 0) return NextResponse.json({success:false,error:'Chargez et confirmez le tarif avant l’activation.'},{status:400});
+    const result = await subscribeAsAgent(user.id, plan, pin, body.acceptedFee);
 
     if (!result.success) {
       return NextResponse.json(result, { status: 400 });

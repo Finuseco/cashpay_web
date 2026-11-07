@@ -1,0 +1,21 @@
+# Optional production SFU. Supply real values outside Git; this file is never auto-deployed.
+services:
+  onchat-media:
+    image: livekit/livekit-server:v1.9.11
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?Set the real media API key}: ${LIVEKIT_API_SECRET:?Set the real media API secret}"
+      LIVEKIT_CONFIG: |
+        port: 7880
+        bind_addresses: ["127.0.0.1"]
+        rtc:
+          udp_port: 7882
+          tcp_port: 7881
+          use_external_ip: false
+          node_ip: ${LIVEKIT_NODE_IP:?Set the real public node IP}
+        webhook:
+          api_key: ${LIVEKIT_API_KEY:?Set the real media API key}
+          urls: ["${ONCHAT_MEDIA_WEBHOOK_URL:?Set the backend HTTPS webhook URL}"]
+        logging:
+          level: warn

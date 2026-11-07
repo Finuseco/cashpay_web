@@ -8,12 +8,13 @@ import { calculateTransactionFee } from '@/lib/actions/wallet.actions';
 import { verifyUserPin } from '@/lib/actions/auth.actions';
 import { confirmWithdrawal } from '@/lib/actions/agent.actions';
 import { countries } from '@/lib/countries';
-import { createSubscription } from '@/lib/actions/subscription.actions';
+import { createVerifiedSubscription as createSubscription } from '@/lib/subscription-settlement';
 import { purchaseCard } from '@/lib/actions/card.actions';
 import config from '@/config';
 import { getExchangeRatesForCountry } from '@/lib/actions/exchange.actions';
 import type { User } from '@/lib/types';
 import crypto from 'crypto';
+import {activateAgent} from './account-settings';
 import { sendSms } from '@/services/sms';
 import { sendEmail } from '@/services/email';
 
@@ -316,18 +317,16 @@ export async function getTvPackages(providerCode: string) {
     );
 
     return rows.map((pkg: any) => {
-      const metadata = typeof pkg.metadata === 'string'
-        ? JSON.parse(pkg.metadata || '{}')
-        : (pkg.metadata || {});
+      const metadata = json(pkg.metadata);
       return {
         ...pkg,
         display_price: Number(pkg.base_price ?? metadata.price ?? pkg.price_usd ?? 0),
-        display_currency: String(pkg.base_currency || metadata.currency || 'USD').toUpperCase()
+        display_currency: String(pkg.base_currency || metadata.currency || 'USD').trim().toUpperCase()
       };
-    });
+    }).filter(pkg=>Number.isFinite(pkg.display_price)&&pkg.display_price>0&&/^[A-Z]{3}$/.test(pkg.display_currency));
   } catch (error) {
-    console.error('getTvPackages:', error);
-    return [];
+    console.error('getTvPackages: catalogue unavailable');
+    throw new Error('Catalogue TV indisponible. Réessayez.');
   }
 }
 
@@ -337,7 +336,9 @@ export async function executeTvSubscription(
   smartcard: string,
   packageData: any,
   currency: string,
-  pin: string
+  pin: string,
+  maxDebit?: number,
+  requestKey?: string
 ) {
   const verification = await verifyUserPin(user.id, pin);
   if (!verification.success) {
@@ -348,6 +349,14 @@ export async function executeTvSubscription(
     const packageId = Number(packageData?.id);
     if (!Number.isInteger(packageId) || packageId <= 0) {
       return { success: false, error: 'Abonnement TV invalide.' };
+    }
+
+    if(requestKey){
+      const previous=await db.query('SELECT s.smartcard_number,t.currency,t.metadata FROM subscriptions s JOIN transactions t ON t.id=s.transaction_id WHERE s.user_id=$1 AND s.request_key=$2',[user.id,requestKey]);
+      if(previous.rows.length){const recorded=previous.rows[0],metadata=typeof recorded.metadata==='string'?JSON.parse(recorded.metadata):recorded.metadata||{};
+        if(Number(metadata.tvPackageId)!==packageId||String(recorded.smartcard_number)!==String(smartcard)||recorded.currency!==String(currency).toUpperCase())return {success:false,error:'Identifiant de paiement déjà utilisé pour une autre demande.'};
+        return {success:true,alreadyProcessed:true};
+      }
     }
 
     const { rows } = await db.query(
@@ -464,7 +473,9 @@ export async function executeTvSubscription(
       };
     }
 
+    if(maxDebit!==undefined&&(!Number.isFinite(maxDebit)||maxDebit<=0||paymentAmount>maxDebit))return {success:false,error:'Le tarif a changé. Actualisez et confirmez le nouveau montant.'};
     return await createSubscription({
+      requestKey,
       user,
       serviceName: `Abonnement ${pkg.provider_name || operator} - ${pkg.package_name}`,
       amount: paymentAmount,
@@ -560,51 +571,23 @@ export async function executeBecomeClient(user:User){
   }catch{return {success:false,error:'Impossible de changer de rôle.'};}
 }
 
-export async function executeBecomeAgent(user:User,currency:string,pin:string){
-  const verified=await verifyUserPin(user.id,pin);
-  if(!verified.success)return {success:false,error:'Code PIN incorrect.'};
-  const connection=await db.getConnection();
-  try{
-    await connection.query('BEGIN');
-    const {rows}=await connection.query("SELECT role FROM users WHERE id=$1 FOR UPDATE",[user.id]);
-    const role=String(rows[0]?.role||'').toLowerCase();
-    if(['agent','superagent','admin'].includes(role))throw new Error('Vous êtes déjà agent.');
-    const ccy=String(currency).toUpperCase();
-    const candidates=[
-      `BECOME_AGENT_${ccy}_PROMO_FEE`,
-      `BECOME_AGENT_${ccy}_FEE`,
-      `AGENT_ACTIVATION_${ccy}_PROMO_FEE`,
-      `AGENT_ACTIVATION_${ccy}_FEE`,
-      `AGENT_ROLE_${ccy}_PROMO_FEE`,
-      `AGENT_ROLE_${ccy}_FEE`,
-      `AGENT_${ccy}_PROMO_FEE`,
-      `AGENT_${ccy}_FEE`
-    ];
-    let fee=0, feeCode='';
-    for(const code of candidates){
-      try{
-        const value=Number(await calculateTransactionFee(1,currency,code,(user as any).country||null,connection));
-        if(Number.isFinite(value)&&value>0){fee=value;feeCode=code;break;}
-      }catch{}
-    }
-    if(!feeCode)throw new Error('Forfait agent introuvable pour cette devise.');
-    const tx=await createTransaction({
-      user,typeCode:feeCode,amount:fee,currency,
-      description:'Activation du rôle agent',
-      metadata:{channel:'USSD',role_change:'client_to_agent',fee_code:feeCode},
-      connection
-    });
-    if(!tx.success)throw new Error(tx.error||'Le débit du forfait agent a échoué.');
-    await connection.query("UPDATE users SET role='agent',updated_at=NOW() WHERE id=$1",[user.id]);
-    await connection.query('COMMIT');
-    return {success:true,fee,feeCode};
-  }catch(e:any){
-    try{await connection.query('ROLLBACK');}catch{}
-    return {success:false,error:e?.message||'Impossible d’activer le rôle agent.'};
-  }finally{connection.release();}
+export async function executeBecomeAgent(user:User,_currency:string,pin:string,accepted?:{plan:string;fee:number;currency:string}){
+ try{if(!accepted)throw Error('Chargez et confirmez le forfait Agent avant le PIN.');return await activateAgent(user,pin,accepted);}catch(e:any){return {success:false,error:e.message};}
 }
 
-export async function createInternationalClaim(user:User,provider:string,tracking:string,amount:number,currency:string,senderCountry:string,receiveCurrency:string,pin:string){const p=await verifyUserPin(user.id,pin);if(!p.success)return {success:false,error:'Code PIN incorrect.'};try{const {rows}=await db.query("INSERT INTO international_transfer_claims(user_id,provider,tracking_number,expected_amount,expected_currency,sender_country,receive_in_currency,status) VALUES($1,$2,$3,$4,$5,$6,$7,'pending') RETURNING id",[user.id,provider,tracking,amount,currency,senderCountry,receiveCurrency]);return {success:true,id:rows[0]?.id};}catch{return {success:false,error:'Service indisponible.'};}}
+export async function createInternationalClaim(user:User,provider:string,tracking:string,amount:number,currency:string,senderCountry:string,receiveCurrency:string,pin:string){
+ const p=await verifyUserPin(user.id,pin);if(!p.success)return {success:false,error:'Code PIN incorrect.'};
+ if(!['western_union','moneygram','ria'].includes(provider)||!['USD','EUR','CDF'].includes(currency)||!['USD','EUR','CDF'].includes(receiveCurrency)||!Number.isFinite(amount)||amount<=0||!tracking.trim()||!senderCountry.trim())return {success:false,error:'Données de réclamation invalides.'};
+ const c=await db.getConnection();try{await c.query('BEGIN');await c.query('SELECT pg_advisory_xact_lock(12730,$1::int)',[user.id]);
+ const duplicate=await c.query("SELECT id FROM international_transfer_claims WHERE user_id=$1 AND provider=$2 AND UPPER(TRIM(tracking_number))=UPPER(TRIM($3)) AND status<>'rejected'",[user.id,provider,tracking]);if(duplicate.rows.length)throw Error('Cette réclamation existe déjà.');
+ const document=(await c.query('SELECT id FROM user_documents WHERE user_id=$1 ORDER BY id DESC LIMIT 1',[user.id])).rows[0];
+ if(!document)throw Error('Enregistrez votre pièce d’identité dans CashPay avant cette demande.');
+ const {rows}=await c.query("INSERT INTO international_transfer_claims(user_id,provider,tracking_number,expected_amount,expected_currency,sender_country,receive_in_currency,user_document_id,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending') RETURNING id",[user.id,provider,tracking.trim(),amount,currency,senderCountry.trim(),receiveCurrency,document.id]);
+ await c.query("INSERT INTO inter_claim_audit(claim_id,actor_user_id,action,detail) VALUES($1,$2,'SUBMITTED',$3::jsonb)",[rows[0].id,user.id,JSON.stringify({channel:'USSD',provider,expectedCurrency:currency,receiveCurrency})]);
+ await c.query("INSERT INTO notifications(user_id,title,description,type,link,is_read) VALUES($1,'Réclamation transmise',$2,'general','/receive',FALSE)",[user.id,`Réclamation #${rows[0].id} enregistrée et en attente de traitement.`]);
+ await c.query('COMMIT');return {success:true,id:rows[0].id};
+ }catch(e:any){await c.query('ROLLBACK');return {success:false,error:e.message||'Service indisponible.'};}finally{c.release();}
+}
 export async function getInternationalClaims(userId:number){try{const {rows}=await db.query('SELECT provider,tracking_number,expected_amount,expected_currency,status,created_at FROM international_transfer_claims WHERE user_id=$1 ORDER BY created_at DESC LIMIT 5',[userId]);return rows;}catch{return [];}}
 export async function createMaxiCashGatewayLink(user:User,amount:number,currency:string,reference:string,lang:'fr'|'en',method:'card'|'mobile_money'){try{const base=process.env.MAXICASH_GATEWAY_URL||'https://api.maxicashapp.com/PayEntry';const merchantId=process.env.MAXICASH_MERCHANT_ID,merchantPassword=process.env.MAXICASH_MERCHANT_PASSWORD;if(!merchantId||!merchantPassword)return {success:false,error:'Service de paiement indisponible.'};const origin=process.env.CASHPAY_PUBLIC_URL||'https://app.cashpay-all.com';const data={PayType:'MaxiCash',Amount:String(Math.round(amount*100)),Currency:currency==='USD'?'maxiDollar':currency,Telephone:user.phone||'',Email:(user as any).email||'',MerchantID:merchantId,MerchantPassword:merchantPassword,Language:lang,Reference:reference,Accepturl:`${origin}/payment/maxicash/success`,Cancelurl:`${origin}/payment/maxicash/cancel`,Declineurl:`${origin}/payment/maxicash/decline`,NotifyURL:`${origin}/api/maxicash/webhook`};const link=`${base}?data=${encodeURIComponent(JSON.stringify(data))}`;return {success:true,link,reference,method};}catch{return {success:false,error:'Service de paiement indisponible.'};}}
 export async function executeMaxiCashPayNow(user:User,amount:number,currency:string,reference:string,lang:'fr'|'en',paymentType='MaxiCash'){try{const url=process.env.MAXICASH_API_URL||'https://api.maxicashapp.com/Merchant/api.asmx/PayNowAsynch',merchantId=process.env.MAXICASH_MERCHANT_ID,merchantPassword=process.env.MAXICASH_MERCHANT_PASSWORD;if(!merchantId||!merchantPassword)return {success:false,error:'Service de paiement indisponible.'};const payload={PayType:paymentType,Amount:Math.round(amount*100),Currency:currency==='USD'?'maxiDollar':currency,Telephone:user.phone||'',MerchantID:merchantId,MerchantPassword:merchantPassword,Language:lang,Reference:reference};const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({strData:JSON.stringify(payload)})});if(!r.ok)return {success:false,error:'Service de paiement indisponible.'};const raw:any=await r.json();const d=typeof raw?.d==='string'?JSON.parse(raw.d):raw?.d||raw;return String(d?.[1]||'').toLowerCase()==='success'?{success:true,paymentId:d?.[3],paymentType:d?.[6],reference}:{success:false,error:d?.[2]||'Paiement refusé.'};}catch{return {success:false,error:'Service de paiement indisponible.'};}}

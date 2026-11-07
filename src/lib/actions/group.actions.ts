@@ -180,13 +180,15 @@ export async function getGroupWithMessages(groupId: number, userId: number): Pro
             SELECT * FROM group_messages WHERE group_id = $1 ORDER BY created_at ASC
         `, [groupId]);
 
+        const readMarkers=(await db.query(`SELECT r.user_id,r.last_read_at,u.full_name FROM onchat_group_reads r JOIN users u ON u.id=r.user_id WHERE r.group_id=$1`,[groupId])).rows;
         group.messages = messageRows.map(m => ({
             id: m.id.toString(),
             senderId: m.sender_id,
             content: m.content,
             timestamp: new Date(m.created_at).toISOString(),
             type: m.type,
-            status: 'sent',
+            status: readMarkers.some(reader=>Number(reader.user_id)!==Number(m.sender_id)&&new Date(reader.last_read_at)>=new Date(m.created_at))?'read' as const:'sent' as const,
+            readBy: readMarkers.filter(reader=>Number(reader.user_id)!==Number(m.sender_id)&&new Date(reader.last_read_at)>=new Date(m.created_at)).map(reader=>({userId:reader.user_id,name:reader.full_name,readAt:reader.last_read_at})),
             groupId: m.group_id,
             metadata: m.metadata,
             image_id: m.image_id,

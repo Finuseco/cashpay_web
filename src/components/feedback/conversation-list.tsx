@@ -1,6 +1,7 @@
 
 'use client';
 
+import {useOnChatPresence} from '@/hooks/use-onchat-presence';
 import { useState } from 'react';
 import { useTranslation } from "react-i18next";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -52,6 +53,7 @@ const formatTimestamp = (timestamp: string, t: any) => {
 };
 
 const ConversationItem = ({ conv, onSelect, currentUserId, isActive }: { conv: Conversation, onSelect: (contact: User) => void, currentUserId?: number, isActive: boolean }) => {
+    const online=useOnChatPresence(conv.contact.id_wallet,conv.contact.id);
     const { t } = useTranslation();
     const displayName = `${conv.contact.first_name || ''} ${conv.contact.last_name || ''}`.trim();
     const lastMessage = conv.messages[conv.messages.length - 1];
@@ -81,7 +83,7 @@ const ConversationItem = ({ conv, onSelect, currentUserId, isActive }: { conv: C
                         {conv.contact.first_name?.[0]}{conv.contact.last_name?.[0]}
                     </AvatarFallback>
                 </Avatar>
-                {conv.contact.availabilityStatus === 'available' ? (
+                {online ? (
                     <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#0D1226]" />
                 ) : (
                     <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-zinc-500 ring-2 ring-[#0D1226]" />

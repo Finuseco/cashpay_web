@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { updateUser } from '@/lib/actions/user.actions';
 import { getUserAstroProfile } from '@/lib/actions/astro.actions';
-import { verifyCurrentUserPin } from '@/lib/actions/message.actions';
+import { verifyCurrentUserPin } from '@/lib/actions/user.actions';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 
 export const dynamic = 'force-dynamic';
@@ -337,6 +337,11 @@ export async function PATCH(
                 }
                 : {};
 
+        if (requestedUpdates.fullName !== undefined) {
+            if (requestedUpdates.full_name === undefined) requestedUpdates.full_name = requestedUpdates.fullName;
+            delete requestedUpdates.fullName;
+        }
+
         if (!pin) {
             return NextResponse.json(
                 {
@@ -405,12 +410,9 @@ export async function PATCH(
         }
 
         const pinValid =
-            await verifyCurrentUserPin(
-                user.id,
-                pin
-            );
+            await verifyCurrentUserPin(pin);
 
-        if (!pinValid) {
+        if (!pinValid.success) {
             return NextResponse.json(
                 {
                     success: false,
@@ -426,6 +428,7 @@ export async function PATCH(
         const resultUpdate =
             await updateUser({
                 userId: user.id,
+                pin,
                 updates: requestedUpdates
             });
 

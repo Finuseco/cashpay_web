@@ -1,5 +1,6 @@
 'use client';
 
+import { subscribeOnChatRealtime } from '@/lib/onchat-browser-socket';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useTranslation } from "react-i18next";
@@ -20,7 +21,6 @@ import {
     createInChatTransfer, 
     markConversationAsRead, 
     deleteMessage, 
-    saveBase64Image, 
     postGroupMessage,
     getConversationsForUser,
     getConversation
@@ -136,6 +136,43 @@ export function FeedbackClient() {
         fetchInitialData();
     }, [fetchInitialData]);
     
+    useEffect(() => {
+        if (!currentUser) return;
+        let active = true;
+        let refreshing = false;
+        let pending = false;
+        const refresh = async () => {
+            if (refreshing) { pending = true; return; }
+            refreshing = true;
+            try {
+                do {
+                    pending = false;
+                    const fresh = await getConversationsForUser(currentUser.id);
+                    if (active) setConversations(fresh);
+                } while (active && pending);
+            } finally { refreshing = false; }
+        };
+        const unsubscribe = subscribeOnChatRealtime(event => {
+            if (event === 'reconnected' || event.startsWith('chat.')) void refresh();
+        });
+        return () => { active = false; unsubscribe(); };
+    }, [currentUser?.id]);
+
+    useEffect(() => {
+        if (!currentUser || !activeGroup) return;
+        let active = true;
+        const groupId = activeGroup.id;
+        void markConversationAsRead(`g_${groupId}`,currentUser.id).catch(()=>undefined);
+        const unsubscribe = subscribeOnChatRealtime((event, data) => {
+            if (event === 'reconnected' || (event.startsWith('chat.') && String(data?.conversationId) === `g_${groupId}`)) {
+                void getGroupWithMessages(groupId, currentUser.id).then(fresh => {
+                    if (active && fresh) {setActiveGroup(fresh);if(event==='chat.message.created')void markConversationAsRead(`g_${groupId}`,currentUser.id).catch(()=>undefined);}
+                });
+            }
+        });
+        return () => { active = false; unsubscribe(); };
+    }, [currentUser?.id, activeGroup?.id]);
+
     const handleSelectConversation = useCallback(async (contact: User) => {
         if (!currentUser) return;
         

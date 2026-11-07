@@ -10,7 +10,7 @@ async function getVideo(id: number) {
     WHERE id = $1
       AND media_type = 'video'
       AND visibility = 'public'
-      AND expires_at > NOW()
+      AND (expires_at IS NULL OR expires_at > NOW())
     LIMIT 1
     `,
     [id]

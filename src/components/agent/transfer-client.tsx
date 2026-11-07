@@ -49,7 +49,7 @@ export function AgentTransferClient({ agent }: { agent: User | null }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const { openAlert } = useAlertDialog();
-  
+
   const [senderVerification, setSenderVerification] = useState<WalletInfo | null>(null);
   const [recipientVerification, setRecipientVerification] = useState<WalletInfo | null>(null);
   const [agentCurrencies, setAgentCurrencies] = useState<Currency[]>([]);
@@ -63,7 +63,7 @@ export function AgentTransferClient({ agent }: { agent: User | null }) {
     resolver: zodResolver(otpSchema),
     defaultValues: { otp: '' },
   });
-  
+
   useEffect(() => {
     const fetchAgentCurrencies = async () => {
         if(agent) {
@@ -82,7 +82,7 @@ export function AgentTransferClient({ agent }: { agent: User | null }) {
     setSenderVerification(null);
     setRecipientVerification(null);
   };
-  
+
   const handleSenderVerification = (result: WalletInfo | null) => {
     if (result?.walletId === agent?.id_wallet) {
         form.setError("senderWalletId", { type: "manual", message: "Un agent ne peut être l'expéditeur." });
@@ -117,42 +117,30 @@ export function AgentTransferClient({ agent }: { agent: User | null }) {
     }
 
     setIsSubmitting(true);
-    const result = await initiateClientTransfer({ 
-        senderWalletId: values.senderWalletId, 
-        amount: values.amount, 
+    const result = await initiateClientTransfer({
+        senderWalletId: values.senderWalletId!,
+        recipientWalletId: values.recipientWalletId!,
+        amount: values.amount!,
         currency: values.currency,
         agentName: agent?.first_name || 'Agent',
     });
-    
+
     if(result.success) {
-        openAlert({ variant: 'info', title: 'Code envoyé', description: result.message });
+        openAlert({ variant: 'info', title: 'Code envoyé', description: 'message' in result ? result.message : 'Code envoyé.' });
         setStep('otp');
     } else {
-        if (result.backupOtp) {
-            openAlert({
-                variant: 'warning',
-                title: 'Erreur d\'envoi SMS',
-                description: (
-                    <div>
-                        <p className="mb-2">L'envoi par SMS a échoué. Utilisez ce code de secours pour valider la transaction :</p>
-                        <p className="text-2xl font-bold tracking-widest bg-muted p-2 rounded-md">{result.backupOtp}</p>
-                        <p className="text-xs text-muted-foreground mt-2">Ce code n'a été montré qu'à vous. Assurez-vous que le client est bien la personne qui a initié la demande.</p>
-                    </div>
-                )
-            });
-             setStep('otp'); // Still proceed to OTP step
-        } else {
-            openAlert({ variant: "error", title: "Erreur", description: result.error });
-        }
+        openAlert({ variant: "error", title: "Erreur", description: 'error' in result ? result.error : 'Opération non confirmée.' });
     }
     setIsSubmitting(false);
   };
-  
+
   const handleOtpSubmit = async (values: z.infer<typeof otpSchema>) => {
       setIsSubmitting(true);
       const details = form.getValues();
       const result = await confirmClientTransfer({
-        ...details,
+        senderWalletId: details.senderWalletId!,
+        recipientWalletId: details.recipientWalletId!,
+        amount: details.amount!,
         currency: details.currency,
         code: values.otp,
         method: 'otp', // OTP is the only method in this flow
@@ -165,7 +153,7 @@ export function AgentTransferClient({ agent }: { agent: User | null }) {
             onClose: resetFlow,
         });
       } else {
-          openAlert({ variant: 'error', title: 'Échec', description: result.error });
+          openAlert({ variant: 'error', title: 'Échec', description: 'error' in result ? result.error : 'Opération non confirmée.' });
           otpForm.reset();
       }
       setIsSubmitting(false);
@@ -174,15 +162,15 @@ export function AgentTransferClient({ agent }: { agent: User | null }) {
   const handleResendOtp = async (channel: 'sms' | 'in-app') => {
       if (!senderVerification?.userId) return;
       setIsResending(true);
-      
-      const result = await sendAndStoreOtp(senderVerification.userId, `un transfert de ${form.getValues('amount')} ${form.getValues('currency')}`, channel);
-      
+
+      const result = await initiateClientTransfer({ senderWalletId: form.getValues('senderWalletId')!, recipientWalletId: form.getValues('recipientWalletId')!, amount: Number(form.getValues('amount')), currency: form.getValues('currency'), channel });
+
       if (result.success) {
           openAlert({ variant: 'info', title: 'Code Renvoyé', description: `Un nouveau code a été envoyé au client via ${channel === 'sms' ? 'l\'application' : 'SMS'}.` });
       } else {
-          openAlert({ variant: 'error', title: 'Échec', description: result.error });
+          openAlert({ variant: 'error', title: 'Échec', description: 'error' in result ? result.error : 'Opération non confirmée.' });
       }
-      
+
       setIsResending(false);
   };
 
@@ -276,7 +264,7 @@ export function AgentTransferClient({ agent }: { agent: User | null }) {
           </Form>
         </CardContent>
       </Card>
-      
+
       <Dialog open={step === 'otp'} onOpenChange={(isOpen) => !isOpen && setStep('details')}>
           <DialogContent>
                 <DialogHeader>

@@ -1,3 +1,5 @@
+import {notifyMeetingStarted,meetingJoinUrl} from '@/lib/meeting-email';
+import { directCallAccess } from '@/lib/onchat-direct-calls';
 import { db } from '@/lib/db';
 import { createTransaction } from '@/lib/actions/transaction.actions';
 import { calculateTransactionFee } from '@/lib/actions/wallet.actions';
@@ -31,6 +33,7 @@ async function quote(connection: PoolClient, meeting: any, user: User, requested
         const membership = await connection.query('SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2 AND status = \'active\'', [meeting.group_id, user.id]);
         if (!membership.rows.length) throw new MeetingAccessError(403, 'GROUP_ACCESS_REQUIRED', 'Cette réunion est réservée aux membres du groupe.');
     }
+    const isDirectCall = await directCallAccess(connection, meeting.meeting_provider_id, user.id);
     const price = meetingPrice(meeting.price_amount, meeting.price_currency);
     const currency = meetingPrice(0, requestedCurrency || price.currency).currency;
     const { rows: participant } = await connection.query('SELECT fee_paid FROM meeting_participants WHERE meeting_id = $1 AND user_id = $2', [meeting.id, user.id]);
@@ -54,7 +57,7 @@ async function quote(connection: PoolClient, meeting: any, user: User, requested
     const balance = Number(balances[currency] || 0);
     return { priceAmount: price.amount, priceCurrency: price.currency, currency, amount: debit, fee,
         totalDebit: debit + fee, balance, sufficientBalance: balance >= debit + fee,
-        isHost, alreadyPaid, requiresTicket, eventId: events[0]?.id || null };
+        isHost, isDirectCall, alreadyPaid, requiresTicket, eventId: events[0]?.id || null };
 }
 
 export async function quoteMeetingAccess(code: string, user: User, currency?: string) {
@@ -69,7 +72,13 @@ export async function admitMeeting(code: string, user: User, body: { pin?: strin
         await connection.query('BEGIN');
         // Serializes admission, tariff changes and concurrent retries for this meeting.
         const meeting = await getMeeting(connection, code, true);
+        const removed=await connection.query('SELECT 1 FROM meeting_participants WHERE meeting_id=$1 AND user_id=$2 AND removed_at IS NOT NULL',[meeting.id,user.id]);
+        if(removed.rows.length)throw new MeetingAccessError(403,'PARTICIPANT_REMOVED','L’organisateur a retiré votre accès à cette réunion.');
         let access = await quote(connection, meeting, user, body.currency);
+        const {sfuConfigured,mediaCapacity}=await import('@/lib/meeting-media');
+        const capacity=sfuConfigured()?mediaCapacity():8;
+        const count=await connection.query('SELECT COUNT(*)::int AS total FROM meeting_participants WHERE meeting_id=$1 AND left_at IS NULL AND user_id<>$2',[meeting.id,user.id]);
+        if(count.rows[0].total>=capacity)throw new MeetingAccessError(409,'MEETING_FULL','La réunion a atteint sa capacité de participation.');
         let charged = false;
         if (access.requiresTicket) {
             const { rows } = await connection.query(`SELECT id FROM tickets WHERE event_id = $1 AND user_id = $2 AND ticket_code = $3 AND status IN ('valid', 'used') FOR UPDATE`, [access.eventId, user.id, String(body.ticketCode || '').trim()]);
@@ -105,9 +114,12 @@ export async function admitMeeting(code: string, user: User, body: { pin?: strin
               fee_paid = CASE WHEN EXCLUDED.fee_paid > 0 THEN EXCLUDED.fee_paid ELSE meeting_participants.fee_paid END,
               fee_currency = COALESCE(EXCLUDED.fee_currency, meeting_participants.fee_currency)`,
             [meeting.id, user.id, access.isHost, charged ? access.amount : 0, charged ? access.currency : null, access.isHost ? 'host' : 'viewer']);
+        if (access.isDirectCall) await connection.query("UPDATE meeting_participants SET can_speak=TRUE,role=CASE WHEN is_host THEN 'host' ELSE 'speaker' END WHERE meeting_id=$1 AND user_id=$2",[meeting.id,user.id]);
         await connection.query("SELECT pg_notify('onchat_meetings', $1)", [JSON.stringify({ meetCode: code })]);
+        const started=access.isHost?(await connection.query("UPDATE meetings SET started_at=NOW() WHERE id=$1 AND started_at IS NULL AND status='active' RETURNING id",[meeting.id])).rows.length>0:false;
         await connection.query('COMMIT');
-        return { success: true, meetCode: code, joinUrl: meeting.join_url, topic: meeting.topic, type: meeting.type, isHost: access.isHost, charged, amount: charged ? access.totalDebit : 0, currency: access.currency };
+        if(started)void notifyMeetingStarted(code,user.id).catch(error=>console.error('[Meeting start mail]',error.message));
+        return { success: true, meetCode: code, joinUrl: meetingJoinUrl(code), topic: meeting.topic, type: meeting.type, isHost: access.isHost, charged, amount: charged ? access.totalDebit : 0, currency: access.currency };
     } catch (error) { await connection.query('ROLLBACK'); throw error; }
     finally { connection.release(); }
 }

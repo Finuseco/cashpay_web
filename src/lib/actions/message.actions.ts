@@ -1,5 +1,7 @@
 
 'use server';
+import {validatedLocation} from '@/lib/chat-location';
+import {meetingCodeFromMessage,sendMeetingEmail,notifyGroupMeetingShare} from '@/lib/meeting-email';
 
 import type { Conversation, Message, User, AssistantSettings, Currency, GroupMessage, Product } from '@/lib/types';
 import { generateChatResponse } from '@/ai/flows/chat-flow';
@@ -39,7 +41,7 @@ export async function getConversationsForUser(userId: number): Promise<Conversat
 
         return rows.map(row => {
             const formattedContact = formatUser(row);
-            formattedContact.availabilityStatus = 'available';
+            formattedContact.availabilityStatus = row.availabilitystatus || 'offline';
             
             return {
                 id: row.conversationid,
@@ -250,6 +252,7 @@ export async function postMessage(
     attachmentMetadata?: Record<string, unknown>
 ): Promise<Message> {
     const connection = await db.getConnection();
+    let released=false;
 
     try {
         await connection.query('BEGIN');
@@ -289,7 +292,7 @@ export async function postMessage(
         }
 
         let imageId: string | null = null;
-        let metadata: Record<string, unknown> | null = attachmentMetadata || null;
+        let metadata: Record<string, unknown> | null = type==='location'?validatedLocation(attachmentMetadata):attachmentMetadata || null;
 
         if (attachmentMetadata?.fileUrl && (typeof attachmentMetadata.fileUrl !== 'string' || !ownedAttachmentPath(attachmentMetadata.fileUrl, senderId))) {
             throw new Error('Fichier non autorisé.');
@@ -345,6 +348,7 @@ export async function postMessage(
         // PostgreSQL delivers NOTIFY only after COMMIT; no uncommitted message is broadcast.
         await connection.query("SELECT pg_notify('onchat_messages', $1)", [JSON.stringify({ id: messageId })]);
         await connection.query('COMMIT');
+        connection.release();released=true;
 
         // Le message est déjà enregistré : une panne de notification/e-mail ne doit pas le faire échouer.
         try {
@@ -367,7 +371,9 @@ export async function postMessage(
                     { contactId: senderId }
                 );
 
-                if (receiver.email) {
+                const meetingCode=meetingCodeFromMessage(content,metadata);
+                const meetingMailSent=receiver.email&&meetingCode?await sendMeetingEmail({...receiver,email:receiver.email},meetingCode,sender.full_name):false;
+                if (receiver.email && !meetingMailSent) {
                     const senderProfilePicture = sender.profile_photo
                         ? `${process.env.NEXT_PUBLIC_APP_URL}${sender.profile_photo}`
                         : 'https://www.cashpay-all.com/logos/profile-placeholder.png';
@@ -409,11 +415,11 @@ export async function postMessage(
             image_id: insertedMessage.image_id ?? null,
         };
     } catch (error) {
-        await connection.query('ROLLBACK');
+        if(!released)await connection.query('ROLLBACK');
         handleDbError(error, 'posting message');
         throw error;
     } finally {
-        connection.release();
+        if(!released)connection.release();
     }
 }
 
@@ -495,11 +501,11 @@ export async function getAiSpokenResponse(text: string): Promise<{ audioDataUri:
 }
 
 export async function markConversationAsRead(conversationId: string, userId: number): Promise<void> {
-    try {
-        await db.query('UPDATE messages SET is_read = true, status = \'read\' WHERE conversation_id = $1 AND sender_id != $2', [conversationId, userId]);
-    } catch(e) {
-        await handleDbError(e, 'marking conversation as read');
-    }
+    const {getAuthenticatedUser}=await import('./user.actions');
+    const user=await getAuthenticatedUser();
+    if(!user || Number(user.id)!==Number(userId))throw new Error('Session requise.');
+    const {markChatRead}=await import('@/lib/chat-receipts');
+    await markChatRead(conversationId,user.id);
 }
 
 export async function deleteMessage(messageId: string): Promise<{ success: boolean, error?: string }> {
@@ -814,7 +820,7 @@ export async function postGroupMessage(
     const membership = await db.query("SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2 AND status = 'active'", [groupId, user.id]);
     if (!membership.rows.length) throw new Error('Groupe inaccessible.');
     if (attachmentMetadata?.fileUrl && !ownedAttachmentPath(attachmentMetadata.fileUrl, user.id)) throw new Error('Fichier non autorisé.');
-    let metadata = attachmentMetadata ? JSON.stringify(attachmentMetadata) : null;
+    let metadata = type==='location'?JSON.stringify(validatedLocation(attachmentMetadata)):attachmentMetadata ? JSON.stringify(attachmentMetadata) : null;
     let imageId = null;
     if (fileDataUri) {
         const attachment = parseChatDataUri(fileDataUri);
@@ -834,6 +840,8 @@ export async function postGroupMessage(
 
 
     const { rows: memberRows } = await db.query('SELECT user_id FROM group_members WHERE group_id = $1 AND user_id != $2', [groupId, senderId]);
+    const meetingCode=meetingCodeFromMessage(content,attachmentMetadata);
+    if(meetingCode)void notifyGroupMeetingShare(meetingCode,groupId,senderId).catch(error=>console.error('[Group meet mail]',error.message));
     const memberIds = memberRows.map(r => r.user_id);
     const sender = await getUserFromDb({userId: senderId});
     const { rows: groupRows } = await db.query('SELECT name FROM groups WHERE id = $1', [groupId]);

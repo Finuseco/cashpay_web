@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       user.country
     );
 
-    if (fee <= 0) {
+    if (!Number.isFinite(fee) || fee <= 0) {
       return NextResponse.json(
         { success: false, error: 'Le tarif de cet abonnement n’est pas configuré pour votre pays.' },
         { status: 409 }
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
       currency: 'USD',
       code,
       fee
-    });
+    }, {headers:{'Cache-Control':'private, no-store'}});
   } catch (error) {
     console.error('[AGENT SUBSCRIPTION FEES]', error);
 

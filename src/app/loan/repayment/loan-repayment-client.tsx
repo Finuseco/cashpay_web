@@ -12,7 +12,7 @@ const money = (v: unknown) => Number(v || 0).toLocaleString('fr-FR', { minimumFr
 const n = (v: unknown) => Number.isFinite(Number(v)) ? Number(v) : 0;
 const date = (v: unknown) => {
   const d = new Date(String(v || ''));
-  return Number.isNaN(d.getTime()) ? 'Date non disponible' : d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+  return Number.isNaN(d.getTime()) ? 'Date non disponible' : d.toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
 };
 
 export default function LoanRepaymentClient({ loans, userId }: { loans: LoanHistory[]; userId: number }) {

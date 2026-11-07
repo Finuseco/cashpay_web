@@ -10,7 +10,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { SplashLogo } from '../splash-logo';
 import { OnChatLogo } from '../feedback/on-chat-logo';
 import { JojoLogo } from '../shopping/jojo-logo';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+
 
 interface PortalPinLockProps {
     portalName: string;
@@ -24,21 +24,6 @@ const PortalLogo = ({ portalName }: { portalName: string }) => {
     if (portalName === 'Shopping') return <JojoLogo />;
     return <SplashLogo />;
 };
-
-/* ---------------------------------------------------------------
-   Avatars fictifs qui "attendent" dans la salle OnChat
-   style Zoom lobby / waiting room
----------------------------------------------------------------- */
-const WAITING_USERS = [
-    { name: 'Amani K.',   initials: 'AK', color: '#8b5cf6', x: 18, y: 22, size: 56, delay: 0 },
-    { name: 'Brice M.',   initials: 'BM', color: '#06b6d4', x: 72, y: 15, size: 48, delay: 0.4 },
-    { name: 'Cynthia P.', initials: 'CP', color: '#9333ea', x: 10, y: 60, size: 44, delay: 0.9 },
-    { name: 'David L.',   initials: 'DL', color: '#0891b2', x: 80, y: 55, size: 52, delay: 0.2 },
-    { name: 'Eva R.',     initials: 'ER', color: '#7c3aed', x: 55, y: 72, size: 40, delay: 1.1 },
-    { name: 'Fiston N.',  initials: 'FN', color: '#22d3ee', x: 42, y: 12, size: 36, delay: 0.6 },
-    { name: 'Grace T.',   initials: 'GT', color: '#a78bfa', x: 85, y: 28, size: 38, delay: 1.3 },
-    { name: 'Henry O.',   initials: 'HO', color: '#0e7490', x: 28, y: 80, size: 42, delay: 0.8 },
-];
 
 const PARTICLES = [
     { x: 15, y: 30, color: '#8b5cf6', delay: 0 },
@@ -88,33 +73,6 @@ function OnChatWaitingRoom() {
                 </div>
             </div>
 
-            {/* Avatars flottants (salle d'attente Zoom) */}
-            {WAITING_USERS.map((u) => (
-                <div key={u.name}
-                    className="absolute"
-                    style={{
-                        left: `${u.x}%`,
-                        top: `${u.y}%`,
-                        animation: `oc-float ${5 + u.delay * 2}s ease-in-out infinite ${u.delay}s`,
-                    }}>
-                    <div className="relative">
-                        {/* Halo coloré autour de l'avatar */}
-                        <div className="absolute inset-0 rounded-full blur-md opacity-50"
-                            style={{ backgroundColor: u.color, transform: 'scale(1.3)' }} />
-                        <Avatar style={{ width: u.size, height: u.size }} className="relative border-2" style2={{ borderColor: u.color }}>
-                            <AvatarFallback
-                                className="text-white font-bold text-xs"
-                                style={{ backgroundColor: u.color, fontSize: u.size * 0.27 }}>
-                                {u.initials}
-                            </AvatarFallback>
-                        </Avatar>
-                        {/* Indicateur en ligne */}
-                        <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#080c1e]"
-                            style={{ backgroundColor: '#22c55e' }} />
-                    </div>
-                </div>
-            ))}
-
             {/* Particules scintillantes */}
             {PARTICLES.map((p, i) => (
                 <div key={i}
@@ -146,35 +104,22 @@ export function PortalPinLock({ portalName, children }: PortalPinLockProps) {
     const [isLoading, setIsLoading] = useState(true);
     const pathname = usePathname();
     const router = useRouter();
+    const [authError,setAuthError]=useState('');
+    const [retry,setRetry]=useState(0);
     const isOnChat = portalName === 'OnChat';
 
     useEffect(() => {
-        const checkAuthAndLockState = async () => {
-            setIsLoading(true);
-            const fetchedUser = await getAuthenticatedUser();
-
-            if (!fetchedUser) {
-                router.replace(`/login?returnTo=${encodeURIComponent(pathname)}`);
-                return;
-            }
+        let active=true;let timer:ReturnType<typeof setTimeout>;
+        setIsLoading(true);setAuthError('');setIsLocked(true);
+        (async()=>{
+            const fetchedUser=await Promise.race([getAuthenticatedUser(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('La vérification de session a pris trop de temps.')),20000);})]);
+            if(!active)return;
+            if(!fetchedUser){router.replace(`/login?returnTo=${encodeURIComponent(pathname)}`);return;}
             setUser(fetchedUser);
-
-            const lockInfoRaw = sessionStorage.getItem(`${portalName}-lock`);
-            if (lockInfoRaw) {
-                try {
-                    const lockInfo = JSON.parse(lockInfoRaw);
-                    const timeSinceUnlock = Date.now() - lockInfo.timestamp;
-                    if (timeSinceUnlock < PIN_LOCK_TIMEOUT_MS) {
-                        setIsLocked(false);
-                    }
-                } catch (e) {
-                    console.error("Failed to parse lock info from sessionStorage", e);
-                }
-            }
-            setIsLoading(false);
-        };
-        checkAuthAndLockState();
-    }, [portalName, pathname, router]);
+            try{const raw=sessionStorage.getItem(`${portalName}-lock`);if(raw){const lock=JSON.parse(raw);const age=Date.now()-lock.timestamp;if(lock.unlocked===true&&age>=0&&age<PIN_LOCK_TIMEOUT_MS)setIsLocked(false);}}catch{/* A storage error keeps the PIN required. */}
+        })().catch(error=>{if(active)setAuthError(error.message||'Impossible de vérifier votre session.');}).finally(()=>{clearTimeout(timer);if(active)setIsLoading(false);});
+        return()=>{active=false;clearTimeout(timer);};
+    }, [portalName, pathname, router,retry]);
 
     const handleUnlockSuccess = () => {
         try {
@@ -186,6 +131,8 @@ export function PortalPinLock({ portalName, children }: PortalPinLockProps) {
             setIsLocked(false);
         }
     };
+
+    if(authError)return <main className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white gap-4 p-6"><PortalLogo portalName={portalName}/><p role="alert">{authError}</p><button className="rounded-xl bg-violet-600 px-5 py-3" onClick={()=>setRetry(value=>value+1)}>Réessayer</button></main>;
 
     /* ---- Loading splash ---- */
     if (isLoading || !user) {
@@ -222,7 +169,7 @@ export function PortalPinLock({ portalName, children }: PortalPinLockProps) {
                     {/* Texte d'ambiance en haut */}
                     <div className="relative z-10 w-full text-center pt-10 pb-2">
                         <p className="text-white/40 text-xs tracking-widest uppercase">
-                            {WAITING_USERS.length} personnes en ligne
+                            Espace sécurisé OnChat
                         </p>
                     </div>
 

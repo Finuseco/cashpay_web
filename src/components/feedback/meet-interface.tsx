@@ -6,7 +6,7 @@ import {
     Mic, MicOff, Video as VideoIcon, VideoOff, PhoneOff, Users,
     ShieldCheck, Copy, Monitor, AlertTriangle, Loader2,
     Hand, CheckCheck, X, Crown, Volume2, VolumeX,
-    MicOff as MuteAll, UserX, LogOut,
+    MicOff as MuteAll, UserX, LogOut, LayoutGrid, PanelTop, ChevronLeft, ChevronRight, MessageSquare, SwitchCamera, Maximize2, MoreHorizontal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { User } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import {OnChatLogo} from '@/components/feedback/on-chat-logo';
+import {MeetingChat} from '@/components/feedback/meeting-chat';
 import { useMeetRoom } from '@/hooks/use-meet-room';
 
 interface MeetInterfaceProps {
@@ -36,7 +38,7 @@ interface LiveParticipant {
 
 /** Tuile vidéo d'un participant — affiche l'avatar réel si la caméra est off */
 function VideoTile({
-    stream, muted, label, avatar, off, isMain, raiseHand, canSpeak, isHostTile,
+    stream, muted, label, avatar, off, isMain, raiseHand, canSpeak, isHostTile, presenting=false, microphoneEnabled,
 }: {
     stream: MediaStream | null;
     muted?: boolean;
@@ -47,14 +49,18 @@ function VideoTile({
     raiseHand?: boolean;
     canSpeak?: boolean;
     isHostTile?: boolean;
+    presenting?: boolean;
+    microphoneEnabled?: boolean;
 }) {
     const ref = useRef<HTMLVideoElement>(null);
+    const [avatarFailed,setAvatarFailed]=useState(false);
+    useEffect(()=>setAvatarFailed(false),[avatar]);
     useEffect(() => {
         if (ref.current && ref.current.srcObject !== stream) ref.current.srcObject = stream;
     }, [stream]);
 
     const initials = label
-        .split(' ')
+        .trim().split(/\s+/).filter(Boolean)
         .slice(0, 2)
         .map((w) => w[0])
         .join('')
@@ -69,15 +75,16 @@ function VideoTile({
                 ? 'border-[#06b6d4]/40 ring-1 ring-[#06b6d4]/20'
                 : 'border-zinc-800/50',
         )}>
-            <video ref={ref} autoPlay playsInline muted={muted} className="w-full h-full object-cover" />
+            <video ref={ref} autoPlay playsInline muted={muted} className={presenting?"w-full h-full object-contain":"w-full h-full object-cover"} />
 
             {/* Avatar quand caméra off */}
-            {(off || !stream) && (
+            {(off || !stream || !stream.getVideoTracks().length) && (
                 <div className="absolute inset-0 flex items-center justify-center"
                     style={{ background: 'linear-gradient(135deg, #13072e 0%, #0b0f1a 100%)' }}>
-                    {avatar ? (
+                    {avatar && !avatarFailed ? (
                         <img
                             src={avatar}
+                            onError={()=>setAvatarFailed(true)}
                             alt={label}
                             className="h-20 w-20 rounded-full object-cover ring-4"
                             style={{ outlineColor: isHostTile ? '#06b6d4' : '#8b5cf6' }}
@@ -101,6 +108,7 @@ function VideoTile({
                 style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%)' }}>
                 <span className="text-xs font-medium truncate max-w-[70%] drop-shadow">{label}</span>
                 <div className="flex items-center gap-1">
+                    {typeof microphoneEnabled==='boolean'&&(microphoneEnabled?<Mic className="h-4 w-4 text-green-400"/>:<MicOff className="h-4 w-4 text-zinc-300"/>)}
                     {isHostTile && <Crown className="h-3 w-3 text-[#06b6d4]" />}
                     {raiseHand && (
                         <span className="text-xs bg-yellow-500/80 rounded-full px-1.5 py-0.5 animate-bounce">✋</span>
@@ -116,6 +124,8 @@ function VideoTile({
 
 export function MeetInterface({ meetCode, user, withVideo = true, isHost = false }: MeetInterfaceProps) {
     const router = useRouter();
+    const [viewMode,setViewMode]=useState<'stage'|'grid'>('stage');
+    const [pinned,setPinned]=useState<string|null>(null),[page,setPage]=useState(0),[showChat,setShowChat]=useState(false),[listeningMuted,setListeningMuted]=useState(false),[audioBlocked,setAudioBlocked]=useState(false),[more,setMore]=useState(false);
     const [elapsed, setElapsed] = useState(0);
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraOff, setIsCameraOff] = useState(!withVideo);
@@ -209,8 +219,8 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
         } catch { /* ignoré */ }
     };
 
-    const toggleMic = () => { room.setMicEnabled(isMuted); setIsMuted(!isMuted); };
-    const toggleCam = () => { room.setCameraEnabled(isCameraOff); setIsCameraOff(!isCameraOff); };
+    const toggleMic = async () => {const result=await room.setMicEnabled(isMuted);if(result!==false)setIsMuted(!isMuted);};
+    const toggleCam = async () => {if(await room.setCameraEnabled(isCameraOff))setIsCameraOff(!isCameraOff);};
 
     const handleRaiseHand = async () => {
         const next = !hasRaisedHand;
@@ -281,31 +291,27 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
     const myParticipant = participants.find((p) => p.userId === Number(user.id));
     const iAmSpeaker = room.canSpeak;
 
-    const speakerPeers = peers.filter((p) => {
-        const participant = participants.find((pp) => pp.userId === p.userId);
-        return Boolean(participant && (participant.canSpeak || participant.isHost));
-    });
-    const viewerPeers = peers.filter((p) => {
-        const participant = participants.find((pp) => pp.userId === p.userId);
-        return participant && !participant.canSpeak && !participant.isHost;
-    });
-
-    const visiblePeers = iAmSpeaker ? peers : speakerPeers;
-    const tiles = visiblePeers.length + 1;
-    const cols =
-        tiles <= 1 ? 'grid-cols-1'
-        : tiles <= 4 ? 'grid-cols-1 sm:grid-cols-2'
-        : 'grid-cols-2 lg:grid-cols-3';
-
-    const raiseHandCount = participants.filter((p) => p.raiseHand).length;
-
-    const userAvatar = (user as any).photo_url || (user as any).avatar || null;
+    const raiseHandCount=participants.filter(p=>p.raiseHand).length;
+    const userAvatar=user.profile_photo||(user as any).avatar||null;
+    const allTiles=[{key:'self',id:Number(user.id),name:`${user.full_name||[user.first_name,user.last_name].filter(Boolean).join(' ')} (vous)`,avatar:userAvatar,stream:localStream,off:isCameraOff,isHost,screen:false,speaking:false,microphoneEnabled:!isMuted&&iAmSpeaker},
+     ...peers.map(peer=>{const data=participants.find(p=>p.userId===peer.userId);return{key:String(peer.userId),id:peer.userId,name:data?.name||peer.name||'Participant',avatar:data?.avatar||peer.avatar,stream:peer.stream,off:peer.cameraEnabled===false||Boolean(peer.isScreenSharing&&!peer.screenStream),isHost:Boolean(data?.isHost),screen:false,speaking:Boolean(peer.isSpeaking),microphoneEnabled:peer.microphoneEnabled};})];
+    if(room.screenStream)allTiles.unshift({key:'self-screen',id:Number(user.id),name:'Votre présentation',avatar:userAvatar,stream:room.screenStream,off:false,isHost,screen:true,speaking:false,microphoneEnabled:!isMuted&&iAmSpeaker});
+    for(const peer of peers)if(peer.screenStream||peer.isScreenSharing)allTiles.unshift({key:`${peer.userId}-screen`,id:peer.userId,name:`Présentation • ${peer.name||'Participant'}`,avatar:peer.avatar||null,stream:peer.screenStream||peer.stream,off:false,isHost:false,screen:true,speaking:false,microphoneEnabled:peer.microphoneEnabled});
+    const stage=allTiles.find(tile=>tile.key===pinned)||allTiles.find(tile=>tile.screen)||allTiles.find(tile=>tile.speaking)||allTiles[0];
+    const candidates=viewMode==='grid'?allTiles:allTiles.filter(tile=>tile.key!==stage.key);
+    const pageSize=viewMode==='grid'?6:8,pageCount=Math.max(1,Math.ceil(candidates.length/pageSize)),currentPage=Math.min(page,pageCount-1),visible=candidates.slice(currentPage*pageSize,(currentPage+1)*pageSize);
+    const subscriptionKeys=(viewMode==='stage'?[stage.key,...visible.map(tile=>tile.key)]:visible.map(tile=>tile.key)).filter(key=>!key.startsWith('self')).join(',');
+    useEffect(()=>{room.setVisibleTracks?.(subscriptionKeys?subscriptionKeys.split(','):[],stage.key);},[subscriptionKeys,stage.key,room.setVisibleTracks]);
+    useEffect(()=>{setIsCameraOff(!localStream?.getVideoTracks().some(track=>track.enabled&&track.readyState==='live'));setIsMuted(!localStream?.getAudioTracks().some(track=>track.enabled&&track.readyState==='live'));},[localStream,iAmSpeaker]);
+    const select=(key:string)=>{setPinned(key);setViewMode('stage');setPage(0);};
+    function unlockAudio(){setListeningMuted(false);setAudioBlocked(false);document.querySelectorAll<HTMLAudioElement>('audio[data-onchat-remote]').forEach(element=>{element.muted=false;void element.play().catch(()=>setAudioBlocked(true));});}
 
     return (
-        <div className="relative flex flex-col h-[100dvh] text-white overflow-hidden" style={{ background: 'linear-gradient(160deg, #080c1e 0%, #13072e 50%, #080c1e 100%)' }}>
+        <div className="relative flex flex-col h-[100dvh] text-white overflow-hidden" style={{ background: 'linear-gradient(160deg, #180923 0%, #2b1042 50%, #140921 100%)' }}>
             {/* Header */}
             <header className="shrink-0 h-14 flex items-center justify-between px-4 bg-black/40">
                 <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <OnChatLogo className="w-20 h-auto mr-2"/>
                     {/* Code réunion */}
                     <div className="flex items-center gap-1.5 rounded-xl border px-3 py-1.5"
                         style={{ background: 'rgba(139,92,246,0.12)', borderColor: 'rgba(139,92,246,0.25)' }}>
@@ -322,7 +328,7 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
 
                     {/* Participants count */}
                     <Badge variant="outline" className="text-zinc-300 text-[10px] border-zinc-700/40">
-                        <Users className="h-3 w-3 mr-1" />{participants.length || tiles}
+                        <Users className="h-3 w-3 mr-1" />{peers.length+1}
                     </Badge>
 
                     {/* Badge hôte */}
@@ -342,6 +348,8 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                 </div>
 
                 <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="icon" title="Vue grille" onClick={()=>{setViewMode('grid');setPage(0);}} className={viewMode==='grid'?'bg-violet-600 h-8 w-8':'h-8 w-8'}><LayoutGrid className="h-4 w-4"/></Button>
+                    <Button variant="ghost" size="icon" title="Scène principale" onClick={()=>{setViewMode('stage');setPage(0);}} className={viewMode==='stage'?'bg-violet-600 h-8 w-8':'h-8 w-8'}><PanelTop className="h-4 w-4"/></Button>
                     <Button variant="ghost" size="icon" onClick={() => setShowParticipants((v) => !v)} title="Participants" className="relative h-8 w-8">
                         <Users className="h-4 w-4" />
                         {raiseHandCount > 0 && isHost && (
@@ -357,45 +365,17 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
             {/* ── Body ── */}
             <div className="flex flex-1 min-h-0 overflow-hidden">
                 {/* Zone vidéo principale */}
-                <main className={cn('flex-1 min-h-0 p-3 grid gap-3 auto-rows-fr', cols)}>
-                    {/* Tuile locale */}
-                    <VideoTile
-                        stream={localStream}
-                        muted
-                        label={`${user.first_name || user.full_name} (vous)`}
-                        avatar={userAvatar}
-                        off={isCameraOff}
-                        isMain={isHost}
-                        isHostTile={isHost}
-                        canSpeak={iAmSpeaker}
-                        raiseHand={hasRaisedHand}
-                    />
-                    {/* Tuiles distantes */}
-                    {visiblePeers.map((p) => {
-                        const pData = participants.find((pp) => pp.userId === p.userId);
-                        return (
-                            <VideoTile
-                                key={p.userId}
-                                stream={p.stream}
-                                label={p.name || `Participant ${p.userId}`}
-                                avatar={pData?.avatar}
-                                isMain={pData?.isHost || pData?.role === 'speaker'}
-                                isHostTile={pData?.isHost}
-                                canSpeak={pData?.canSpeak}
-                                raiseHand={pData?.raiseHand}
-                            />
-                        );
-                    })}
-                    {/* Compteur spectateurs */}
-                    {viewerPeers.length > 0 && iAmSpeaker && (
-                        <div className="flex items-center justify-center rounded-2xl border p-4"
-                            style={{ background: 'rgba(19,7,62,0.45)', borderColor: 'rgba(139,92,246,0.2)' }}>
-                            <div className="text-center">
-                                <p className="text-3xl font-black text-[#8b5cf6]">{viewerPeers.length}</p>
-                                <p className="text-xs text-zinc-400 mt-1">spectateur{viewerPeers.length > 1 ? 's' : ''}</p>
-                            </div>
-                        </div>
-                    )}
+                <main className="relative flex flex-1 min-h-0 min-w-0 flex-col gap-3 p-2 sm:p-4">
+                    {peers.map(peer=><MeetingAudio key={peer.userId} stream={peer.stream} muted={listeningMuted} onBlocked={()=>setAudioBlocked(true)}/>)}
+                    {viewMode==='stage'&&<div className="flex-1 min-h-0 min-w-0 relative [&>div]:h-full [&>div]:w-full">
+                        <VideoTile stream={stage.stream} presenting={stage.screen} microphoneEnabled={stage.microphoneEnabled} muted label={stage.name} avatar={stage.avatar} off={stage.off} isMain isHostTile={stage.isHost}/>
+                        {stage.screen&&<span className="absolute left-3 top-3 rounded-lg bg-violet-600 px-3 py-1 text-xs flex gap-2"><Monitor className="h-4 w-4"/>Partage d’écran en cours</span>}
+                    </div>}
+                    <div className={viewMode==='grid'?'flex-1 min-h-0 grid grid-cols-2 md:grid-cols-3 grid-rows-3 md:grid-rows-2 gap-2':'shrink-0 flex gap-2 overflow-x-auto pb-1'}>
+                        {visible.map(tile=><button key={tile.key} onClick={()=>select(tile.key)} aria-label={`Afficher ${tile.name} sur la scène`} className={viewMode==='grid'?'min-h-0 min-w-0 text-left [&>div]:h-full [&>div]:w-full':'shrink-0 w-32 h-24 sm:w-40 sm:h-28 text-left [&>div]:h-full [&>div]:w-full'}><VideoTile stream={tile.stream} presenting={tile.screen} microphoneEnabled={tile.microphoneEnabled} muted label={tile.name} avatar={tile.avatar} off={tile.off} isHostTile={tile.isHost} isMain={tile.speaking}/></button>)}
+                    </div>
+                    {pageCount>1&&<div className="flex shrink-0 justify-center items-center gap-4 text-xs"><button disabled={currentPage===0} onClick={()=>setPage(currentPage-1)} aria-label="Participants précédents"><ChevronLeft/></button><span>{currentPage+1} / {pageCount} • {peers.length+1} participants</span><button disabled={currentPage+1>=pageCount} onClick={()=>setPage(currentPage+1)} aria-label="Participants suivants"><ChevronRight/></button></div>}
+                    {showChat&&<MeetingChat code={meetCode} onClose={()=>setShowChat(false)}/>}
                 </main>
 
                 {/* ── Panel participants ── */}
@@ -420,20 +400,9 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                                 <div key={p.userId}
                                     className="flex items-center gap-2 p-2 rounded-xl hover:bg-zinc-800/40 transition-colors">
                                     {/* Avatar participant */}
-                                    <div className="h-9 w-9 rounded-full overflow-hidden shrink-0 ring-2"
-                                        style={{ outlineColor: p.isHost ? '#06b6d4' : 'rgba(139,92,246,0.3)' }}>
-                                        {p.avatar ? (
-                                            <img src={p.avatar} alt={p.name} className="h-full w-full object-cover" />
-                                        ) : (
-                                            <div className="h-full w-full flex items-center justify-center text-sm font-bold"
-                                                style={{
-                                                    background: p.isHost
-                                                        ? 'linear-gradient(135deg, #06b6d4, #0891b2)'
-                                                        : 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
-                                                }}>
-                                                {(p.name || '?')[0].toUpperCase()}
-                                            </div>
-                                        )}
+                                    <div className="relative h-9 w-9 rounded-full overflow-hidden shrink-0 ring-2 bg-violet-700 flex items-center justify-center text-sm font-bold">
+                                        <span>{String(p.name||'').trim().split(/\s+/).filter(Boolean).slice(0,2).map(word=>word[0]).join('').toUpperCase()||'?'}</span>
+                                        {p.avatar&&<img src={p.avatar} alt={p.name} onError={event=>{event.currentTarget.style.display='none';}} className="absolute inset-0 h-full w-full object-cover"/>}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-xs font-medium truncate">{p.name}</p>
@@ -483,6 +452,7 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
 
             {actionSuccess && <p role="status" className="text-sm text-secondary px-4 py-2">{actionSuccess}</p>}
             {actionError && <p role="alert" className="text-sm text-red-400 px-4 py-2">{actionError}</p>}
+            {status==='ended'&&<div className="flex items-center justify-center gap-3 p-3"><span>Vous avez quitté cette réunion.</span><Button onClick={()=>router.push('/feedback')}>Retour aux discussions</Button></div>}
             {/* Status messages */}
             {(status === 'connecting' || status === 'media') && (
                 <p className="text-center text-xs text-zinc-400 pb-1 flex items-center justify-center gap-2">
@@ -500,14 +470,15 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                     <span>{error}</span>
                     {status === 'error' && (
-                        <Button size="sm" variant="outline" className="ml-auto shrink-0" onClick={() => join()}>Réessayer</Button>
+                        <Button size="sm" variant="outline" className="ml-auto shrink-0" onClick={() => window.location.reload()}>Réessayer</Button>
                     )}
                 </div>
             )}
 
             {!iAmSpeaker && status === 'joined' && <p className="text-center text-xs text-muted-foreground p-2">Vous êtes spectateur. Levez la main pour demander à rejoindre la scène.</p>}
+            {audioBlocked&&<Button variant="outline" onClick={unlockAudio}>Activer le son de la réunion</Button>}
             {/* Controls */}
-            <div className="shrink-0 flex items-center justify-center gap-2 sm:gap-3 bg-zinc-900/80 border-t border-white/5 p-3">
+            <div className="shrink-0 flex items-center justify-center gap-1 sm:gap-3 overflow-x-auto [&>button]:shrink-0 bg-[#211032] border-t border-white/5 p-3">
                 <Button
                     variant="outline"
                     size="icon"
@@ -535,12 +506,16 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
                     size="icon"
                     onClick={room.toggleScreenShare}
                     disabled={!iAmSpeaker}
-                    className={cn('h-12 w-12 rounded-full hidden sm:inline-flex', isScreenSharing ? 'bg-primary text-white' : 'bg-zinc-800 text-white')}
+                    className={cn('h-12 w-12 rounded-full', isScreenSharing ? 'bg-primary text-white' : 'bg-zinc-800 text-white')}
                     title="Partager l'écran"
                 >
                     <Monitor className="h-5 w-5" />
                 </Button>
 
+                <Button variant="outline" size="icon" title="Participants" className="h-12 w-12 rounded-full bg-violet-950" onClick={()=>setShowParticipants(v=>!v)}><Users className="h-5 w-5"/></Button>
+                <Button variant="outline" size="icon" title="Discussion" className="h-12 w-12 rounded-full bg-violet-950" onClick={()=>setShowChat(v=>!v)}><MessageSquare className="h-5 w-5"/></Button>
+                <Button variant="outline" size="icon" title={listeningMuted?'Activer le son':'Couper le son reçu'} className="h-12 w-12 rounded-full bg-violet-950" onClick={()=>{if(listeningMuted)unlockAudio();else setListeningMuted(true);}}>{listeningMuted?<VolumeX className="h-5 w-5"/>:<Volume2 className="h-5 w-5"/>}</Button>
+                <div className="relative"><Button variant="outline" size="icon" title="Plus" className="h-12 w-12 rounded-full bg-violet-950" onClick={()=>setMore(v=>!v)}><MoreHorizontal/></Button>{more&&<div className="absolute bottom-16 right-0 w-52 rounded-xl border border-violet-500/30 bg-violet-950 p-2 flex flex-col"><Button variant="ghost" onClick={handleCopy}>Copier le lien d’invitation</Button><Button variant="ghost" disabled={!iAmSpeaker} onClick={()=>void room.flipCamera()}>Retourner la caméra</Button><Button variant="ghost" onClick={()=>void document.documentElement.requestFullscreen?.()}>Plein écran</Button></div>}</div>
                 {/* Lever la main — participants seulement */}
                 {!isHost && (
                     <Button
@@ -589,4 +564,10 @@ export function MeetInterface({ meetCode, user, withVideo = true, isHost = false
             </div>
         </div>
     );
+}
+
+function MeetingAudio({stream,muted,onBlocked}:{stream:MediaStream|null;muted:boolean;onBlocked:()=>void}){
+ const ref=useRef<HTMLAudioElement>(null);
+ useEffect(()=>{const element=ref.current;if(!element)return;element.srcObject=stream;if(stream?.getAudioTracks().length)void element.play().catch(onBlocked);return()=>{element.srcObject=null;};},[stream]);
+ return <audio ref={ref} autoPlay muted={muted} data-onchat-remote/>;
 }

@@ -1,4 +1,6 @@
 'use client';
+import { useOnChatPresence } from '@/hooks/use-onchat-presence';
+import { subscribeOnChatRealtime } from '@/lib/onchat-browser-socket';
 import { invitationCode } from '@/lib/meeting-invitation';
 import { MeetingInvitationCard } from '@/components/feedback/meeting-invitation-card';
 
@@ -306,6 +308,8 @@ const MessageBubble = ({
   const isDocument = message.type === 'doc';
   const isImage = message.type === 'image';
   const isProduct = message.type === 'product';
+  let locationPoint:{latitude:number;longitude:number;title:string}|null=null;
+  if(message.type==='location')try{const data=typeof message.metadata==='string'?JSON.parse(message.metadata):message.metadata;const latitude=Number(data?.latitude),longitude=Number(data?.longitude);if(data?.latitude!=null&&data?.longitude!=null&&Number.isFinite(latitude)&&Math.abs(latitude)<=90&&Number.isFinite(longitude)&&Math.abs(longitude)<=180)locationPoint={latitude,longitude,title:String(data.title||'Position partagée')};}catch{}
 
   if (message.content?.startsWith('{')) {
       try {
@@ -376,6 +380,8 @@ const MessageBubble = ({
       )}>
         {isProduct ? (
             <ProductCardMessage metadata={message.metadata!} />
+        ) : locationPoint ? (
+            <a href={`https://www.google.com/maps?q=${locationPoint.latitude},${locationPoint.longitude}`} target="_blank" rel="noopener noreferrer" className="block p-3"><Map className="mb-2 text-cyan-300"/><strong>{locationPoint.title}</strong><p>{locationPoint.latitude}, {locationPoint.longitude}</p><span className="underline">Ouvrir la position</span></a>
         ) : isDocument && fileData?.fileUrl ? (
             <a href={fileData.fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 bg-black/20 rounded-md p-2">
                 <FileText className="h-8 w-8 text-white"/>
@@ -445,6 +451,7 @@ const DateSeparator = ({ date }: { date: string }) => {
 };
 
 const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: () => void, contact: User, onViewProfile: () => void, onStartCall: (type: 'audio' | 'video' | 'meeting') => void }) => {
+    const online=useOnChatPresence(contact.id_wallet,contact.id);
     const shortcuts = [
         { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
         { href: "/shopping", label: "Shopping", icon: ShoppingCart },
@@ -465,11 +472,11 @@ const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: (
                       <AvatarImage src={contact.profile_photo || ''} alt={contact.full_name} data-ai-hint="person portrait" />
                       <AvatarFallback>{contact.first_name?.[0]}</AvatarFallback>
                   </Avatar>
-                  {contact.availabilityStatus === 'available' && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#141C38]" />}
+                  {online && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#141C38]" />}
               </div>
               <div className="min-w-0">
                   <h2 className="font-bold text-base truncate">{contact.full_name}</h2>
-                  <p className="text-xs text-zinc-400">{contact.availabilityStatus === 'available' ? 'En ligne' : 'Hors ligne'}</p>
+                  <p className="text-xs text-zinc-400">{online ? 'En ligne' : 'Hors ligne'}</p>
               </div>
             </div>
             <div className="ml-auto flex items-center gap-1">
@@ -656,7 +663,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
       const current = conversationRef.current.messages.filter(m => !String(m.id).startsWith('temp-'));
       const lastFresh = fresh[fresh.length - 1];
       const lastCurrent = current[current.length - 1];
-      if (fresh.length !== current.length || (lastFresh && lastCurrent && lastFresh.id !== lastCurrent.id)) {
+      if (fresh.length !== current.length || fresh.some((message, index) => message.id !== current[index]?.id || message.status !== current[index]?.status || message.content !== current[index]?.content)) {
         const last = fresh[fresh.length - 1];
         onUpdateConversation({
           ...conversationRef.current,
@@ -669,8 +676,11 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
         }
       }
     };
+    const unsubscribe = subscribeOnChatRealtime((event, data) => {
+      if (event === 'reconnected' || (event.startsWith('chat.') && String(data?.conversationId) === String(conversationRef.current.id))) void tick();
+    });
     const timer = setInterval(tick, 3000);
-    return () => { stopped = true; clearInterval(timer); };
+    return () => { stopped = true; unsubscribe(); clearInterval(timer); };
   }, [conversation.id, currentUser.id, onUpdateConversation]);
 
   const handleCall = (type: 'audio' | 'video' | 'meeting') => {

@@ -1,5 +1,6 @@
 'use server';
 
+import { regionalScope, assertManagedUser } from '@/lib/super-agent-access';
 import type { User, FlightBooking, FlightPassenger } from '@/lib/types';
 import { db } from '../db';
 import { handleDbError } from './helpers';
@@ -37,7 +38,7 @@ export async function createFlightBooking(user: User, bookingData: BookingReques
         if (!pinRes.success) throw new Error("Votre code PIN est incorrect.");
 
         const internalRef = generateReferenceCode('FLT');
-        
+
         // 2. Débit du portefeuille de l'utilisateur
         const tx = await createTransaction({
             user,
@@ -45,10 +46,10 @@ export async function createFlightBooking(user: User, bookingData: BookingReques
             amount: bookingData.price,
             currency: bookingData.currency,
             description: `Billet d'avion ${bookingData.airlineName} : ${bookingData.originCountry} ✈ ${bookingData.destinationCountry}`,
-            metadata: { 
+            metadata: {
                 airline: bookingData.airlineName,
                 internalRef,
-                paxCount: bookingData.passengers.length 
+                paxCount: bookingData.passengers.length
             },
             status: 'Pending',
             connection
@@ -60,7 +61,7 @@ export async function createFlightBooking(user: User, bookingData: BookingReques
 
         // 3. Appel de l'API de réservation (Processus automatique via NDC/GDS)
         const apiResult = await bookFlight(bookingData.offerId, bookingData.passengers);
-        
+
         if (!apiResult.success || !apiResult.pnr) {
             throw new Error(apiResult.error || "La compagnie aérienne a rejeté la réservation. Aucun fonds n'a été prélevé.");
         }
@@ -81,17 +82,17 @@ export async function createFlightBooking(user: User, bookingData: BookingReques
         };
 
         const { rows: resultRows } = await connection.query(`
-            INSERT INTO flight_bookings 
-            (user_id, booking_reference, origin_country, destination_country, departure_date, return_date, booking_status, payment_status, total_fare, currency, transaction_id) 
+            INSERT INTO flight_bookings
+            (user_id, booking_reference, origin_country, destination_country, departure_date, return_date, booking_status, payment_status, total_fare, currency, transaction_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id
         `, Object.values(flightBooking));
-        
+
         const newBookingId = resultRows[0].id;
 
         // 5. Enregistrement des passagers
         for (const passenger of bookingData.passengers) {
             await connection.query(`
-                INSERT INTO flight_passengers (booking_id, first_name, last_name, date_of_birth, passport_number) 
+                INSERT INTO flight_passengers (booking_id, first_name, last_name, date_of_birth, passport_number)
                 VALUES ($1, $2, $3, $4, $5)
             `, [newBookingId, passenger.firstName, passenger.lastName, format(new Date(passenger.dateOfBirth), 'yyyy-MM-dd'), passenger.passportNumber]);
         }
@@ -101,10 +102,10 @@ export async function createFlightBooking(user: User, bookingData: BookingReques
 
         await connection.query('COMMIT');
 
-        return { 
-            success: true, 
+        return {
+            success: true,
             bookingReference: apiResult.pnr,
-            message: "Votre billet a été émis avec succès. Vous recevrez une copie par e-mail." 
+            message: "Votre billet a été émis avec succès. Vous recevrez une copie par e-mail."
         };
     } catch (error: any) {
         await connection.query('ROLLBACK');
@@ -120,13 +121,13 @@ export async function createFlightBooking(user: User, bookingData: BookingReques
 export async function getMyBookings(userId: number): Promise<any[]> {
     try {
         const { rows } = await db.query(`
-            SELECT 
+            SELECT
                 fb.*,
                 t.description,
                 (SELECT COUNT(*) FROM flight_passengers WHERE booking_id = fb.id) as passenger_count
             FROM flight_bookings fb
             JOIN transactions t ON fb.transaction_id = t.id
-            WHERE fb.user_id = $1 
+            WHERE fb.user_id = $1
             ORDER BY fb.created_at DESC
         `, [userId]);
         return rows;
@@ -139,17 +140,18 @@ export async function getMyBookings(userId: number): Promise<any[]> {
  * Récupère toutes les réservations nationales (Super Agent).
  */
 export async function getCountryFlightBookings(countryName: string): Promise<any[]> {
+    const scope = await regionalScope(countryName);
     try {
         const { rows } = await db.query(`
-            SELECT 
-                fb.*, 
+            SELECT
+                fb.*,
                 u.full_name as user_name,
                 u.id_wallet as user_wallet
             FROM flight_bookings fb
             JOIN users u ON fb.user_id = u.id
-            WHERE u.country = $1
+            WHERE ${scope.sql}
             ORDER BY fb.created_at DESC
-        `, [countryName]);
+        `, scope.values);
         return rows;
     } catch (e) {
         return [];

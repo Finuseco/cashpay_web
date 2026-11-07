@@ -1,0 +1,12 @@
+<div style="background:#f6f2fa;border-radius:16px;padding:28px;font-family:Arial,sans-serif;color:#35223e">
+ <p style="text-transform:uppercase;letter-spacing:2px;font-size:12px;color:#7e527c">OnChat Meet · {{mediaType}}</p>
+ <h1 style="font-size:26px;margin:12px 0">{{topic}}</h1>
+ <p>Bonjour {{guestName}},</p><p><strong>{{senderName}}</strong> vous invite à consulter cette réunion.</p>
+ <p style="background:#ebe0f1;padding:12px;border-radius:8px"><strong>{{statusLabel}}</strong></p>
+ <table role="presentation" style="width:100%;font-size:14px;line-height:1.8">
+  <tr><td>Début prévu</td><td>{{scheduledStart}}</td></tr><tr><td>Fin prévue</td><td>{{scheduledEnd}}</td></tr>
+  <tr><td>Démarrage effectif</td><td>{{actualStart}}</td></tr><tr><td>Fin effective</td><td>{{actualEnd}}</td></tr>
+ </table>
+ <p style="text-align:center;margin:30px 0"><a href="{{joinUrl}}" style="background:#704168;color:#ffffff;text-decoration:none;padding:16px 24px;border-radius:10px;display:inline-block;font-weight:bold">{{buttonText}}</a></p>
+ <p style="font-size:12px;color:#705d75">État au moment de l’envoi : {{sentAt}}. Le statut peut évoluer après réception. Le bouton ouvre l’état actuel ; l’accès et les éventuels frais sont vérifiés par CashPay avant participation.</p>
+</div>

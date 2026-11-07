@@ -1,5 +1,6 @@
 'use client';
 
+import {useOnChatPresence} from '@/hooks/use-onchat-presence';
 import type { User as UserType } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -55,6 +56,7 @@ export function ContactProfileView({
   onBack,
   onStartCall,
 }: ContactProfileViewProps) {
+  const online=useOnChatPresence(user.id_wallet,user.id);
   const { t } = useTranslation();
 
   const countryInfo = user.country
@@ -156,7 +158,7 @@ export function ContactProfileView({
 
           <p className="-mt-2 break-words text-sm text-zinc-400">
             {userHandle} •{' '}
-            {user.availabilityStatus === 'available'
+            {online
               ? t('chatOnline')
               : t('chatOffline')}
           </p>
