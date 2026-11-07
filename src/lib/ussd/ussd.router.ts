@@ -1003,7 +1003,7 @@ async function loanSchedule(u:any,s:Session,i:string,d:any,l:Lang){
       const loan:any=h.find((x:any)=>Number(x.id)===Number(d.loanId)) || h.find((x:any)=>String(x.status).toLowerCase()==='approved');
       if(!loan)return `CON ${l==='fr'?'Aucun échéancier disponible.\n0. Retour':'No schedule available.\n0. Back'}`;
       const page=Math.max(0,Number(d.loanSchedulePage||0));
-      const size=3;
+      const size=2;
       const schedule=(Array.isArray(loan.schedule)?loan.schedule:[]).filter((x:any)=>String(x.status).toLowerCase()!=='paid' && Number(x.remaining_amount)>0.005);
       const items=schedule.slice(page*size,(page+1)*size);
       const hasNext=(page+1)*size<schedule.length;
@@ -1016,7 +1016,7 @@ async function loanSchedule(u:any,s:Session,i:string,d:any,l:Lang){
       if(!items.length && hasPrevious){
         return loanSchedule(u,s,'9',{...d,state:'LOAN_SCHEDULE',loanId:loan.id,loanSchedulePage:page-1},l);
       }
-      const rows=items.map((x:any,idx:number)=>`${idx+1}. #${x.installment_number} | ${new Date(x.due_date).toLocaleDateString(l==='fr'?'fr-FR':'en-US',{day:'2-digit',month:'2-digit'})}\n   ${Number(x.remaining_amount).toFixed(2)} ${loan.currency}${Number(x.penalty)>0.005?` (dont pénalité ${Number(x.penalty).toFixed(2)})`:''}`);
+      const rows=items.map((x:any,idx:number)=>`${idx+1}. #${x.installment_number} | ${new Date(x.due_date).toLocaleDateString(l==='fr'?'fr-FR':'en-US',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})}\n   ${Number(x.remaining_amount).toFixed(2)} ${loan.currency}${Number(x.penalty)>0.005?` (pén. ${Number(x.penalty).toFixed(2)})`:''}`);
       const nav=`${hasPrevious?'8. '+(l==='fr'?'Précédent':'Previous')+'\n':''}${hasNext?'9. '+(l==='fr'?'Suivant':'Next'):'0. '+(l==='fr'?'Retour':'Back')}`;
       return `CON ${l==='fr'?`Échéancier #${loan.id}\n${rows.join('\n')}\n\n1. Rembourser\n${nav}`:`Schedule #${loan.id}\n${rows.join('\n')}\n\n1. Pay\n${nav}`}`;
     }
@@ -1040,7 +1040,7 @@ async function loanInstallmentSelect(u:any,s:Session,i:string,d:any,l:Lang){
   if(!loan)return `CON ${l==='fr'?'Aucun prêt actif.\n0. Retour':'No active loan.\n0. Back'}`;
   const schedule=(Array.isArray(loan.schedule)?loan.schedule:[]).filter((x:any)=>String(x.status).toLowerCase()!=='paid' && Number(x.remaining_amount)>0.005);
   const page=Math.max(0,Number(d.loanInstallmentPage||0));
-  const size=3;
+  const size=2;
   const items=schedule.slice(page*size,(page+1)*size);
   const choice=Number(i);
   if(choice===8 && page>0)return loanInstallmentSelect(u,s,'0',{...d,state:'LOAN_INSTALLMENT_SELECT',loanInstallmentPage:page-1},l);

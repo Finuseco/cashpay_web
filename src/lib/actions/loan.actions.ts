@@ -12,6 +12,7 @@ import { createNotification } from './notification.actions';
 import { db } from '@/lib/db';
 import { handleDbError } from './helpers';
 import { format, addMonths, addDays } from 'date-fns';
+import { fr } from 'date-fns/locale';
 import { createTransaction } from './transaction.actions';
 import { calculateTransactionFee } from './wallet.actions';
 import { getAuthenticatedUser } from './user.actions';
@@ -197,7 +198,7 @@ export async function getLoanOffer(userId: number, currency: string): Promise<{
         const balance = money(balances[normalizedCurrency]);
         const { rows: activeRows } = await db.query(`
             SELECT id,status FROM loans
-            WHERE user_id=$1 AND status IN ('pending','approved')
+            WHERE user_id=$1 AND LOWER(status::text) IN ('pending','approved','defaulted','overdue')
             ORDER BY request_date DESC LIMIT 1
         `, [userId]);
         if (activeRows.length) {
@@ -239,7 +240,7 @@ export async function createLoanApplication(args: CreateLoanArgs): Promise<{ suc
         if(args.acceptedTerms&&(args.acceptedTerms.currency!==normalizedCurrency||args.acceptedTerms.durationMonths!==durationMonths||args.acceptedTerms.repaymentFrequency!==plan.frequency||args.acceptedTerms.installmentCount!==plan.count||args.acceptedTerms.interestRate!==configuredInterestRate||!Number.isFinite(args.acceptedTerms.totalRepayment)||Math.abs(args.acceptedTerms.totalRepayment-canonicalTerms.totalRepayment)>0.005))throw new Error('Conditions modifiées. Vérifiez et acceptez le nouveau devis.');
         const { rows: activeRows } = await connection.query(`
             SELECT id,status FROM loans
-            WHERE user_id=$1 AND status IN ('pending','approved')
+            WHERE user_id=$1 AND LOWER(status::text) IN ('pending','approved','defaulted','overdue')
             ORDER BY request_date DESC LIMIT 1 FOR UPDATE
         `, [user.id]);
         if (activeRows.length) {
@@ -287,7 +288,7 @@ export async function getLoanForUser(userId: number): Promise<Loan | null> {
                    CASE WHEN repayment_frequency='weekly'
                         THEN approval_date + (installment_count * interval '7 days')
                         ELSE approval_date + (CASE WHEN repayment_frequency='quarterly' THEN installment_count * 3 ELSE duration END * interval '1 month') END AS end_date
-            FROM loans WHERE user_id=$1 AND status='approved'
+            FROM loans WHERE user_id=$1 AND LOWER(status::text) IN ('approved','defaulted','overdue')
             ORDER BY request_date DESC LIMIT 1`, [userId]);
         if (!rows.length) return null;
         const loan = rows[0];
@@ -308,6 +309,14 @@ export async function getLoanForUser(userId: number): Promise<Loan | null> {
 /** Execute all due installments. Safe to call from cron and from the LoanMe USSD entry. */
 export async function processLoanRepayments(userId?: number,context?:symbol) {
     if(context!==LOAN_INTERNAL_CONTEXT){const current=await getAuthenticatedUser();if(!current)throw new Error('Authentification requise.');if(userId!==undefined&&Number(userId)!==Number(current.id))throw new Error('Accès refusé.');userId=current.id;}
+    if(userId===undefined){
+      const {rows}=await db.query(`SELECT DISTINCT l.user_id FROM loans l WHERE LOWER(l.status::text) IN ('approved','defaulted','overdue') AND
+       (EXISTS(SELECT 1 FROM loan_installments i WHERE i.loan_id=l.id AND i.due_date::date<=CURRENT_DATE-7 AND COALESCE(i.amount,0)+COALESCE(i.penalty_amount,0)-COALESCE(i.paid_amount,0)>0)
+        OR (l.remaining_balance>0 AND l.end_date::date<=CURRENT_DATE-7)) ORDER BY l.user_id`);
+      let processed=0,failed=0;const successfulUserIds:number[]=[],errors:Array<{userId:number;error:string}>=[],debitedByCurrency:Record<string,number>={};
+      for(const row of rows){try{const result:any=await processLoanRepayments(Number(row.user_id),LOAN_INTERNAL_CONTEXT);if(result.error||result.failed){failed++;errors.push({userId:Number(row.user_id),error:result.error||'Prélèvement refusé.'});}else successfulUserIds.push(Number(row.user_id));processed+=Number(result.processed||0);for(const [currency,amount] of Object.entries(result.debitedByCurrency||{}))debitedByCurrency[currency]=roundMoney((debitedByCurrency[currency]||0)+Number(amount));}catch(e:any){failed++;errors.push({userId:Number(row.user_id),error:e.message||'Recouvrement impossible.'});}}
+      return {success:failed===0,processed,failed,successfulUserIds,errors,debitedByCurrency,debited:Object.keys(debitedByCurrency).length===1?Object.values(debitedByCurrency)[0]:0};
+    }
     const connection = await db.getConnection();
     const events: Array<{user:any;subject:string;message:string;data:any}> = [];
     let processed = 0;
@@ -318,7 +327,7 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
         const { rows: approvedLoans } = await connection.query(`
           SELECT l.*, u.id AS u_id, u.full_name, u.phone, u.email, u.first_name, u.country, u.id_wallet, u.notifications_channel
           FROM loans l JOIN users u ON u.id=l.user_id
-          WHERE l.status='approved'
+          WHERE LOWER(l.status::text) IN ('approved','defaulted','overdue')
             AND ($1::integer IS NULL OR l.user_id=$1)
             AND (
               l.remaining_balance > 0
@@ -326,8 +335,7 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
                 SELECT 1
                 FROM loan_installments li
                 WHERE li.loan_id = l.id
-                  AND li.status <> 'paid'
-                  AND li.due_date <= NOW()
+                  AND li.due_date::date <= CURRENT_DATE - 7
                   AND (
                     COALESCE(li.amount, 0)
                     + COALESCE(li.penalty_amount, 0)
@@ -340,15 +348,31 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
 
         for (const loanData of approvedLoans) {
             await ensureLoanInstallments(connection, loanData);
+            const scheduleDebt=(await connection.query(`SELECT COALESCE(SUM(GREATEST(0,COALESCE(amount,0)+COALESCE(penalty_amount,0)-COALESCE(paid_amount,0))),0)::text AS debt FROM loan_installments WHERE loan_id=$1`,[loanData.id])).rows[0]?.debt;
+            if(Math.abs(Number(scheduleDebt)-Number(loanData.remaining_balance))>0.005)throw new Error('Dette et échéancier incohérents : rapprochement des paiements requis avant prélèvement.');
             const { rows: due } = await connection.query(`
               SELECT * FROM loan_installments
-              WHERE loan_id=$1 AND status <> 'paid' AND due_date <= NOW()
-              ORDER BY installment_number FOR UPDATE
+              WHERE loan_id=$1 AND due_date::date <= CURRENT_DATE - 7 AND COALESCE(amount,0)+COALESCE(penalty_amount,0)-COALESCE(paid_amount,0)>0
+              ORDER BY due_date,installment_number FOR UPDATE
             `, [loanData.id]);
             const user = formatUser({...loanData,id:loanData.u_id});
             const currency = String(loanData.currency).toUpperCase();
 
             for (const inst of due) {
+                // Eligible from due date + seven calendar days, including debts past the loan end date.
+                const outstandingBeforePenalty=roundMoney(money(inst.amount)+money(inst.penalty_amount)-money(inst.paid_amount));
+                const interval=Math.max(1,Math.floor(Number(process.env.LOAN_PENALTY_INTERVAL_DAYS||7))||7);
+                const eligible=(await connection.query(`SELECT COALESCE(last_penalty_date,penalty_applied_on) IS NULL OR COALESCE(last_penalty_date,penalty_applied_on)<=CURRENT_DATE-$2::integer AS eligible FROM loan_installments WHERE id=$1`,[inst.id,interval])).rows[0]?.eligible;
+                if(outstandingBeforePenalty>0.005&&eligible){
+                  const penalty=money(await calculateTransactionFee(outstandingBeforePenalty,currency,'PENALTY',user.country,connection));
+                  if(penalty>0){
+                    await connection.query(`UPDATE loan_installments SET penalty_amount=COALESCE(penalty_amount,0)+$1,status='overdue',penalty_applied_on=COALESCE(penalty_applied_on,CURRENT_DATE),last_penalty_date=CURRENT_DATE,updated_at=NOW() WHERE id=$2`,[penalty,inst.id]);
+                    await connection.query('UPDATE loans SET remaining_balance=remaining_balance+$1 WHERE id=$2',[penalty,loanData.id]);
+                    await connection.query("INSERT INTO loan_repayments(loan_id,amount,type) VALUES($1,$2,'penalty')",[loanData.id,penalty]);
+                    inst.penalty_amount=roundMoney(money(inst.penalty_amount)+penalty);
+                    events.push({user,subject:'Pénalité LoanMe',message:`CashPay : pénalité de ${penalty.toFixed(2)} ${currency} sur l’échéance ${inst.installment_number}, due le ${format(new Date(inst.due_date),'EEEE dd MMMM yyyy',{locale:fr})}.`,data:{loan_id:loanData.id,installment_id:Number(inst.id),type:'loan_penalty',amount:penalty}});
+                  }
+                }
                 const baseOutstanding = roundMoney(money(inst.amount) + money(inst.penalty_amount) - money(inst.paid_amount));
                 if (baseOutstanding <= 0) {
                     await connection.query(`UPDATE loan_installments SET status='paid', updated_at=NOW() WHERE id=$1`, [inst.id]);
@@ -386,6 +410,7 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
 
                 const payable = roundMoney(bestCents / 100);
                 if (payable > 0) {
+                    await connection.query('SAVEPOINT auto_loan_debit');
                     const tx = await createTransaction({
                         user, typeCode: 'LR' as any, amount: payable, currency,
                         description: `Remboursement automatique prêt #${loanData.id} — échéance ${inst.installment_number}`,
@@ -393,6 +418,7 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
                         connection
                     });
                     if (tx.success) {
+                        await connection.query('RELEASE SAVEPOINT auto_loan_debit');
                         processed++;
                         debited = roundMoney(debited + payable);
 
@@ -433,15 +459,17 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
                                 installment_id:Number(inst.id),
                                 transaction_id:tx.transactionId,
                                 reference:tx.reference,
-                                type:'loan_auto_repayment'
+                                type:'loan_auto_repayment',currency,amount:payable
                             }
                         });
 
                         if (remainingAfter <= 0.005) continue;
                     } else {
+                        await connection.query('ROLLBACK TO SAVEPOINT auto_loan_debit');
+                        await connection.query('RELEASE SAVEPOINT auto_loan_debit');
                         failed++;
                         // Ne jamais ignorer silencieusement un prélèvement refusé.
-                        events.push({
+                        if(inst.status!=='overdue') events.push({
                             user,
                             subject:'Échec du remboursement LoanMe',
                             message:`CashPay: le remboursement de l’échéance ${inst.installment_number} du prêt #${loanData.id} n’a pas pu être effectué. ${tx.error || 'Erreur de transaction.'}`,
@@ -460,41 +488,15 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
                 const current = freshRows[0];
                 const remainingBeforePenalty = roundMoney(money(current.amount) + money(current.penalty_amount) - money(current.paid_amount));
                 if (remainingBeforePenalty <= 0.005) continue;
-                let penaltyApplied = 0;
-
-                // Une pénalité est appliquée une fois par PÉRIODE (hebdomadaire par défaut, réglable avec
-                // LOAN_PENALTY_INTERVAL_DAYS) et par échéance en retard : les passages répétés de l'agent
-                // dans la même période ne doublent jamais la pénalité, mais récupèrent toujours le solde
-                // disponible. Les pénalités s'additionnent d'une période à l'autre jusqu'au règlement de la dette.
-                const penaltyIntervalDays = Math.max(1, Math.floor(Number(process.env.LOAN_PENALTY_INTERVAL_DAYS || 7)) || 7);
-                const canPenaltyResult = await connection.query(
-                    `SELECT (last_penalty_date IS NULL OR last_penalty_date <= CURRENT_DATE - $2::integer) AS can_apply
-                     FROM loan_installments
-                     WHERE id=$1
-                     FOR UPDATE`,
-                    [inst.id, penaltyIntervalDays]
-                );
-                const canApplyPenalty = Boolean(canPenaltyResult.rows[0]?.can_apply);
-                if (canApplyPenalty) {
-                    const penalty = money(await calculateTransactionFee(remainingBeforePenalty, currency, 'PENALTY', user.country, connection));
-                    if (penalty > 0) {
-                        penaltyApplied = penalty;
-                        await connection.query(`UPDATE loan_installments SET penalty_amount=penalty_amount+$1,status='overdue',penalty_applied_on=COALESCE(penalty_applied_on,CURRENT_DATE),last_penalty_date=CURRENT_DATE,updated_at=NOW() WHERE id=$2`, [penalty, inst.id]);
-                        await connection.query(`UPDATE loans SET remaining_balance=remaining_balance+$1 WHERE id=$2`, [penalty, loanData.id]);
-                        await connection.query(`INSERT INTO loan_repayments (loan_id,amount,type) VALUES ($1,$2,'penalty')`, [loanData.id, penalty]);
-                        events.push({user,subject:'Pénalité LoanMe',message:`CashPay: une pénalité de ${penalty.toFixed(2)} ${currency} a été appliquée sur l’échéance ${inst.installment_number} du prêt #${loanData.id}. Reste dû: ${roundMoney(remainingBeforePenalty+penalty).toFixed(2)} ${currency}.`,data:{loan_id:loanData.id,installment_id:Number(inst.id),type:'loan_penalty',amount:penalty}});
-                    }
-                }
-
-                const remainingAfterPenalty = roundMoney(remainingBeforePenalty + penaltyApplied);
-                await connection.query(`UPDATE loan_installments SET status='overdue',updated_at=NOW() WHERE id=$1 AND status <> 'paid'`, [inst.id]);
+                const remainingAfterPenalty = remainingBeforePenalty;
+                await connection.query(`UPDATE loan_installments SET status='overdue',updated_at=NOW() WHERE id=$1 AND status <> 'overdue' AND COALESCE(amount,0)+COALESCE(penalty_amount,0)-COALESCE(paid_amount,0)>0`, [inst.id]);
                 if (current.status !== 'overdue') {
                     events.push({user,subject:'Échéance LoanMe impayée',message:`CashPay Alerte: l’échéance ${inst.installment_number} du prêt #${loanData.id} reste impayée. Montant restant: ${remainingAfterPenalty.toFixed(2)} ${currency}.`,data:{loan_id:loanData.id,installment_id:Number(inst.id),type:'loan_overdue',amount:remainingAfterPenalty}});
                 }
             }
         }
 
-        await connection.query(`UPDATE loans SET status='repaid' WHERE status='approved' AND remaining_balance <= 0 AND ($1::integer IS NULL OR user_id=$1)`,[userId??null]);
+        await connection.query(`UPDATE loans l SET status='repaid' WHERE LOWER(l.status::text) IN ('approved','defaulted','overdue') AND l.remaining_balance<=0 AND ($1::integer IS NULL OR l.user_id=$1) AND NOT EXISTS(SELECT 1 FROM loan_installments i WHERE i.loan_id=l.id AND COALESCE(i.amount,0)+COALESCE(i.penalty_amount,0)-COALESCE(i.paid_amount,0)>0.005)`,[userId??null]);
         await connection.query('COMMIT');
         for (const event of events) {
             void notifyLoanUser(event.user, event.subject, event.message, event.data)
@@ -503,16 +505,17 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
                 });
         }
         return {
-            success: processed > 0,
+            success: failed === 0,
             processed,
             debited,
+            debitedByCurrency: Object.fromEntries(events.filter(e=>e.data.type==='loan_auto_repayment').reduce((map,e)=>map.set(e.data.currency,roundMoney((map.get(e.data.currency)||0)+e.data.amount)),new Map<string,number>())) ,
             failed,
             events: events.length
         };
     } catch (error) {
         await connection.query('ROLLBACK');
-        console.error('[Auto Loan Recoup] Critical failure:', error);
-        return { success: false, error: 'Failed to process automated repayments.' };
+        console.error('[Auto Loan Recoup]', {userId,code:(error as any)?.code || (error instanceof Error && error.message.startsWith('Échéancier manquant') ? 'MISSING_SCHEDULE' : error instanceof Error && error.message.startsWith('Dette et échéancier') ? 'DEBT_MISMATCH' : 'REPAYMENT_FAILED')});
+        return { success: false, error: error instanceof Error && (error.message.startsWith('Échéancier manquant') || error.message.startsWith('Dette et échéancier')) ? error.message : 'Recouvrement interrompu. Consultez les journaux du service.' };
     } finally { connection.release(); }
 }
 
@@ -570,7 +573,7 @@ export async function repayLoan(userId:number, loanId:number, requestedAmount:nu
     try {
         await connection.query('BEGIN');
         const {intent,receipt}=await repaymentReplay(connection,userId,loanId,null,acceptedPayment);if(receipt){await connection.query('COMMIT');return receipt;}
-        const { rows: loanRows } = await connection.query(`SELECT l.*,to_jsonb(u) AS borrower FROM loans l JOIN users u ON u.id=l.user_id WHERE l.id=$1 AND l.user_id=$2 AND l.status='approved' FOR UPDATE`, [loanId,userId]);
+        const { rows: loanRows } = await connection.query(`SELECT l.*,to_jsonb(u) AS borrower FROM loans l JOIN users u ON u.id=l.user_id WHERE l.id=$1 AND l.user_id=$2 AND LOWER(l.status::text) IN ('approved','defaulted','overdue') FOR UPDATE`, [loanId,userId]);
         if(!loanRows.length) throw new Error('Prêt introuvable ou non remboursable.');
         const loan=loanRows[0];
         await ensureLoanInstallments(connection,loan);
@@ -711,7 +714,7 @@ export async function repayLoanInstallment(userId:number,loanId:number,installme
           FROM loan_installments li
           JOIN loans l ON l.id=li.loan_id
           JOIN users u ON u.id=l.user_id
-          WHERE li.id=$1 AND li.loan_id=$2 AND l.user_id=$3 AND l.status='approved'
+          WHERE li.id=$1 AND li.loan_id=$2 AND l.user_id=$3 AND LOWER(l.status::text) IN ('approved','defaulted','overdue')
           FOR UPDATE OF li,l
         `,[installmentId,loanId,userId]);
         if(!rows.length) throw new Error('Échéance introuvable.');
@@ -799,7 +802,7 @@ export async function getAgentLoanRepaymentTarget(identifier:string,currency:str
       FROM users u
       JOIN loans l ON l.user_id=u.id
       WHERE (u.id_wallet=$1 OR u.phone=$1 OR u.phone=$2 OR u.phone=$3)
-        AND l.status='approved' AND l.remaining_balance>0
+        AND LOWER(l.status::text) IN ('approved','defaulted','overdue') AND l.remaining_balance>0
         AND ($4='' OR UPPER(l.currency)=UPPER($4))
       ORDER BY l.id DESC LIMIT 1
     `,[cleaned,cleaned,cleaned.startsWith('0')?`243${cleaned.slice(1)}`:`+${cleaned}`,String(currency||'').toUpperCase()]);
@@ -839,7 +842,7 @@ export async function repayLoanByAgent(args:{agentId:number;clientId:number;loan
       const client=formatUser(clientRows[0]);
 
       const {rows:loanRows}=await connection.query(`
-        SELECT * FROM loans WHERE id=$1 AND user_id=$2 AND status='approved' FOR UPDATE
+        SELECT * FROM loans WHERE id=$1 AND user_id=$2 AND LOWER(status::text) IN ('approved','defaulted','overdue') FOR UPDATE
       `,[loanId,clientId]);
       if(!loanRows.length) throw new Error('Prêt LoanMe actif introuvable.');
       const loan=loanRows[0];
@@ -929,11 +932,11 @@ export async function sendLoanRepaymentReminders():Promise<{success:boolean;mess
           SELECT l.id,l.currency,u.phone,u.email,u.first_name,li.installment_number,
                  (li.amount+li.penalty_amount-li.paid_amount) AS outstanding,li.due_date
           FROM loan_installments li JOIN loans l ON l.id=li.loan_id JOIN users u ON u.id=l.user_id
-          WHERE l.status='approved' AND li.status<>'paid' AND li.due_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE+INTERVAL '3 days'
+          WHERE LOWER(l.status::text) IN ('approved','defaulted','overdue') AND li.status<>'paid' AND li.due_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE+INTERVAL '3 days'
           ORDER BY li.due_date
         `);
         for(const loan of rows){
-            const msg=`CashPay Rappel: votre échéance ${loan.installment_number} du prêt #${loan.id} de ${money(loan.outstanding).toFixed(2)} ${loan.currency} est due le ${format(new Date(loan.due_date),'yyyy-MM-dd')}.`;
+            const msg=`CashPay Rappel: votre échéance ${loan.installment_number} du prêt #${loan.id} de ${money(loan.outstanding).toFixed(2)} ${loan.currency} est due le ${format(new Date(loan.due_date),'EEEE dd MMMM yyyy',{locale:fr})}.`;
             await notifyLoanUser(loan,'Rappel LoanMe',msg,{type:'loan_reminder',loan_id:loan.id,installment_number:loan.installment_number});
         }
         return {success:true,message:`Sent ${rows.length} loan repayment reminders.`};
@@ -947,5 +950,5 @@ export async function getLoanQuote(userId:number,currency:string,amount:number,d
  const plan=loanPlan(amount,duration,rate);if(plan.guaranteeAmount>offer.balance)throw new Error('Solde de garantie insuffisant.');
  const owner=(await db.query('SELECT country FROM users WHERE id=$1',[userId])).rows[0];
  const penaltyExample=Number(await calculateTransactionFee(plan.installmentAmount,offer.currency,'PENALTY',owner?.country));
- return {...plan,currency:offer.currency,durationMonths:duration,penaltyIntervalDays:Math.max(1,Math.floor(Number(process.env.LOAN_PENALTY_INTERVAL_DAYS||7))||7),penaltyExample};
+ return {...plan,currency:offer.currency,durationMonths:duration,autoRepaymentGraceDays:7,penaltyGraceDays:7,penaltyIntervalDays:Math.max(1,Math.floor(Number(process.env.LOAN_PENALTY_INTERVAL_DAYS||7))||7),penaltyExample};
 }

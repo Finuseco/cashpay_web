@@ -390,7 +390,7 @@ export default function SuperAgentLoans() {
                                     const isMissed = !item.isPaid && isPast(item.dueDate) && !isToday(item.dueDate);
                                     return (
                                         <TableRow key={idx} className="border-zinc-800">
-                                            <TableCell className="text-sm">{format(item.dueDate, 'dd MMMM yyyy', { locale: fr })}</TableCell>
+                                            <TableCell className="text-sm">{format(item.dueDate, 'EEEE dd MMMM yyyy', { locale: fr })}</TableCell>
                                             <TableCell className="font-mono">{item.amount.toFixed(2)} {selectedLoan.currency}</TableCell>
                                             <TableCell className="text-right">
                                                 {item.isPaid ? (
@@ -474,7 +474,7 @@ export default function SuperAgentLoans() {
                                             {nextDue ? (
                                                 <div>
                                                     <p className={cn("text-xs font-bold", isLate ? "text-red-500" : "text-zinc-300")}>
-                                                        {format(nextDue.dueDate, 'dd/MM/yyyy')}
+                                                        {format(nextDue.dueDate, 'EEEE dd MMMM yyyy', { locale: fr })}
                                                     </p>
                                                     <p className="text-[10px] text-zinc-500">{Number(nextDue.amount ?? nextDue.remaining ?? 0).toFixed(2)} {loan.currency}</p>
                                                 </div>
@@ -506,7 +506,7 @@ export default function SuperAgentLoans() {
                                                 ) : (
                                                     <Button
                                                         size="sm"
-                                                        disabled={!nextDue || loan.status !== 'approved'}
+                                                        disabled={!nextDue || !['approved','defaulted','overdue'].includes(loan.status)}
                                                         className={cn("h-8 font-bold", isLate ? "bg-red-600 hover:bg-red-700" : "bg-zinc-700")}
                                                         onClick={() => handleOpenAction(loan, 'collect')}
                                                     >

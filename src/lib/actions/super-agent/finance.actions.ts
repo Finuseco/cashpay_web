@@ -1,4 +1,5 @@
 'use server';
+import {LOAN_INTERNAL_CONTEXT} from '@/lib/loan-internal-context';
 
 import { db } from '@/lib/db';
 import { regionalScope, requireSuperAgent, assertManagedUser } from '@/lib/super-agent-access';
@@ -133,12 +134,13 @@ export async function triggerCountryLoanCollection(adminId: number, pin: string)
             throw new Error('Le pays du Super Agent est introuvable.');
         }
 
+        const scope=await regionalScope(admin.country,'u',connection);
         const { rows: loans } = await connection.query(`
             SELECT DISTINCT l.user_id
             FROM loans l
             JOIN users u ON u.id = l.user_id
-            WHERE LOWER(TRIM(u.country)) = LOWER(TRIM($1))
-              AND LOWER(TRIM(l.status)) = 'approved'
+            WHERE ${scope.sql}
+              AND LOWER(TRIM(l.status::text)) IN ('approved','defaulted','overdue')
               AND (
                 l.remaining_balance > 0
                 OR EXISTS (
@@ -155,7 +157,7 @@ export async function triggerCountryLoanCollection(adminId: number, pin: string)
                 )
               )
             ORDER BY l.user_id
-        `, [admin.country]);
+        `, scope.values);
 
         const userIds = loans.map((row: any) => Number(row.user_id));
 
@@ -169,10 +171,10 @@ export async function triggerCountryLoanCollection(adminId: number, pin: string)
 
         // Le moteur LoanMe existant effectue les vrais prélèvements,
         // applique les frais/pénalités configurés et ne traite que les
-        // échéances dont due_date <= NOW().
+        // échéances dont la grâce de sept jours est terminée.
         for (const userId of userIds) {
             try {
-                const result = await processLoanRepayments(userId);
+                const result = await processLoanRepayments(userId,LOAN_INTERNAL_CONTEXT);
 
                 const userProcessed = Number(result?.processed || 0);
                 const userDebited = Number(result?.debited || 0);
@@ -239,12 +241,12 @@ export async function triggerManualLoanCollection(loanId: number, adminId: numbe
             FROM loans l JOIN users u ON u.id=l.user_id WHERE l.id=$1 FOR UPDATE`, [loanId]);
         if (!rows.length) throw new Error('Prêt introuvable.');
         await assertTerritory(adminId, Number(rows[0].user_id), connection);
-        if (String(rows[0].status).toLowerCase() !== 'approved') throw new Error('Seul un prêt approuvé peut faire l’objet d’un recouvrement.');
+        if (!['approved','defaulted','overdue'].includes(String(rows[0].status).toLowerCase())) throw new Error('Seul un prêt approuvé peut faire l’objet d’un recouvrement.');
         if (money(rows[0].remaining_balance) <= 0.005) throw new Error('Ce prêt est déjà soldé.');
         await connection.query('COMMIT');
 
         // Le moteur LoanMe existant gère le débit, les échéances et les pénalités.
-        const result = await processLoanRepayments(Number(rows[0].user_id));
+        const result = await processLoanRepayments(Number(rows[0].user_id),LOAN_INTERNAL_CONTEXT);
         if (!result.success) return result;
         const logConnection = await db.getConnection();
         try {
