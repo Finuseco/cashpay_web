@@ -312,7 +312,7 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
     if(userId===undefined){
       const {rows}=await db.query(`SELECT DISTINCT l.user_id FROM loans l WHERE LOWER(l.status::text) IN ('approved','defaulted','overdue') AND
        (EXISTS(SELECT 1 FROM loan_installments i WHERE i.loan_id=l.id AND i.due_date::date<=CURRENT_DATE-7 AND COALESCE(i.amount,0)+COALESCE(i.penalty_amount,0)-COALESCE(i.paid_amount,0)>0)
-        OR (l.remaining_balance>0 AND l.end_date::date<=CURRENT_DATE-7)) ORDER BY l.user_id`);
+        OR (l.remaining_balance>0 AND NOT EXISTS(SELECT 1 FROM loan_installments existing WHERE existing.loan_id=l.id))) ORDER BY l.user_id`);
       let processed=0,failed=0;const successfulUserIds:number[]=[],errors:Array<{userId:number;error:string}>=[],debitedByCurrency:Record<string,number>={};
       for(const row of rows){try{const result:any=await processLoanRepayments(Number(row.user_id),LOAN_INTERNAL_CONTEXT);if(result.error||result.failed){failed++;errors.push({userId:Number(row.user_id),error:result.error||'Prélèvement refusé.'});}else successfulUserIds.push(Number(row.user_id));processed+=Number(result.processed||0);for(const [currency,amount] of Object.entries(result.debitedByCurrency||{}))debitedByCurrency[currency]=roundMoney((debitedByCurrency[currency]||0)+Number(amount));}catch(e:any){failed++;errors.push({userId:Number(row.user_id),error:e.message||'Recouvrement impossible.'});}}
       return {success:failed===0,processed,failed,successfulUserIds,errors,debitedByCurrency,debited:Object.keys(debitedByCurrency).length===1?Object.values(debitedByCurrency)[0]:0};
