@@ -12,7 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, CheckCircle, XCircle, Search } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, isValid } from 'date-fns';
+function requestDate(value: unknown) { const date = value ? new Date(String(value)) : null; return date && isValid(date) ? format(date, 'dd/MM HH:mm') : '—'; }
 import { fr } from 'date-fns/locale';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -43,7 +44,8 @@ export default function SuperAgentTvSubscriptions() {
         setSuperAgent(current);
         if (current?.country) {
             const data = await getCountryTvRequests(current.country);
-            setRequests(data);
+            if (!Array.isArray(data)) throw new Error("Réponse TV invalide");
+            setRequests(data.filter(row => row && typeof row === "object"));
         }
         } catch { setLoadError('Impossible de charger les demandes. Réessayez.'); }
         finally { setIsLoading(false); }
@@ -184,7 +186,7 @@ export default function SuperAgentTvSubscriptions() {
                                 <TableRow><TableCell colSpan={6} className="text-center py-10"><Loader2 className="animate-spin mx-auto text-primary"/></TableCell></TableRow>
                             ) : filteredRequests.length > 0 ? filteredRequests.map(req => (
                                 <TableRow key={req.id} className="border-zinc-700 hover:bg-zinc-700/30">
-                                    <TableCell className="text-xs">{format(new Date(req.created_at), 'dd/MM HH:mm')}</TableCell>
+                                    <TableCell className="text-xs">{requestDate(req.created_at)}</TableCell>
                                     <TableCell><Badge variant="outline" className="uppercase border-zinc-600 text-zinc-300">{req.operator_name}</Badge></TableCell>
                                     <TableCell className="font-mono text-sm">{req.smartcard_number}</TableCell>
                                     <TableCell>

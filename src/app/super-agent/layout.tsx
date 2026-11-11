@@ -14,10 +14,6 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import {
-    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-    DropdownMenuLabel, DropdownMenuSeparator
-} from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 const NavGroup = ({ title, links, pathname }: { title: string, links: any[], pathname: string }) => (
@@ -171,20 +167,14 @@ export default function SuperAgentLayout({ children }: { children: React.ReactNo
             <div className="flex-1 flex flex-col min-w-0">
                 <header className="lg:hidden h-16 border-b border-zinc-800 bg-zinc-900 flex items-center justify-between px-4">
                     <Logo className="w-24" />
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon"><Menu className="h-6 w-6"/></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-2rem)] max-h-[70dvh] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
-                            <DropdownMenuLabel>Menu Gestionnaire</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            {groups.flatMap(g => g.links).map(link => (
-                                <DropdownMenuItem key={link.href} onClick={() => router.push(link.href)}>
-                                    <link.icon className="mr-2 h-4 w-4"/> {link.label}
-                                </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    <details className="relative">
+                        <summary aria-label="Ouvrir le menu gestionnaire" className="list-none cursor-pointer rounded-md p-2 focus-visible:outline focus-visible:outline-2"><Menu className="h-6 w-6"/></summary>
+                        <nav aria-label="Menu gestionnaire" className="absolute right-0 top-full z-50 w-64 max-w-[calc(100vw-2rem)] max-h-[70dvh] overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900 p-2 shadow-xl">
+                            {groups.map(group => <div key={group.title} className="border-b border-zinc-800 py-2 last:border-0">
+                                {group.links.map(link => <Link key={link.href} href={link.href} onClick={event => event.currentTarget.closest('details')?.removeAttribute('open')} className="flex items-center rounded-md px-3 py-3 text-sm hover:bg-zinc-800"><link.icon className="mr-2 h-4 w-4 shrink-0"/>{link.label}</Link>)}
+                            </div>)}
+                        </nav>
+                    </details>
                 </header>
 
                 <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full pb-24 lg:pb-8">

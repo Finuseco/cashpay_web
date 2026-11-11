@@ -12,7 +12,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, Search, ShieldCheck } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, isValid } from 'date-fns';
+function claimDate(value: unknown, pattern: string) {
+ const date = value ? new Date(String(value)) : null;
+ return date && isValid(date) ? format(date, pattern) : '—';
+}
 import { fr } from 'date-fns/locale';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -28,18 +32,22 @@ export default function InternationalClaimsPage() {
     const [isApproving, setIsApproving] = useState(false);
     const [superAgent, setSuperAgent] = useState<any>(null);
     const [filter, setFilter] = useState('');
+    const [loadError, setLoadError] = useState(false);
 
     const { openAlert } = useAlertDialog();
 
     const fetchData = async () => {
         setIsLoading(true);
+        setLoadError(false);
+        try {
         const current = await getAuthenticatedUser();
         setSuperAgent(current);
         if (current?.country) {
             const data = await getCountryInternationalClaims(current.country);
-            setClaims(data);
+            if (!Array.isArray(data)) throw new Error("Réponse de réclamations invalide");
+            setClaims(data.filter(row => row && typeof row === "object"));
         }
-        setIsLoading(false);
+        } catch { setLoadError(true); setClaims([]); } finally { setIsLoading(false); }
     };
 
     useEffect(() => {
@@ -73,8 +81,8 @@ export default function InternationalClaimsPage() {
     };
 
     const filteredClaims = claims.filter(c =>
-        c.tracking_number.toLowerCase().includes(filter.toLowerCase()) ||
-        c.full_name.toLowerCase().includes(filter.toLowerCase())
+        String(c.tracking_number ?? "").toLowerCase().includes(filter.toLowerCase()) ||
+        String(c.full_name ?? "").toLowerCase().includes(filter.toLowerCase())
     );
 
     return (
@@ -95,10 +103,11 @@ export default function InternationalClaimsPage() {
                 </div>
             </div>
 
+            {loadError && <div role="alert" className="rounded-lg border p-4 space-y-3"><p>Impossible de charger les réclamations. Réessayez ou contactez le support.</p><Button onClick={() => void fetchData()}>Réessayer</Button></div>}
             <Dialog open={isPinOpen} onOpenChange={setIsPinOpen}>
                 <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
-                        <DialogTitle>Confirmer le Crédit Client</DialogTitle>
+                        <DialogTitle>Confirmer l’approbation administrative</DialogTitle>
                         <DialogDescription className="text-zinc-400">
                             En approuvant cette réclamation, vous confirmez que l'agence a bien reçu les fonds sur son compte <strong>{selectedClaim?.provider?.toUpperCase()}</strong>.
                         </DialogDescription>
@@ -148,7 +157,7 @@ export default function InternationalClaimsPage() {
                                 <TableRow><TableCell colSpan={6} className="text-center py-10"><Loader2 className="animate-spin mx-auto text-primary"/></TableCell></TableRow>
                             ) : filteredClaims.length > 0 ? filteredClaims.map(claim => (
                                 <TableRow key={claim.id} className="border-zinc-700 hover:bg-zinc-700/30">
-                                    <TableCell className="text-xs">{format(new Date(claim.created_at), 'dd/MM/yy HH:mm')}</TableCell>
+                                    <TableCell className="text-xs">{claimDate(claim.created_at, 'dd/MM/yy HH:mm')}</TableCell>
                                     <TableCell><Badge variant="outline" className="uppercase border-zinc-600 text-zinc-300">{claim.provider}</Badge></TableCell>
                                     <TableCell className="font-mono text-sm">{claim.tracking_number}</TableCell>
                                     <TableCell>
@@ -165,7 +174,7 @@ export default function InternationalClaimsPage() {
                                                 <ShieldCheck className="h-4 w-4 mr-1"/> Vérifié & Créditer
                                             </Button>
                                         ) : (
-                                            <Badge className="bg-green-500">Traité le {format(new Date(claim.processed_at), 'dd/MM')}</Badge>
+                                            <Badge className="bg-green-500">Traité le {claimDate(claim.processed_at, 'dd/MM')}</Badge>
                                         )}
                                     </TableCell>
                                 </TableRow>
