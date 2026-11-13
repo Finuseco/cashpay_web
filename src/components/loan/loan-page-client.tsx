@@ -9,9 +9,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShieldAlert, History } from "lucide-react";
-import { processLoanRepayments, getLoanInterestRates } from "@/lib/actions/loan.actions";
+import { getLoanInterestRates } from "@/lib/actions/loan.actions";
 import type { LoanHistory } from "@/lib/actions/loan.actions";
-import { useRouter } from "next/navigation";
 import { Button } from "../ui/button";
 import Link from 'next/link';
 
@@ -24,21 +23,8 @@ const checkEligibility = (currencies: Currency[]): boolean => {
 
 export function LoanPageClient({ user, currencies, loanHistory }: { user: User | null, currencies: Currency[], loanHistory: LoanHistory[] }) {
   const { t } = useTranslation();
-  const router = useRouter();
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [interestRates, setInterestRates] = useState<Record<number, number>>({ 1: 24, 3: 21, 6: 21, 12: 21, 24: 21 });
-
-  // À l’entrée sur LoanMe, on ne traite que les échéances déjà arrivées à échéance.
-  // Le traitement est ciblé sur cet utilisateur afin d’éviter une requête globale coûteuse.
-  useEffect(() => {
-    if (!user?.id) return;
-    let cancelled = false;
-    (async () => {
-      const result = await processLoanRepayments(user.id);
-      if (!cancelled && result.success && result.processed > 0) router.refresh();
-    })();
-    return () => { cancelled = true; };
-  }, [user?.id, router]);
 
   useEffect(() => {
     getLoanInterestRates().then(rates => setInterestRates(rates)).catch(() => {});

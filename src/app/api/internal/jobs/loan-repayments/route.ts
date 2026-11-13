@@ -21,10 +21,14 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const rawUserId = request.nextUrl?.searchParams.get('userId');
+  if(rawUserId != null && (!/^[1-9]\d*$/.test(rawUserId) || !Number.isSafeInteger(Number(rawUserId))))
+    return NextResponse.json({success:false,error:'Invalid userId'},{status:400});
+  const userId = rawUserId == null ? undefined : Number(rawUserId);
   const startedAt = Date.now();
   try {
     const result: any = await processLoanRepayments(
-      undefined,
+      userId,
       LOAN_INTERNAL_CONTEXT,
     );
     const queue = (
@@ -33,7 +37,7 @@ export async function GET(request: NextRequest) {
     if (queue)
       await db.query(
         `DELETE FROM loan_repayment_queue q WHERE q.requested_at<=$1::timestamptz AND (q.user_id=ANY($2::int[]) OR NOT EXISTS(SELECT 1 FROM loans l WHERE l.user_id=q.user_id AND LOWER(l.status::text) IN ('approved','defaulted','overdue') AND (EXISTS(SELECT 1 FROM loan_installments i WHERE i.loan_id=l.id AND i.due_date::date<=CURRENT_DATE-7 AND COALESCE(i.amount,0)+COALESCE(i.penalty_amount,0)-COALESCE(i.paid_amount,0)>0) OR (l.remaining_balance>0 AND NOT EXISTS(SELECT 1 FROM loan_installments existing WHERE existing.loan_id=l.id)))))`,
-        [new Date(startedAt).toISOString(), result.successfulUserIds || []],
+        [new Date(startedAt).toISOString(), userId !== undefined && result.success && !result.failed && !result.error ? [userId] : result.successfulUserIds || []],
       );
     return NextResponse.json(
       {

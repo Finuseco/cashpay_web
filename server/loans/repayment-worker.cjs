@@ -1,16 +1,6 @@
-const fs = require("node:fs");
-const path = require("node:path");
-const { parseEnv } = require("node:util");
 const { Client } = require("pg");
-const root = path.resolve(__dirname, "../..");
-for (const file of [".env.production", ".env"]) {
-  const target = path.join(root, file);
-  if (fs.existsSync(target))
-    for (const [key, value] of Object.entries(
-      parseEnv(fs.readFileSync(target, "utf8")),
-    ))
-      if (process.env[key] === undefined) process.env[key] = value;
-}
+const {loadEnvironment,databaseConfig,checkSchema} = require('./runtime-config.cjs');
+loadEnvironment();
 const secret = process.env.INTERNAL_JOB_SECRET;
 if (!secret)
   throw Error("INTERNAL_JOB_SECRET requis, identique au backend Wallet.");
@@ -29,6 +19,8 @@ if (
 )
   throw Error("CASH_PAY_APP_URL doit être une origine HTTPS ou loopback.");
 const url = new URL("/api/internal/jobs/loan-repayments", base);
+const pendingUsers = new Set();
+let sweepRequested = true;
 let active = false,
   pending = false,
   stopping = false,
@@ -36,14 +28,20 @@ let active = false,
   reconnect,
   timer;
 async function run() {
-  if (stopping) return;
+  if (stopping || (!sweepRequested && pendingUsers.size===0)) return;
   if (active) {
     pending = true;
     return;
   }
   active = true;
+  const userId = pendingUsers.values().next().value;
+  if(userId === undefined) sweepRequested = false;
+  if(userId !== undefined) pendingUsers.delete(userId);
+  const target = new URL(url);
+  if(userId !== undefined) target.searchParams.set('userId', String(userId));
+  let outcome = 'error';
   try {
-    const response = await fetch(url, {
+    const response = await fetch(target, {
       headers: { "x-internal-job-secret": secret },
       redirect: "error",
       signal: AbortSignal.timeout(55000),
@@ -54,16 +52,19 @@ async function run() {
         status: response.status,
         failed: data.failed || 0,
       });
-    else
+    else {
+      outcome = 'ok';
       console.log("[loan-worker] Vérification terminée", {
         processed: data.processed || 0,
         events: data.events || 0,
       });
+    }
   } catch (error) {
     console.error("[loan-worker] Backend indisponible", error.name);
   } finally {
+    if(client) await client.query("SELECT set_config('application_name',$1,false)", [`cashpay-loan-repayments:${outcome}:${Date.now()}`]).catch(()=>{});
     active = false;
-    if (pending && !stopping) {
+    if ((pending || pendingUsers.size || sweepRequested) && !stopping) {
       pending = false;
       setTimeout(() => void run(), 1000);
     }
@@ -71,16 +72,7 @@ async function run() {
 }
 async function listen() {
   if (stopping) return;
-  const connection = new Client({
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT || 5432),
-    database: process.env.DB_NAME,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    ...(process.env.DB_SSL_CA
-      ? { ssl: { ca: process.env.DB_SSL_CA, rejectUnauthorized: true } }
-      : {}),
-  });
+  const connection = new Client({...databaseConfig(),query_timeout:10000,statement_timeout:10000,application_name:'cashpay-loan-repayments:starting'});
   let retrying = false;
   const retry = () => {
     if (retrying || stopping) return;
@@ -98,26 +90,27 @@ async function listen() {
   try {
     await connection.connect();
     client = connection;
-    const schema = await connection.query(
-      "SELECT to_regclass('loan_repayment_queue') AS queue",
-    );
-    if (!schema.rows[0].queue)
-      throw Error("Installez migrations/20261106_loan_repayment_queue.sql.");
+    await checkSchema(connection);
     await connection.query("LISTEN loan_repayment_requested");
-    connection.on("notification", () => void run());
+    connection.on("notification", event => {
+      if(event.channel !== 'loan_repayment_requested' || !/^[1-9]\d*$/.test(event.payload || '')) return;
+      const id=Number(event.payload);
+      if(!Number.isSafeInteger(id)) return;
+      pendingUsers.add(id);
+      void run();
+    });
     console.log("[loan-worker] Écoute des crédits active.");
+    sweepRequested=true;
     void run();
   } catch (error) {
     console.error(
       "[loan-worker] Écoute indisponible",
-      error.message?.startsWith("Installez migrations/")
-        ? error.message
-        : error.code || "schema_or_connection",
+      {code:error.code || "schema_or_connection",missing:error.missing || []},
     );
     retry();
   }
 }
-timer = setInterval(() => void run(), 60000);
+timer = setInterval(() => {sweepRequested=true;void run();}, 60000);
 void listen();
 void run();
 async function stop() {

@@ -7,7 +7,9 @@
     "start": "next start -p 8002",
     "build": "next build",
     "lint": "next lint",
-    "generate-vapid": "node -e \"const webpush = require('web-push'); const vapidKeys = webpush.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY=' + vapidKeys.publicKey); console.log('VAPID_PRIVATE_KEY=' + vapidKeys.privateKey);\""
+    "generate-vapid": "node -e \"const webpush = require('web-push'); const vapidKeys = webpush.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY=' + vapidKeys.publicKey); console.log('VAPID_PRIVATE_KEY=' + vapidKeys.privateKey);\"",
+    "loans:enable": "node server/loans/manage.cjs enable",
+    "loans:status": "node server/loans/manage.cjs status"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",
@@ -90,7 +92,8 @@
     "web-push": "^3.6.7",
     "ws": "^8.21.3",
     "zod": "^3.23.8",
-    "zustand": "^4.5.4"
+    "zustand": "^4.5.4",
+    "@next/env": "14.2.35"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
