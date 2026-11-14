@@ -30,3 +30,9 @@ Un worker connecté ne prouve pas que chaque dette est recouvrable : un échéan
 ## Vérifications
 
 Moteur/SQL sur PostgreSQL isolé : ancienne dette, grâce, pénalités, frais, devise, échec transactionnel, doublons, dépôts et file. Vérification de refus d’un trigger désactivé. Route interne ciblée : identifiant invalide refusé, remboursement après dépôt sans session navigateur, reprise sans double débit et nettoyage de file. Worker réel avec transports/horloges isolés : démarrage, minute, signal de dépôt ciblé, messages invalides ignorés, regroupement et arrêt propre. Les scénarios restent hors Git.
+
+## Redémarrage du wallet et contrôle d’activation
+
+Le contrôle attend désormais le démarrage HTTP après `pm2 restart` : jusqu’à quinze tentatives, avec délais bornés, sur les erreurs de connexion et les réponses 502/503/504. Une réponse 401 sans secret confirme la présence du point d’entrée protégé ; elle ne déclenche aucun prélèvement. Un 404 ou une réponse inattendue reste une erreur de déploiement, sans installation ni redémarrage du worker.
+
+Les échecs indiquent leur étape (application, base, migration, trigger, PM2 ou vérification du worker), le statut HTTP ou le code réseau quand ils sont disponibles. Aucun corps HTTP, mot de passe, URL confidentielle ou secret interne n’est affiché. Le précédent `SETUP_FAILED` après un redémarrage ne permettait pas de distinguer un serveur encore en cours de démarrage d’une autre panne.
