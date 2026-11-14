@@ -12,6 +12,7 @@ import { getCardsForUser } from '@/lib/actions/card.actions';
 import { DashboardHeader } from '@/components/dashboard/dashboard-header';
 import { DashboardFooter } from '@/components/dashboard/dashboard-footer';
 import { InAppOtpHandler } from '@/components/in-app-otp-handler';
+import {EnterpriseEntry} from '@/components/enterprise/enterprise-entry';
 import { ActionGrid } from '@/components/dashboard/action-grid';
 import { CopyrightFooter } from '../copyright-footer';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
@@ -153,6 +154,7 @@ export function DashboardLayout({
           {showCurrencies && (
             <div className="space-y-4">
               <ActionGrid />
+              <EnterpriseEntry />
               <div className="text-center">
                   <Button onClick={handleLocateAtms} variant="ghost" className="h-auto p-1 text-primary-foreground/80 hover:text-white">
                       <MapPin className="h-4 w-4 mr-1"/>Localiser un ATM

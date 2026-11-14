@@ -599,7 +599,7 @@ export async function POST(
         );
       }
 
-      const fee = Number(await calculateTransactionFee(amount, currency, 'LR_AGENT', user.country));
+      const fee = Number(await calculateTransactionFee(amount, currency, 'LR_AGENT', user.country, undefined, user.id));
       if (!Number.isFinite(fee) || fee < 0) return errorResponse('Tarif de remboursement indisponible.');
       const totalDebit = amount + fee;
       const next =

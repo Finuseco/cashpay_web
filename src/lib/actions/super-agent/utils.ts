@@ -19,6 +19,7 @@ export async function validateSuperAgentAccess(adminId: number, targetUserId: nu
  */
 export async function logIntervention(adminId: number, targetUserId: number | null, actionType: string, detail: string, connection?: PoolClient) {
     await requireSuperAgent(adminId, connection);
+    if(actionType.startsWith('ENTERPRISE_'))throw new Error('Utilisez le service entreprise pour cette opération.');
     const conn = connection || await db.getConnection();
     try {
         await conn.query('INSERT INTO super_agent_interventions (admin_user_id, target_user_id, action_type, detail) VALUES ($1,$2,$3,$4)', [adminId, targetUserId, actionType, detail]);

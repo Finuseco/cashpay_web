@@ -107,12 +107,7 @@ export async function prepareBitcoinTransfer(
     let feeAmount: number;
 
     try {
-        const configuredFee = await calculateTransactionFee(
-            amount,
-            'BTC',
-            BTC_TYPE,
-            user.country,
-            feeConnection
+        const configuredFee = await calculateTransactionFee(amount, 'BTC', BTC_TYPE, user.country, feeConnection, user.id
         );
 
         feeAmount = Number(configuredFee);

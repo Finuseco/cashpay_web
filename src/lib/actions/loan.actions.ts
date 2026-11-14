@@ -364,7 +364,7 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
                 const interval=Math.max(1,Math.floor(Number(process.env.LOAN_PENALTY_INTERVAL_DAYS||7))||7);
                 const eligible=(await connection.query(`SELECT COALESCE(last_penalty_date,penalty_applied_on) IS NULL OR COALESCE(last_penalty_date,penalty_applied_on)<=CURRENT_DATE-$2::integer AS eligible FROM loan_installments WHERE id=$1`,[inst.id,interval])).rows[0]?.eligible;
                 if(outstandingBeforePenalty>0.005&&eligible){
-                  const penalty=money(await calculateTransactionFee(outstandingBeforePenalty,currency,'PENALTY',user.country,connection));
+                  const penalty=money(await calculateTransactionFee(outstandingBeforePenalty, currency, 'PENALTY', user.country, connection, user.id));
                   if(penalty>0){
                     await connection.query(`UPDATE loan_installments SET penalty_amount=COALESCE(penalty_amount,0)+$1,status='overdue',penalty_applied_on=COALESCE(penalty_applied_on,CURRENT_DATE),last_penalty_date=CURRENT_DATE,updated_at=NOW() WHERE id=$2`,[penalty,inst.id]);
                     await connection.query('UPDATE loans SET remaining_balance=remaining_balance+$1 WHERE id=$2',[penalty,loanData.id]);
@@ -395,8 +395,7 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
                 while (lowCents <= highCents) {
                     const midCents = Math.floor((lowCents + highCents) / 2);
                     const candidate = roundMoney(midCents / 100);
-                    const fee = money(await calculateTransactionFee(
-                        candidate, currency, 'LR' as any, user.country, connection
+                    const fee = money(await calculateTransactionFee(candidate, currency, 'LR' as any, user.country, connection, user.id
                     ));
                     const totalDebit = roundMoney(candidate + fee);
 
@@ -949,6 +948,6 @@ export async function getLoanQuote(userId:number,currency:string,amount:number,d
  const rate=offer.interestRates?.[duration];if(rate===undefined)throw new Error('Taux non configuré.');
  const plan=loanPlan(amount,duration,rate);if(plan.guaranteeAmount>offer.balance)throw new Error('Solde de garantie insuffisant.');
  const owner=(await db.query('SELECT country FROM users WHERE id=$1',[userId])).rows[0];
- const penaltyExample=Number(await calculateTransactionFee(plan.installmentAmount,offer.currency,'PENALTY',owner?.country));
+ const penaltyExample=Number(await calculateTransactionFee(plan.installmentAmount, offer.currency, 'PENALTY', owner?.country, undefined, owner?.id));
  return {...plan,currency:offer.currency,durationMonths:duration,autoRepaymentGraceDays:7,penaltyGraceDays:7,penaltyIntervalDays:Math.max(1,Math.floor(Number(process.env.LOAN_PENALTY_INTERVAL_DAYS||7))||7),penaltyExample};
 }

@@ -1,4 +1,5 @@
 'use client';
+import {EnterpriseActivation} from '@/components/enterprise/enterprise-activation';
 import {KycImage} from '@/components/super-agent/kyc-image';
 
 import { useState, useEffect, useRef } from 'react';
@@ -533,10 +534,11 @@ export default function SuperAgentUsers() {
                                                 <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center"><Building className="h-6 w-6 text-primary"/></div>
                                                 <div className="flex-1">
                                                     <h4 className="font-bold">Services Business & APIs</h4>
+                                                    {selectedUser&&<EnterpriseActivation companyId={selectedUser.id} onSaved={(name)=>{setSelectedUser({...selectedUser,full_name:name,account_type:'business'});}}/>}
                                                     <p className="text-xs text-zinc-400">Activez les fonctions marchandes pour ce client.</p>
                                                 </div>
                                                 {selectedUser?.role !== 'PartnerB2B' ? (
-                                                    <Button onClick={() => setIsBusinessUpgradeOpen(true)}><KeyRound className="mr-2 h-4 w-4"/> Activer le mode Entreprise</Button>
+                                                    <Button onClick={() => setIsBusinessUpgradeOpen(true)}><KeyRound className="mr-2 h-4 w-4"/> Activer le compte partenaire API</Button>
                                                 ) : (
                                                     <Badge className="bg-green-500 font-bold">API ACTIVES</Badge>
                                                 )}
@@ -663,8 +665,8 @@ export default function SuperAgentUsers() {
             <Dialog open={isBusinessUpgradeOpen} onOpenChange={setIsBusinessUpgradeOpen}>
                 <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
-                        <DialogTitle>Surclassement Entreprise & API</DialogTitle>
-                        <DialogDescription>Transformez ce compte en Compte Entreprise. L'identité du compte sera remplacée par le nom commercial.</DialogDescription>
+                        <DialogTitle>Compte partenaire et API</DialogTitle>
+                        <DialogDescription>Attribuez le rôle partenaire B2B et les accès API. Le nom affiché devient le nom commercial.</DialogDescription>
                     </DialogHeader>
                     <Form {...businessUpgradeForm}>
                         <form onSubmit={businessUpgradeForm.handleSubmit(handleBusinessUpgrade)} className="space-y-6 py-4">

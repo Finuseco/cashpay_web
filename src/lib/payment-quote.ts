@@ -12,7 +12,7 @@ export async function paymentQuote(connection: PoolClient, user: User, amount: n
         debit *= rate;
     }
     if (!Number.isFinite(debit)) throw new Error('Montant converti invalide.');
-    const fee = amount > 0 ? Number(await calculateTransactionFee(debit, sourceCurrency, type, user.country, connection)) : 0;
+    const fee = amount > 0 ? Number(await calculateTransactionFee(debit, sourceCurrency, type, user.country, connection, user.id)) : 0;
     if (!Number.isFinite(fee) || fee < 0) throw new Error('Calcul des frais indisponible.');
     const { rows } = await connection.query('SELECT balances FROM wallets WHERE user_id = $1', [user.id]);
     const balances = typeof rows[0]?.balances === 'string' ? JSON.parse(rows[0].balances) : rows[0]?.balances || {};

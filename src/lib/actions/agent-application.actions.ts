@@ -1,5 +1,6 @@
 
 'use server';
+import {enterpriseFeeWaived} from '@/lib/enterprise/policy';
 
 import { regionalScope, assertManagedUser } from '@/lib/super-agent-access';
 import type { User } from '@/lib/types';
@@ -68,9 +69,9 @@ export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal',
 
         // 3. Calculer les frais
         const feeCode = plan === 'promo' ? 'AGENT_SUB_PROMO' : 'AGENT_SUB_NORMAL';
-        const fee = await calculateTransactionFee(1, 'USD', feeCode, user.country, connection);
+        const fee = await calculateTransactionFee(1, 'USD', feeCode, user.country, connection, user.id);
 
-        if (!Number.isFinite(fee) || fee <= 0) {
+        if (!Number.isFinite(fee) || fee < 0 || (fee === 0 && !await enterpriseFeeWaived(connection,user.id,feeCode))) {
             throw new Error(`Le tarif pour le plan '${plan}' n'est pas encore configuré pour votre pays.`);
         }
 
@@ -184,9 +185,9 @@ export async function forceAgentRenewal(adminId: number, targetUserId: number, a
         if (subscriptions[0].status === 'active' && new Date(subscriptions[0].current_period_end).getTime() > Date.now()) throw new Error('Cet abonnement est encore actif. Aucun débit effectué.');
 
         // 3. Procéder au débit (Tarif normal)
-        const fee = await calculateTransactionFee(1, 'USD', 'AGENT_SUB_NORMAL', agent.country, connection);
+        const fee = await calculateTransactionFee(1, 'USD', 'AGENT_SUB_NORMAL', agent.country, connection, agent.id);
 
-        if (!Number.isFinite(fee) || fee <= 0) throw new Error('Tarif de renouvellement absent.');
+        if (!Number.isFinite(fee) || fee < 0 || (fee === 0 && !await enterpriseFeeWaived(connection,agent.id,'AGENT_SUB_NORMAL'))) throw new Error('Tarif de renouvellement absent.');
         const tx = await createTransaction({
             user: require('@/lib/utils').formatUser(agent),
             typeCode: 'AGENT_SUB',

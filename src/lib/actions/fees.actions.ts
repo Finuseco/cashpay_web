@@ -1,4 +1,5 @@
 'use server';
+import {enterpriseFeeWaived} from '@/lib/enterprise/policy';
 import { db } from '@/lib/db';
 import { countryToCode } from '@/lib/utils';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
@@ -39,14 +40,18 @@ export async function getEffectiveFeeSchedule(): Promise<{ countryCode: string; 
             || (MOBILE_MONEY_WD_TYPES.includes(type) && ['USD', 'EUR'].includes(currency) ? rules.find(row => row.transaction_type === type && row.currency === currency && row.country_code === 'CD') : undefined);
         if (rule) (fees[type] ||= []).push(rule);
     }
+    if(await enterpriseFeeWaived(db,user.id,'TR')) for(const [type,structures] of Object.entries(fees)) if(!['ENTERPRISE_MONTHLY','PRODUCT_SALE_VAT','LRAC'].includes(type)) for(const structure of structures) structure.fee_tiers=structure.fee_tiers.map(tier=>({...tier,fee:'0'}));
     return { countryCode: code, fees };
 }
 export async function getFee(args: { amount: number; currency: string; country: string; type: 'DEPOSIT' | 'WITHDRAWAL'; method: string }): Promise<{ success: boolean; fee?: number; total?: number; error?: string }> {
     try {
         if (!Number.isFinite(args.amount) || args.amount <= 0) throw new Error('Montant invalide.');
-        const { fees } = await getEffectiveFeeSchedule();
         const method = args.method.toUpperCase().replace(/[ -]/g, '_');
         const type = args.type === 'DEPOSIT' ? 'DP_GENERAL_FEES' : method.startsWith('WD') ? method : `WD_${method}`;
+        const user = await getAuthenticatedUser();
+        if (!user) throw new Error('Session requise.');
+        if (await enterpriseFeeWaived(db,user.id,type)) return {success:true,fee:0,total:args.amount};
+        const { fees } = await getEffectiveFeeSchedule();
         const structure = fees[type]?.find(rule => rule.currency === args.currency.toUpperCase());
         const tier = structure?.fee_tiers.find(tier => args.amount >= tier.min && (tier.max === 0 || args.amount <= tier.max));
         if (!tier) throw new Error('Aucun tarif configuré pour cette opération.');

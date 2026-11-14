@@ -55,7 +55,7 @@ export function AirtelTransferForm({ user, currencies, onProceed }: AirtelTransf
       const fetchFee = async () => {
         if(watchedAmount > 0) {
             // Use 'withdrawal' as transaction type for fee calculation
-            const calculatedFee = await calculateTransactionFee(watchedAmount, watchedCurrency, 'withdrawal', user.country);
+            const calculatedFee = await calculateTransactionFee(watchedAmount, watchedCurrency, 'withdrawal', user.country, undefined, user.id);
             setFee(calculatedFee);
         } else {
             setFee(0);

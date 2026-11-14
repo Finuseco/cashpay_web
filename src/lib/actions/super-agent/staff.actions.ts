@@ -51,6 +51,7 @@ export async function getInterventionHistory(countryName: string) {
         FROM super_agent_interventions i
         JOIN users u ON i.admin_user_id = u.id
         WHERE ${scope.sql}
+          AND i.action_type NOT IN ('ENTERPRISE_CONFIG','ENTERPRISE_EMPLOYEE','ENTERPRISE_MEMBER','ENTERPRISE_ADJUST','ENTERPRISE_PAID','ENTERPRISE_BILL')
         ORDER BY i.created_at DESC LIMIT 100
     `, scope.values);
     return rows;

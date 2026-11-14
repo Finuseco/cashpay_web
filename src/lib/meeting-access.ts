@@ -50,7 +50,7 @@ async function quote(connection: PoolClient, meeting: any, user: User, requested
         debit *= rate;
     }
     if (!Number.isFinite(debit)) throw new MeetingAccessError(400, 'INVALID_PRICE', 'Montant converti invalide.');
-    const fee = debit > 0 ? Number(await calculateTransactionFee(debit, currency, 'TR', user.country, connection)) : 0;
+    const fee = debit > 0 ? Number(await calculateTransactionFee(debit, currency, 'TR', user.country, connection, user.id)) : 0;
     if (!Number.isFinite(fee) || fee < 0) throw new MeetingAccessError(500, 'INVALID_FEE', 'Impossible de calculer les frais.');
     const { rows: wallets } = await connection.query('SELECT balances FROM wallets WHERE user_id = $1', [user.id]);
     const balances = typeof wallets[0]?.balances === 'string' ? JSON.parse(wallets[0].balances) : wallets[0]?.balances || {};

@@ -42,7 +42,7 @@ export async function signTransactionWithHardwareKey(args: {
         const countryCode = countryToCode(user.country) || 'GBL';
         
         const amountNum = Number(args.amount);
-        const fee = await calculateTransactionFee(amountNum, args.currency, 'HSM_LOCK', user.country, connection);
+        const fee = await calculateTransactionFee(amountNum, args.currency, 'HSM_LOCK', user.country, connection, user.id);
 
         const txResult = await createTransaction({
             user,

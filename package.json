@@ -9,7 +9,9 @@
     "lint": "next lint",
     "generate-vapid": "node -e \"const webpush = require('web-push'); const vapidKeys = webpush.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY=' + vapidKeys.publicKey); console.log('VAPID_PRIVATE_KEY=' + vapidKeys.privateKey);\"",
     "loans:enable": "node server/loans/manage.cjs enable",
-    "loans:status": "node server/loans/manage.cjs status"
+    "loans:status": "node server/loans/manage.cjs status",
+    "enterprise:enable": "node server/enterprise/manage.cjs enable",
+    "enterprise:status": "node server/enterprise/manage.cjs status"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",

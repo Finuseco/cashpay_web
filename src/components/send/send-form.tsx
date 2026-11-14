@@ -72,7 +72,7 @@ export function SendForm({ user, currencies, onBack }: { user: User; currencies:
 
   useEffect(() => {
     if (watchedAmount && parseFloat(watchedAmount) > 0) {
-        calculateTransactionFee(parseFloat(watchedAmount), watchedCurrency, 'TR', user.country)
+        calculateTransactionFee(parseFloat(watchedAmount), watchedCurrency, 'TR', user.country, undefined, user.id)
             .then(setFee);
     } else {
         setFee(0);

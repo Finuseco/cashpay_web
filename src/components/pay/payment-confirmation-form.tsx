@@ -161,7 +161,7 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
     }
 
     try {
-        const calculatedFee = await calculateTransactionFee(finalDebitedAmount, paymentCurrency, transactionType, user.country);
+        const calculatedFee = await calculateTransactionFee(finalDebitedAmount, paymentCurrency, transactionType, user.country, undefined, user.id);
         setDebitedAmount(finalDebitedAmount);
         setFee(calculatedFee);
     } catch (e) {

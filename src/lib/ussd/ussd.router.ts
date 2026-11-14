@@ -248,7 +248,7 @@ async function cardType(u:any,s:Session,i:string,d:any,l:Lang,c:any){
   if(i!=='1'&&i!=='2')return `CON ${T[l].invalid}`;
 
   const cardType=i==='1'?'virtuelle':'physique';
-  const options=await getUssdCardPurchaseOptions(d.currency,cardType,c?.code||u.country);
+  const options=await getUssdCardPurchaseOptions(d.currency,cardType,c?.code||u.country,u.id);
   const balance=Number(await getUssdBalance(u.id,d.currency));
 
   if(!options.length){
@@ -1252,7 +1252,7 @@ async function agentOtpChannel(u:any,s:Session,i:string,d:any,l:Lang){if(i==='0'
   channel,
   agentName
 });if(!otp?.success){const detail=String(otp?.message||otp?.error||'').trim();return `CON ${l==='fr'?`Échec de l’envoi de l’OTP${detail?` : ${detail}`:''}.`:`OTP delivery failed${detail?`: ${detail}`:'.'}`}\n0. Retour`;}await save(s,{...d,state:'AGENT_WITHDRAW_OTP',otpChannel:channel},'AGENT_WITHDRAW_OTP');const channelLabel=channel==='sms'?'SMS':channel==='whatsapp'?'WhatsApp':'e-mail';return `CON ${l==='fr'?`OTP envoyé au client par ${channelLabel}.\nEntrez l’OTP reçu pour autoriser le retrait :`:`OTP sent to the client by ${channelLabel}.\nEnter the OTP received to authorize the withdrawal:`}`;}
-async function agentMmOperator(u:any,s:Session,i:string,d:any,l:Lang){if(i==='0')return back(u,s,d,l,await getCountryByPhone(u.phone));const op=operatorCode(i);if(!op)return `CON ${T[l].invalid}`;const type=d.agentOp==='withdraw'?(({MPESA:'WD_MPESA',ORANGE:'WD_ORANGE_MONEY',AFRIMONEY:'WD_AFRIMONEY',AIRTEL:'WD_AIRTEL_MONEY',MTN:'WD_MTN_MOMO'} as any)[op]||'WD'):'DP_MM';const f=Number(await getUssdFee(d.amount,d.currency,type,u.country));await save(s,{...d,state:'AGENT_MM_CONFIRM',mmOperator:op,fee:f,feeType:type},'AGENT_MM_CONFIRM');return `CON ${d.amount.toFixed(2)} ${d.currency}\n${l==='fr'?'Frais':'Fee'}: ${f.toFixed(2)} ${d.currency}\n${T[l].confirm}`;}
+async function agentMmOperator(u:any,s:Session,i:string,d:any,l:Lang){if(i==='0')return back(u,s,d,l,await getCountryByPhone(u.phone));const op=operatorCode(i);if(!op)return `CON ${T[l].invalid}`;const type=d.agentOp==='withdraw'?(({MPESA:'WD_MPESA',ORANGE:'WD_ORANGE_MONEY',AFRIMONEY:'WD_AFRIMONEY',AIRTEL:'WD_AIRTEL_MONEY',MTN:'WD_MTN_MOMO'} as any)[op]||'WD'):'DP_MM';const f=Number(await getUssdFee(d.amount,d.currency,type,u.country,u.id));await save(s,{...d,state:'AGENT_MM_CONFIRM',mmOperator:op,fee:f,feeType:type},'AGENT_MM_CONFIRM');return `CON ${d.amount.toFixed(2)} ${d.currency}\n${l==='fr'?'Frais':'Fee'}: ${f.toFixed(2)} ${d.currency}\n${T[l].confirm}`;}
 async function agentMmConfirm(u:any,s:Session,i:string,d:any,l:Lang,c:any){if(i==='0')return back(u,s,d,l,c);if(i!=='1')return `CON ${T[l].invalid}`;await save(s,{...d,state:'AGENT_MM_PIN'},'AGENT_MM_PIN');return `CON ${T[l].pin}`;}
 async function agentMmPin(u:any,s:Session,i:string,d:any,l:Lang){const ref=`USSD-AGMM-${Date.now()}-${u.id}`,x=await executeAgentMobileMoney(u,d.client,d.amount,d.currency,d.mmOperator||'AUTO',d.clientInfo?.phone||'',i,d.agentOp==='withdraw'?'payout':'collect',ref,d.feeType);await save(s,{...d,state:'MENU'},'MENU');return done(!!x.success,l,(x as any).reference||ref,err((x as any).error||'',l));}
 async function agentPin(u:any,s:Session,i:string,d:any,l:Lang){

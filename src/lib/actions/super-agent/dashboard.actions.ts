@@ -13,7 +13,7 @@ export async function getRegionalDashboard() {
         balances: `SELECT b.key AS currency, SUM(b.value::numeric)::text AS amount FROM wallets w JOIN users u ON u.id = w.user_id
             CROSS JOIN LATERAL jsonb_each_text(COALESCE(w.balances::jsonb, '{}'::jsonb)) b
             WHERE ${scope.sql} GROUP BY b.key ORDER BY b.key`,
-        monthly: `SELECT t.currency, SUM(t.amount)::text AS volume, SUM(COALESCE(t.fee,0))::text AS fees, COUNT(*)::int AS count
+        monthly: `SELECT t.currency, SUM(t.amount)::text AS volume, SUM(COALESCE(t.fee,0)+CASE WHEN t.type_code='MKTG_FEE' AND t.metadata->>'enterpriseMonthly'='true' AND t.receiver_id IS NULL AND t.receiver_wallet_id IS NULL THEN COALESCE(t.amount,0) ELSE 0 END)::text AS fees, COUNT(*)::int AS count
             FROM transactions t JOIN users u ON u.id = t.sender_id WHERE ${scope.sql}
             AND t.status = 'Completed' AND t.created_at >= date_trunc('month', CURRENT_TIMESTAMP)
             GROUP BY t.currency ORDER BY t.currency`,

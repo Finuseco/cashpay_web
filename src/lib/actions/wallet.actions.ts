@@ -2,6 +2,7 @@
 'use server';
 
 import { db } from '@/lib/db';
+import { enterpriseFeeWaived } from '@/lib/enterprise/policy';
 import { handleDbError } from './helpers';
 import { countryToCode } from '../utils';
 import type { PoolClient } from 'pg';
@@ -58,10 +59,12 @@ export async function calculateTransactionFee(
   currency: string,
   transactionTypeCode: string,
   countryIdentifier?: string | null,
-  connection?: PoolClient
+  connection?: PoolClient,
+  payerId?: number
 ): Promise<number> {
     const conn = connection || await db.getConnection();
     try {
+        if(payerId !== undefined && await enterpriseFeeWaived(conn,payerId,transactionTypeCode)) return 0;
         const userCountryCode = countryToCode(countryIdentifier);
 
         const isGlobalOnly = GLOBAL_FEE_TYPES.includes(transactionTypeCode);
@@ -131,6 +134,7 @@ export async function calculateTransactionFee(
         }
 
     } catch (error) {
+        if(payerId !== undefined) throw error;
         handleDbError(error, `calculating dynamic fee for ${countryIdentifier}`);
         return 0;
     } finally {

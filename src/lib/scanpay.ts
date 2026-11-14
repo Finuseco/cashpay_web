@@ -62,7 +62,7 @@ async function pricePayment(c:PoolClient,user:any,scan:any,paymentCurrency:strin
  }else throw new Error('Ce code ne permet pas un paiement.');
  if(Number(user.id)===Number(sale.sellerId))throw new Error('Vous ne pouvez pas vous payer vous-même.');
  let rate=1;if(paymentCurrency!==sale.currency){const fx=(await c.query('SELECT rate FROM exchange_rates WHERE country_code=$1 AND from_currency=$2 AND to_currency=$3',[countryToCode(user.country)||'GBL',sale.currency,paymentCurrency])).rows[0];rate=Number(fx?.rate);if(!Number.isFinite(rate)||rate<=0)throw new Error('Taux de change indisponible.');}
- const debitAmount=sale.amount*rate;const fee=sale.type==='POS_SALE'?0:Number(await calculateTransactionFee(debitAmount,paymentCurrency,'TR',user.country,c));if(!Number.isFinite(debitAmount)||!Number.isFinite(debitAmount+fee)||debitAmount+fee>Number.MAX_SAFE_INTEGER/100)throw new Error('Montant hors des limites de précision.');if(!Number.isFinite(fee)||fee<0)throw new Error('Frais indisponibles.');
+ const debitAmount=sale.amount*rate;const fee=sale.type==='POS_SALE'?0:Number(await calculateTransactionFee(debitAmount, paymentCurrency, 'TR', user.country, c, user.id));if(!Number.isFinite(debitAmount)||!Number.isFinite(debitAmount+fee)||debitAmount+fee>Number.MAX_SAFE_INTEGER/100)throw new Error('Montant hors des limites de précision.');if(!Number.isFinite(fee)||fee<0)throw new Error('Frais indisponibles.');
  return {sale,paymentCurrency,debitAmount,fee,totalDebit:debitAmount+fee,rate};
 }
 function key(){if(!process.env.JWT_SECRET)throw new Error('Signature des devis non configurée.');return process.env.JWT_SECRET;}

@@ -84,7 +84,7 @@ export async function purchaseCard(args: {
 
         const suffix = card_type === 'virtuelle' ? 'V' : 'P';
         const feeTypeCode = `BUY_CARDS_${normalizedCurrency}_${suffix}_FEE`;
-        const fee = await calculateTransactionFee(1, normalizedCurrency, feeTypeCode, null, connection);
+        const fee = await calculateTransactionFee(1, normalizedCurrency, feeTypeCode, null, connection, user.id);
 
         // IMPORTANT : ne jamais débiter avant que FYATU ait confirmé l'émission/attribution.
         // Le débit des frais est exécuté uniquement après une émission réussie.

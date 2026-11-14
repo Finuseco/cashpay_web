@@ -1,4 +1,5 @@
 'use server';
+import {enterpriseFeeWaived} from '@/lib/enterprise/policy';
 
 import { generateReferenceCode } from '../utils';
 import { db } from '@/lib/db';
@@ -27,7 +28,7 @@ export async function getCountryByPhone(phone:string){const n=digits(phone);retu
 export async function getUssdRecipientInfo(identifier:string){const raw=identifier.trim(),n=digits(identifier);try{const refs=[raw,n,`+${n}`,n.replace(/^0/,'243')];const {rows}=await db.query('SELECT id,role,status,first_name,full_name,id_wallet,phone FROM users WHERE id_wallet=$1 OR phone=ANY($2) LIMIT 1',[raw,refs]);if(!rows.length)return {success:false,error:'Destinataire introuvable.'};const r=rows[0];return {success:true,firstName:r.first_name||r.full_name||'Client',userId:r.id,walletId:r.id_wallet,phone:r.phone,role:r.role,status:r.status};}catch{return {success:false,error:'Service indisponible.'};}}
 export async function getUssdBalance(userId:number,currency:string){try{const {rows}=await db.query('SELECT balances FROM wallets WHERE user_id=$1',[userId]);return Number(json(rows[0]?.balances)[currency]||0);}catch{return 0;}}
 export async function getCommissionBalance(userId:number,currency:string){try{const {rows}=await db.query('SELECT commission_balance,balances FROM wallets WHERE user_id=$1',[userId]);const c=json(rows[0]?.commission_balance);return Number(c[currency]||0);}catch{return 0;}}
-export async function getUssdFee(amount:number,currency:string,typeCode:string,countryName:string){return calculateTransactionFee(amount,currency,typeCode,countryName);}
+export async function getUssdFee(amount:number,currency:string,typeCode:string,countryName:string,payerId?:number){return calculateTransactionFee(amount,currency,typeCode,countryName,undefined,payerId);}
 
 async function getAgentWithdrawalCommissionRate(){
   const raw=String(process.env.AGENT_WITHDRAW_COMMISSION_RATE||'').trim();
@@ -102,7 +103,7 @@ export async function initiateAgentCashWithdrawal(agent:User,clientRef:string,am
   if(!client.success)return client;
   const {rows:agentRows}=await db.query('SELECT 1 FROM boutiques WHERE agent_id=$1 LIMIT 1',[agent.id]);
   if(!agentRows.length)return {success:false,error:'Agent non enregistré dans une boutique.'};
-  const fee=Number(await getUssdFee(amount,currency,'TR',String((agent as any).country||'')));
+  const fee=Number(await getUssdFee(amount,currency,'TR',String((agent as any).country||''),Number(agent.id)));
   const otp=String(Math.floor(100000+Math.random()*900000));
   const hash=crypto.createHash('sha256').update(otp).digest('hex');
   const reference=`AGW-${Date.now()}-${agent.id}`;
@@ -502,17 +503,18 @@ export async function executeTvSubscription(
   }
 }
 
-export async function getUssdCardPurchaseOptions(currency:string,cardType:'virtuelle'|'physique',countryName?:string){
+export async function getUssdCardPurchaseOptions(currency:string,cardType:'virtuelle'|'physique',countryName?:string,payerId?:number){
   const ccy=String(currency||'').toUpperCase();
   const suffix=cardType==='virtuelle'?'V':'P';
   const feeCode=`BUY_CARDS_${ccy}_${suffix}_FEE`;
-  const fee=Number(await calculateTransactionFee(1,ccy,feeCode,countryName||null));
+  const fee=Number(await calculateTransactionFee(1,ccy,feeCode,countryName||null,undefined,payerId));
   const cfg:any=config.fyatu as any;
   const keys=(brand:string)=>cardType==='virtuelle'
     ? (brand==='visa'?['productTokenVisaVirtual','productTokenVirtualVisa']:['productTokenMastercardVirtual','productTokenVirtualMastercard'])
     : (brand==='visa'?['productTokenVisaPhysical','productTokenPhysicalVisa']:['productTokenMastercardPhysical','productTokenPhysicalMastercard']);
   const fallback=cardType==='virtuelle'?cfg.productTokenVirtual:cfg.productTokenPhysical;
-  return ['visa','mastercard'].map(brand=>({brand,cardType,currency:ccy,fee,feeCode,configured:fee>0&&!!(keys(brand).map((k:string)=>cfg[k]).find(Boolean)||fallback)}));
+  const exempt=payerId!==undefined&&await enterpriseFeeWaived(db,payerId,feeCode);
+  return ['visa','mastercard'].map(brand=>({brand,cardType,currency:ccy,fee,feeCode,configured:(fee>0||exempt)&&!!(keys(brand).map((k:string)=>cfg[k]).find(Boolean)||fallback)}));
 }
 
 export async function executeUssdCardPurchase(user:User,cardType:'virtuelle'|'physique',brand:'visa'|'mastercard',currency:string,pin:string){

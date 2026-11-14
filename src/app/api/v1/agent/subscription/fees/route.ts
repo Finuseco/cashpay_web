@@ -1,3 +1,5 @@
+import {db} from '@/lib/db';
+import {enterpriseFeeWaived} from '@/lib/enterprise/policy';
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { calculateTransactionFee } from '@/lib/actions/wallet.actions';
@@ -27,14 +29,10 @@ export async function GET(request: Request) {
       ? 'AGENT_SUB_PROMO'
       : 'AGENT_SUB_NORMAL';
 
-    const fee = await calculateTransactionFee(
-      1,
-      'USD',
-      code,
-      user.country
+    const fee = await calculateTransactionFee(1, 'USD', code, user.country, undefined, user.id
     );
 
-    if (!Number.isFinite(fee) || fee <= 0) {
+    if (!Number.isFinite(fee) || fee < 0 || (fee===0&&!await enterpriseFeeWaived(db,user.id,code))) {
       return NextResponse.json(
         { success: false, error: 'Le tarif de cet abonnement n’est pas configuré pour votre pays.' },
         { status: 409 }

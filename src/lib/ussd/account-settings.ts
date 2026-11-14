@@ -1,3 +1,4 @@
+import {enterpriseFeeWaived} from '@/lib/enterprise/policy';
 import { db } from "@/lib/db";
 import { verifyUserPin } from "@/lib/actions/auth.actions";
 import { calculateTransactionFee } from "@/lib/actions/wallet.actions";
@@ -85,14 +86,10 @@ export async function agentOffers(user: User) {
   for (const plan of ["promo", "normal"] as const) {
     try {
       const fee = Number(
-        await calculateTransactionFee(
-          1,
-          "USD",
-          plan === "promo" ? "AGENT_SUB_PROMO" : "AGENT_SUB_NORMAL",
-          user.country,
+        await calculateTransactionFee(1, "USD", plan === "promo" ? "AGENT_SUB_PROMO" : "AGENT_SUB_NORMAL", user.country, undefined, user.id
         ),
       );
-      if (Number.isFinite(fee) && fee > 0)
+      if (Number.isFinite(fee) && (fee > 0 || await enterpriseFeeWaived(db,user.id,plan === 'promo'?'AGENT_SUB_PROMO':'AGENT_SUB_NORMAL')))
         offers.push({ plan, fee, currency: "USD", days: 30 });
     } catch {}
   }
@@ -108,7 +105,7 @@ export async function activateAgent(
     !["promo", "normal"].includes(accepted.plan) ||
     accepted.currency !== "USD" ||
     !Number.isFinite(accepted.fee) ||
-    accepted.fee <= 0
+    accepted.fee < 0
   )
     throw Error("Chargez et confirmez le forfait Agent.");
   await checkedPin(user, pin);
@@ -136,15 +133,10 @@ export async function activateAgent(
     )
       throw Error("Abonnement déjà actif. Aucun nouveau débit.");
     const fee = Number(
-      await calculateTransactionFee(
-        1,
-        "USD",
-        accepted.plan === "promo" ? "AGENT_SUB_PROMO" : "AGENT_SUB_NORMAL",
-        row.country,
-        c,
+      await calculateTransactionFee(1, "USD", accepted.plan === "promo" ? "AGENT_SUB_PROMO" : "AGENT_SUB_NORMAL", row.country, c, Number(row.id)
       ),
     );
-    if (!Number.isFinite(fee) || fee <= 0 || fee !== accepted.fee)
+    if (!Number.isFinite(fee) || fee < 0 || (fee===0&&!await enterpriseFeeWaived(c,Number(row.id),accepted.plan==='promo'?'AGENT_SUB_PROMO':'AGENT_SUB_NORMAL')) || fee !== accepted.fee)
       throw Error("Le tarif a changé. Rechargez et confirmez le forfait.");
     if (!(await bcrypt.compare(pin, row.pin_hash)))
       throw Error("Le PIN a changé. Recommencez.");

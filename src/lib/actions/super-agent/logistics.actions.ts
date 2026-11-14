@@ -68,7 +68,7 @@ export async function orderCardForClient(args: { adminId: number, targetUserId: 
         const user = formatUser(userRows[0]);
 
         const feeCode = `BUY_CARDS_${currency.toUpperCase()}_P_FEE`;
-        const fee = await calculateTransactionFee(1, currency, feeCode, user.country, connection);
+        const fee = await calculateTransactionFee(1, currency, feeCode, user.country, connection, user.id);
 
         const tx = await createTransaction({
             user, typeCode: feeCode, amount: fee, currency,

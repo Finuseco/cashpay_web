@@ -73,7 +73,7 @@ export function MtnTransferForm({ user, currencies, onProceed }: MtnTransferForm
     useEffect(() => {
       const fetchFee = async () => {
         if(watchedAmount > 0) {
-            const calculatedFee = await calculateTransactionFee(watchedAmount, watchedCurrency, 'WD_MTN_MOMO', user.country);
+            const calculatedFee = await calculateTransactionFee(watchedAmount, watchedCurrency, 'WD_MTN_MOMO', user.country, undefined, user.id);
             setFee(calculatedFee);
         } else {
             setFee(0);

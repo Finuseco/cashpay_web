@@ -12,6 +12,7 @@ interface EmailResponse {
 
 const templatePaths = {
   otp: 'otp.html',
+  enterprise: 'enterprise.html',
   receipt: 'receipt.html',
   general: 'general.html',
   alert: 'alert.html',

@@ -23,7 +23,7 @@ export async function POST(request: NextRequest, { params }: { params: { convers
         if (!addresses[0]?.address) return NextResponse.json({ success: false, error: `Le destinataire doit activer son adresse ${currency}.` }, { status: 422 });
         const { rows: balances } = await connection.query('SELECT balance FROM user_crypto_balances WHERE user_id = $1 AND currency_code = $2', [user.id, asset]);
         const balance = Number(balances[0]?.balance || 0);
-        const fee = Number(await calculateTransactionFee(amount, currency, 'WD_CRYPTO_MONEY', user.country, connection));
+        const fee = Number(await calculateTransactionFee(amount, currency, 'WD_CRYPTO_MONEY', user.country, connection, user.id));
         if (!Number.isFinite(fee) || fee < 0 || !Number.isFinite(balance)) throw new Error('Calcul des frais indisponible.');
         const totalDebit = amount + fee;
         if (balance < totalDebit) return NextResponse.json({ success: false, error: `Solde ${currency} insuffisant (montant + frais).`, balance, totalDebit }, { status: 422 });

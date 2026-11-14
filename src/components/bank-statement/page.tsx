@@ -15,7 +15,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import DashboardLayout from "@/components/dashboard/dashboard-layout";
+import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { Label } from "@/components/ui/label";
@@ -36,7 +36,7 @@ export default function BankStatementPage() {
             const fetchedUser = await getAuthenticatedUser();
             setUser(fetchedUser);
             if(fetchedUser) {
-                const fee = await calculateTransactionFee(1, 'USD', 'FE', fetchedUser.country); // Amount doesn't matter for fixed fee
+                const fee = await calculateTransactionFee(1, 'USD', 'FE', fetchedUser.country, undefined, fetchedUser.id); // Amount doesn't matter for fixed fee
                 setStatementFee(fee);
             }
         };

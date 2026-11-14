@@ -75,7 +75,7 @@ export function MpesaTransferForm({ user, currencies, onProceed }: MpesaTransfer
     useEffect(() => {
       const fetchFee = async () => {
         if(watchedAmount > 0) {
-            const calculatedFee = await calculateTransactionFee(watchedAmount, watchedCurrency, 'withdrawal', user.country);
+            const calculatedFee = await calculateTransactionFee(watchedAmount, watchedCurrency, 'withdrawal', user.country, undefined, user.id);
             setFee(calculatedFee);
         } else {
             setFee(0);

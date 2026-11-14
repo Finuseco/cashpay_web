@@ -6,12 +6,13 @@ import { handleDbError, saveBase64Image, getUserFromDb } from './helpers';
 import { generateReferenceCode, type TransactionTypeCode, formatUser, countryToCode } from '../utils';
 import { sendSms } from '@/services/sms';
 import { sendEmail } from '@/services/email';
-import { sendWhatsAppUtilityTemplate } from '@/services/whatsapp';
+import { sendWhatsAppTextMessage } from '@/services/whatsapp';
 import type { User, Transaction, CartItem } from '@/lib/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import type { PoolClient } from 'pg';
 import { calculateTransactionFee } from './wallet.actions';
+import {ENTERPRISE_BILLING_CONTEXT} from '@/lib/enterprise/policy';
 import { createNotification } from './notification.actions';
 import { updateReferralStatusOnDeposit } from './referral.actions';
 import { queryTransactionStatus } from '@/services/mpesa';
@@ -81,9 +82,7 @@ export async function sendTransactionNotifications(
         const preferredChannels = user.notifications_channel || ['sms', 'whatsapp'];
         for (const channel of preferredChannels) {
             if (channel === 'whatsapp' && user.phone) {
-        await sendWhatsAppUtilityTemplate(user.phone, [
-            senderSms
-        ]);
+        await sendWhatsAppTextMessage(user.phone, senderSms);
     }
             if (channel === 'sms' && user.phone) await sendSms(user.phone, senderSms);
         }
@@ -139,6 +138,7 @@ interface CreateTransactionArgs {
     pin?: string;
     referenceCode?: string;
     connection?: PoolClient;
+    enterpriseBillingContext?: symbol;
 }
 
 /**
@@ -208,9 +208,10 @@ export async function createTransaction(args: CreateTransactionArgs): Promise<{ 
             typeCode !== 'EXCHANGE' &&
             typeCode !== 'AGENT_SUB' &&
             typeCode !== 'POS_SALE' &&
-            !typeCode.startsWith('BUY_CARDS')
+            !typeCode.startsWith('BUY_CARDS') &&
+            !(args.enterpriseBillingContext && args.enterpriseBillingContext === ENTERPRISE_BILLING_CONTEXT)
         ) {
-             feeNum = await calculateTransactionFee(amountToDebit, debitCurrency, effectiveTypeCode, user.country, conn);
+             feeNum = await calculateTransactionFee(amountToDebit, debitCurrency, effectiveTypeCode, user.country, conn, user.id);
         }
 
         const totalDebitAmount = isCreditTransaction ? 0 : amountToDebit + feeNum;
@@ -233,9 +234,16 @@ export async function createTransaction(args: CreateTransactionArgs): Promise<{ 
             );
         }
 
+        // Enterprise settlement stays in PostgreSQL NUMERIC, including cent-boundary payrolls.
+        const exactEnterpriseSettlement = args.enterpriseBillingContext === ENTERPRISE_BILLING_CONTEXT &&
+            args.enterpriseBillingContext !== undefined && status === 'Completed' && debitCurrency === currency && ['TR','MKTG_FEE'].includes(typeCode);
         // 5. Exécution du Débit
         if (status === 'Completed' || (status === 'Pending' && (isPayout || isHsmLock))) {
-            if (isCreditTransaction) {
+            if(exactEnterpriseSettlement){
+                const changed=await conn.query("UPDATE wallets SET balances=jsonb_set(COALESCE(balances::jsonb,'{}'::jsonb),ARRAY[$2::text],to_jsonb(COALESCE((balances::jsonb->>$2)::numeric,0)-$3::numeric),true) WHERE user_id=$1 AND COALESCE((balances::jsonb->>$2)::numeric,0)>=$3::numeric RETURNING balances",[user.id,debitCurrency,amountToDebit]);
+                if(changed.rows.length!==1)throw new Error('Solde entreprise insuffisant ou portefeuille ambigu.');
+                Object.assign(senderBalances,typeof changed.rows[0].balances==='string'?JSON.parse(changed.rows[0].balances):changed.rows[0].balances);
+            } else if (isCreditTransaction) {
                 senderBalances[debitCurrency] = currentBalance + amountToDebit;
             } else if (typeCode === 'EXCHANGE') {
                 const { toCurrency, toAmount } = metadata;
@@ -244,7 +252,7 @@ export async function createTransaction(args: CreateTransactionArgs): Promise<{ 
             } else {
                 senderBalances[debitCurrency] = currentBalance - totalDebitAmount;
             }
-            await conn.query('UPDATE wallets SET balances = $1::jsonb WHERE user_id = $2::integer', [JSON.stringify(senderBalances), user.id]);
+            if(!exactEnterpriseSettlement) await conn.query('UPDATE wallets SET balances = $1::jsonb WHERE user_id = $2::integer', [JSON.stringify(senderBalances), user.id]);
             
             if (isPayout) {
                 const { rows: suspenseWalletRows } = await conn.query('SELECT balances FROM wallets WHERE id_wallet = $1::text FOR UPDATE', [PAYOUT_SUSPENSE_WALLET_ID]);
@@ -284,11 +292,16 @@ export async function createTransaction(args: CreateTransactionArgs): Promise<{ 
 
             if (recWalletRows.length > 0) {
                 const recBalances = typeof recWalletRows[0].balances === 'string' ? JSON.parse(recWalletRows[0].balances) : (recWalletRows[0].balances || {});
-                recBalances[currency] = Number(recBalances[currency] || 0) + Number(creditAmount);
+                if(exactEnterpriseSettlement){
+                    const key=receiverIdToUse?'user_id':'id_wallet';
+                    const changed=await conn.query(`UPDATE wallets SET balances=jsonb_set(COALESCE(balances::jsonb,'{}'::jsonb),ARRAY[$2::text],to_jsonb(COALESCE((balances::jsonb->>$2)::numeric,0)+$3::numeric),true) WHERE ${key}=$1 RETURNING balances`,[receiverIdToUse||receiverWalletId,currency,creditAmount]);
+                    if(changed.rows.length!==1)throw new Error('Portefeuille salarié indisponible ou ambigu.');
+                    Object.assign(recBalances,typeof changed.rows[0].balances==='string'?JSON.parse(changed.rows[0].balances):changed.rows[0].balances);
+                } else recBalances[currency] = Number(recBalances[currency] || 0) + Number(creditAmount);
                 
-                if (receiverIdToUse) {
+                if (!exactEnterpriseSettlement && receiverIdToUse) {
                     await conn.query('UPDATE wallets SET balances = $1::jsonb WHERE user_id = $2::integer', [JSON.stringify(recBalances), receiverIdToUse]);
-                } else {
+                } else if(!exactEnterpriseSettlement) {
                     await conn.query('UPDATE wallets SET balances = $1::jsonb WHERE id_wallet = $2::text', [JSON.stringify(recBalances), receiverWalletId]);
                 }
 
