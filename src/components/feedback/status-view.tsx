@@ -29,8 +29,8 @@ export function StatusView({ onBack, onViewStatus, currentUser, statusGroups }: 
     const contactStatusGroups = statusGroups.filter(g => g.contact.id !== currentUser?.id);
 
     return (
-        <div className="flex flex-col h-full min-h-0 bg-[#0D1226]">
-            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#141C38] text-white">
+        <div className="flex flex-col h-full min-h-0 bg-[#2B1D16]">
+            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#4B3023] text-white">
                 <Button variant="ghost" size="icon" onClick={onBack}>
                     <ArrowLeft />
                 </Button>
@@ -48,7 +48,7 @@ export function StatusView({ onBack, onViewStatus, currentUser, statusGroups }: 
                         <p className="text-sm text-zinc-400">Appuyez pour ajouter une mise à jour</p>
                     </div>
                      <Link href="/status/create" className="absolute -bottom-1 left-12" onClick={e => e.stopPropagation()}>
-                        <div className="h-6 w-6 rounded-full bg-green-500 flex items-center justify-center border-2 border-[#0D1226]">
+                        <div className="h-6 w-6 rounded-full bg-green-500 flex items-center justify-center border-2 border-[#2B1D16]">
                             <Camera className="h-3 w-3 text-white" />
                         </div>
                     </Link>

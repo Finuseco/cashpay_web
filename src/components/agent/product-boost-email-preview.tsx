@@ -42,7 +42,7 @@ const ProductItem = ({ product, isFeatured }: { product: Product, isFeatured?: b
                     <tr>
                         <td style={{ padding: '10px' }}>
                             <h3 style={{ margin: 0, fontWeight: 'bold', fontSize: '14px', color: '#1a202c', height: '40px', overflow: 'hidden' }}>{product.name}</h3>
-                            <p style={{ margin: '4px 0 0', fontSize: '16px', fontWeight: 'bold', color: '#000E38' }}>
+                            <p style={{ margin: '4px 0 0', fontSize: '16px', fontWeight: 'bold', color: '#5B3927' }}>
                                 ${price.toFixed(2)}
                             </p>
                         </td>
@@ -68,7 +68,7 @@ export const ProductBoostEmailPreview = ({ agentName, agentCountry, products, la
     return (
         <div className="bg-gray-100 p-4 font-sans rounded-md border">
             <div className="max-w-xl mx-auto bg-white shadow-sm overflow-hidden">
-                <header className="bg-[#000E38] p-6 text-center">
+                <header className="bg-[#5B3927] p-6 text-center">
                     <h1 className="text-3xl font-bold text-white">JoJo</h1>
                     <p className="text-sm text-white/70">shopping online</p>
                     <h2 className="text-xl font-semibold text-white mt-4">{agentName}</h2>
@@ -105,7 +105,7 @@ export const ProductBoostEmailPreview = ({ agentName, agentCountry, products, la
                     </table>
 
                     <div style={{ textAlign: 'center', marginTop: '20px' }}>
-                        <div style={{ backgroundColor: '#000E38', color: '#ffffff', padding: '12px 25px', borderRadius: '4px', textDecoration: 'none', display: 'inline-block', fontWeight: 'bold' }}>
+                        <div style={{ backgroundColor: '#5B3927', color: '#ffffff', padding: '12px 25px', borderRadius: '4px', textDecoration: 'none', display: 'inline-block', fontWeight: 'bold' }}>
                             Visiter le magasin
                         </div>
                     </div>

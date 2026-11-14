@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { Textarea } from '@/components/ui/textarea';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -72,7 +72,7 @@ const CreateAdForm = ({ user, onCampaignCreated, productToBoost }: { user: User,
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 <FormField control={form.control} name="name" render={({ field }) => ( <FormItem> <FormLabel>Nom de la campagne</FormLabel> <FormControl> <Input placeholder="Ex: Promo de Pâques" {...field} /> </FormControl> <FormMessage /> </FormItem> )}/>
                 <FormField control={form.control} name="targetUrl" render={({ field }) => ( <FormItem> <FormLabel>URL de destination</FormLabel> <FormControl> <Input placeholder="https://votre-site.com/promo" {...field} /> </FormControl> <FormMessage /> </FormItem> )}/>
-                <FormField control={form.control} name="format" render={({ field }) => ( <FormItem> <FormLabel>Format de l'annonce</FormLabel> <Select onValueChange={field.onChange} defaultValue={field.value}> <FormControl> <SelectTrigger> <SelectValue /> </SelectTrigger> </FormControl> <SelectContent> <SelectItem value="banner">Bannière (728x90)</SelectItem> <SelectItem value="popup">Pop-up (300x250)</SelectItem> <SelectItem value="video">Vidéo (format 16:9)</SelectItem> </SelectContent> </Select> <FormMessage /> </FormItem> )}/>
+                <FormField control={form.control} name="format" render={({ field }) => ( <FormItem> <FormLabel>Format de l'annonce</FormLabel> <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}> <FormControl> <ChoiceTrigger> <ChoiceValue /> </ChoiceTrigger> </FormControl> <ChoiceContent> <ChoiceItem value="banner">Bannière (728x90)</ChoiceItem> <ChoiceItem value="popup">Pop-up (300x250)</ChoiceItem> <ChoiceItem value="video">Vidéo (format 16:9)</ChoiceItem> </ChoiceContent> </ChoiceGroup> <FormMessage /> </FormItem> )}/>
                 <div className="grid grid-cols-2 gap-4">
                     <FormField control={form.control} name="budget" render={({ field }) => ( <FormItem> <FormLabel>Budget (USD)</FormLabel> <FormControl> <Input type="number" {...field} /> </FormControl> <FormMessage /> </FormItem> )}/>
                     <FormField control={form.control} name="durationDays" render={({ field }) => ( <FormItem> <FormLabel>Durée (jours)</FormLabel> <FormControl> <Input type="number" {...field} /> </FormControl> <FormMessage /> </FormItem> )}/>

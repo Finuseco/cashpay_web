@@ -1,4 +1,5 @@
 'use client';
+import {NativeChoice,NativeOption} from '@/components/ui/choice-group';
 
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useEffect, useRef, useState } from 'react';
@@ -725,24 +726,24 @@ useEffect(() => {
                                 </FormLabel>
 
                                 <FormControl>
-                                    <select
+                                    <NativeChoice
                                         value={field.value || ''}
                                         onChange={field.onChange}
                                         className="flex h-10 w-full rounded-md border border-zinc-600 bg-zinc-700 px-3 py-2 text-sm text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
                                     >
-                                        <option value="">
+                                        <NativeOption value="">
                                             Sélectionnez un domaine
-                                        </option>
+                                        </NativeOption>
 
                                         {categories.map((category) => (
-                                            <option
+                                            <NativeOption
                                                 key={category}
                                                 value={category}
                                             >
                                                 {category}
-                                            </option>
+                                            </NativeOption>
                                         ))}
-                                    </select>
+                                    </NativeChoice>
                                 </FormControl>
 
                                 <FormMessage />

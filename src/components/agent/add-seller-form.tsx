@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { UserCheck, Loader2 } from "lucide-react";
 import type { VerifyUserOutput } from "@/ai/flows/verify-user-flow";
 import type { Seller, Boutique } from "@/lib/types";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from "../ui/choice-group";
 import { getWalletInfo } from "@/lib/actions/wallet.actions";
 
 const formSchema = z.object({
@@ -143,16 +143,16 @@ export function AddSellerForm({ onFormSubmit, boutiques }: AddSellerFormProps) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>{t('addSellerFormAssignBoutique')}</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
                 <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('addSellerFormSelectBoutique')} />
-                  </SelectTrigger>
+                  <ChoiceTrigger>
+                    <ChoiceValue placeholder={t('addSellerFormSelectBoutique')} />
+                  </ChoiceTrigger>
                 </FormControl>
-                <SelectContent>
-                  {boutiques.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+                <ChoiceContent>
+                  {boutiques.map(b => <ChoiceItem key={b.id} value={b.id}>{b.name}</ChoiceItem>)}
+                </ChoiceContent>
+              </ChoiceGroup>
               <FormMessage />
             </FormItem>
           )}
@@ -164,18 +164,18 @@ export function AddSellerForm({ onFormSubmit, boutiques }: AddSellerFormProps) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>{t('addSellerFormRole')}</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
                 <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('addSellerFormSelectRole')} />
-                  </SelectTrigger>
+                  <ChoiceTrigger>
+                    <ChoiceValue placeholder={t('addSellerFormSelectRole')} />
+                  </ChoiceTrigger>
                 </FormControl>
-                <SelectContent>
-                  <SelectItem value="Vendeur">{t('roleSeller')}</SelectItem>
-                  <SelectItem value="Gérant">{t('roleManager')}</SelectItem>
-                  <SelectItem value="Caissier">{t('roleCashier')}</SelectItem>
-                </SelectContent>
-              </Select>
+                <ChoiceContent>
+                  <ChoiceItem value="Vendeur">{t('roleSeller')}</ChoiceItem>
+                  <ChoiceItem value="Gérant">{t('roleManager')}</ChoiceItem>
+                  <ChoiceItem value="Caissier">{t('roleCashier')}</ChoiceItem>
+                </ChoiceContent>
+              </ChoiceGroup>
               <FormMessage />
             </FormItem>
           )}

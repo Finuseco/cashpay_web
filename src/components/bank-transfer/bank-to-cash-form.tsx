@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
@@ -63,7 +63,7 @@ export function BankToCashForm({ user, currencies }: { user: User, currencies: C
                 </Alert>
                 <div className="grid grid-cols-2 gap-4">
                      <FormField control={form.control} name="amount" render={({ field }) => ( <FormItem><FormLabel>Montant</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )}/>
-                     <FormField control={form.control} name="currency" render={({ field }) => ( <FormItem><FormLabel>Devise</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue/></SelectTrigger></FormControl><SelectContent><SelectItem value="USD">USD</SelectItem><SelectItem value="EUR">EUR</SelectItem><SelectItem value="CDF">CDF</SelectItem></SelectContent></Select><FormMessage /></FormItem> )}/>
+                     <FormField control={form.control} name="currency" render={({ field }) => ( <FormItem><FormLabel>Devise</FormLabel><ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}><FormControl><ChoiceTrigger><ChoiceValue/></ChoiceTrigger></FormControl><ChoiceContent><ChoiceItem value="USD">USD</ChoiceItem><ChoiceItem value="EUR">EUR</ChoiceItem><ChoiceItem value="CDF">CDF</ChoiceItem></ChoiceContent></ChoiceGroup><FormMessage /></FormItem> )}/>
                 </div>
                  <FormField control={form.control} name="transactionReference" render={({ field }) => ( <FormItem><FormLabel>Référence de la transaction bancaire</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
                 <Button type="submit" variant="gradient" className="w-full" disabled={isLoading}>

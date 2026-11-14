@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "../ui/input-otp";
 import type { User, Currency } from '@/lib/types';
 import type { WalletInfo } from "@/lib/actions/wallet.actions";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from "../ui/choice-group";
 import { sendAndStoreOtp } from "@/lib/actions/auth.actions";
 import { getAuthenticatedUser } from "@/lib/actions/user.actions";
 import { getUserCurrencies } from "@/lib/actions/currency.actions";
@@ -243,14 +243,14 @@ export function AgentTransferClient({ agent }: { agent: User | null }) {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Devise</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
                             <FormControl>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <ChoiceTrigger><ChoiceValue /></ChoiceTrigger>
                             </FormControl>
-                            <SelectContent>
-                               {agentCurrencies.map(c => <SelectItem key={c.code} value={c.code}>{c.code}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
+                            <ChoiceContent>
+                               {agentCurrencies.map(c => <ChoiceItem key={c.code} value={c.code}>{c.code}</ChoiceItem>)}
+                            </ChoiceContent>
+                        </ChoiceGroup>
                         <FormMessage />
                       </FormItem>
                     )}

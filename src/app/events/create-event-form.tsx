@@ -20,7 +20,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { createEvent } from '@/lib/actions/event.actions';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceTrigger, ChoiceValue, ChoiceContent, ChoiceItem } from '@/components/ui/choice-group';
 
 const ticketTypeSchema = z.object({
   type: z.string().min(1, "Le type de billet est requis."),
@@ -181,18 +181,18 @@ export function CreateEventForm() {
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Devise des billets</FormLabel>
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
                                             <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue/>
-                                                </SelectTrigger>
+                                                <ChoiceTrigger>
+                                                    <ChoiceValue/>
+                                                </ChoiceTrigger>
                                             </FormControl>
-                                            <SelectContent>
-                                                <SelectItem value="USD">USD ($)</SelectItem>
-                                                <SelectItem value="EUR">EUR (€)</SelectItem>
-                                                <SelectItem value="CDF">CDF (FC)</SelectItem>
-                                            </SelectContent>
-                                        </Select>
+                                            <ChoiceContent>
+                                                <ChoiceItem value="USD">USD ($)</ChoiceItem>
+                                                <ChoiceItem value="EUR">EUR (€)</ChoiceItem>
+                                                <ChoiceItem value="CDF">CDF (FC)</ChoiceItem>
+                                            </ChoiceContent>
+                                        </ChoiceGroup>
                                         <FormMessage />
                                     </FormItem>
                                 )}

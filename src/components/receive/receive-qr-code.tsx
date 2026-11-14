@@ -78,7 +78,7 @@ export function ReceiveQrCode({ user }: { user: User | null }) {
             const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
             
             doc.setFontSize(22);
-            doc.setTextColor(0, 14, 56); // #000E38
+            doc.setTextColor(0, 14, 56); // #5B3927
             doc.text("CASH PAY ALL", 105, 40, { align: 'center' });
             
             doc.setFontSize(14);

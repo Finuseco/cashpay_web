@@ -4,38 +4,38 @@
 
 @layer base {
   :root {
-    --background: 220 20% 97%;
-    --foreground: 222 84.2% 5.1%;
+    --background: 30 35% 97%;
+    --foreground: 25 35% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 84.2% 5.1%;
+    --card-foreground: 25 35% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 84.2% 5.1%;
+    --popover-foreground: 25 35% 12%;
 
-    --primary: 222 83% 11%; /* 000E38 */
+    --primary: 25 43% 25%; /* CashPay marron */
     --primary-foreground: 0 0% 98%;
 
-    --secondary: 220 14.3% 95.9%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 30 28% 92%;
+    --secondary-foreground: 25 35% 18%;
 
-    --muted: 220 14.3% 95.9%;
+    --muted: 30 28% 92%;
     --muted-foreground: 220 8.9% 43.1%;
 
-    --accent: 220 14.3% 95.9%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 30 28% 92%;
+    --accent-foreground: 25 35% 18%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 222 83% 11%;
+    --border: 28 22% 85%;
+    --input: 28 22% 85%;
+    --ring: 25 43% 25%;
 
     --radius: 0.75rem;
 
-    --gradient-start: 222 83% 11%; /* 000E38 */
-    --gradient-end: 28 98% 55%; /* Lighter Orange: ff8c3b */
+    --gradient-start: 25 43% 25%; /* CashPay marron */
+    --gradient-end: 30 55% 55%; /* Lighter Orange: ff8c3b */
 
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
@@ -45,36 +45,36 @@
   }
 
   .dark {
-    --background: 222 84.2% 4.9%;
+    --background: 25 25% 8%;
     --foreground: 0 0% 98%;
 
-    --card: 222 84.2% 8.9%;
+    --card: 25 28% 13%;
     --card-foreground: 0 0% 98%;
 
-    --popover: 222 84.2% 4.9%;
+    --popover: 25 25% 8%;
     --popover-foreground: 0 0% 98%;
 
-    --primary: 24 98% 50%;
+    --primary: 28 42% 43%;
     --primary-foreground: 0 0% 98%;
 
-    --secondary: 222 84.2% 12.9%;
+    --secondary: 25 25% 19%;
     --secondary-foreground: 0 0% 98%;
 
-    --muted: 222 84.2% 12.9%;
-    --muted-foreground: 222 84.2% 50.9%;
+    --muted: 25 25% 19%;
+    --muted-foreground: 28 18% 68%;
 
-    --accent: 222 84.2% 12.9%;
+    --accent: 25 25% 19%;
     --accent-foreground: 0 0% 98%;
 
     --destructive: 0 62.8% 50.6%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 222 84.2% 12.9%;
-    --input: 222 84.2% 12.9%;
+    --border: 25 25% 19%;
+    --input: 25 25% 19%;
     --ring: 24 98% 52%;
 
-    --gradient-start: 222 83% 11%; /* 000E38 */
-    --gradient-end: 28 98% 55%; /* Lighter Orange: ff8c3b */
+    --gradient-start: 25 43% 25%; /* CashPay marron */
+    --gradient-end: 30 55% 55%; /* Lighter Orange: ff8c3b */
   }
 }
 
@@ -89,44 +89,44 @@
 }
 
 /* ============================================================
-   ONCHAT THEME — dark navy/violet/cyan (identique au splash Android)
-   Couleurs : fond #070A16, violet #7F46D3, cyan #44BBF5
+   ONCHAT THEME — palette marron CashPay partagée
+   Couleurs : fond #1C1410, violet #9A653F, cyan #D9AF80
    ============================================================ */
 
 /* Variables globales OnChat utilisables partout */
 :root {
-  --oc-bg-deep:    8 14% 8%;         /* #070A16 — nuit profonde */
-  --oc-bg-mid:     255 46% 14%;      /* #130b3b — violet sombre */
-  --oc-violet:     262 83% 64%;      /* #7F46D3 */
-  --oc-violet-dark:265 75% 48%;      /* #562EBF */
-  --oc-cyan:       189 96% 43%;      /* #44BBF5 */
-  --oc-cyan-light: 188 94% 58%;      /* #22d3ee */
-  --oc-purple-ring:270 70% 60%;      /* #9333ea */
-  --oc-surface:    250 40% 13%;      /* carte/surface sombre */
-  --oc-border:     255 30% 22%;      /* bordure subtile */
-  --oc-text-muted: 240 20% 60%;      /* texte secondaire */
+  --oc-bg-deep:    8 14% 8%;         /* #1C1410 — nuit profonde */
+  --oc-bg-mid:     25 28% 13%;      /* #130b3b — violet sombre */
+  --oc-violet:     28 42% 43%;      /* #9A653F */
+  --oc-violet-dark:25 43% 32%;      /* #75482F */
+  --oc-cyan:       32 55% 58%;      /* #D9AF80 */
+  --oc-cyan-light: 32 55% 68%;      /* #D9AF80 */
+  --oc-purple-ring:28 52% 52%;      /* #B78552 */
+  --oc-surface:    25 28% 13%;      /* carte/surface sombre */
+  --oc-border:     25 25% 28%;      /* bordure subtile */
+  --oc-text-muted: 28 18% 68%;      /* texte secondaire */
 }
 
 /* Scoped : toutes les pages /feedback utilisent le thème OnChat */
 .onchat-theme,
 [data-theme="onchat"] {
-  --background: 228.00 51.72% 5.69%; /* Android #070A16 */
+  --background: 25 25% 8%; /* Android #1C1410 */
   --foreground: 0.00 0.00% 100.00%; /* Android #FFFFFF */
-  --card: 226.67 47.37% 14.90%; /* Android #141C38 */
+  --card: 25 28% 16%; /* Android #4B3023 */
   --card-foreground: 0.00 0.00% 100.00%; /* Android #FFFFFF */
-  --popover: 226.67 47.37% 14.90%; /* Android #141C38 */
+  --popover: 25 28% 16%; /* Android #4B3023 */
   --popover-foreground: 0.00 0.00% 100.00%; /* Android #FFFFFF */
-  --primary: 264.26 61.57% 55.10%; /* Android #7F46D3 */
+  --primary: 28 42% 43%; /* Android #9A653F */
   --primary-foreground: 0.00 0.00% 100.00%; /* Android #FFFFFF */
-  --secondary: 199.66 89.85% 61.37%; /* Android #44BBF5 */
-  --secondary-foreground: 228.00 51.72% 5.69%; /* Android #070A16 */
-  --muted: 226.96 51.11% 17.65%; /* Android #162044 */
+  --secondary: 32 55% 68%; /* Android #D9AF80 */
+  --secondary-foreground: 25 25% 8%; /* Android #1C1410 */
+  --muted: 25 25% 21%; /* Android #162044 */
   --muted-foreground: 215.00 20.22% 65.10%; /* Android #94A3B8 */
-  --accent: 207.14 78.66% 50.39%; /* Android #1D8AE4 */
+  --accent: 28 45% 36%; /* Android #9A653F */
   --accent-foreground: 0.00 0.00% 100.00%; /* Android #FFFFFF */
-  --border: 227.21 46.56% 25.69%; /* Android #233060 */
-  --input: 227.21 46.56% 25.69%; /* Android #233060 */
-  --ring: 199.66 89.85% 61.37%; /* Android #44BBF5 */
+  --border: 25 25% 30%; /* Android #233060 */
+  --input: 25 25% 30%; /* Android #233060 */
+  --ring: 32 55% 68%; /* Android #D9AF80 */
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
 }
@@ -136,13 +136,13 @@
   background:
     radial-gradient(ellipse 80% 60% at 50% 40%, rgba(139,92,246,0.18) 0%, transparent 70%),
     radial-gradient(ellipse 60% 40% at 80% 80%, rgba(6,182,212,0.10) 0%, transparent 60%),
-    linear-gradient(160deg, #070A16 0%, #0D1226 50%, #070A16 100%);
+    linear-gradient(160deg, #1C1410 0%, #2B1D16 50%, #1C1410 100%);
   background-attachment: fixed;
 }
 
 /* Texte dégradé violet→cyan (style "OnChat" du splash) */
 .onchat-gradient-text {
-  background: linear-gradient(90deg, #7F46D3 0%, #44BBF5 100%);
+  background: linear-gradient(90deg, #9A653F 0%, #D9AF80 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -150,7 +150,7 @@
 
 /* Bouton principal violet avec glow */
 .onchat-btn-primary {
-  background: linear-gradient(135deg, #562EBF, #7F46D3);
+  background: linear-gradient(135deg, #75482F, #9A653F);
   box-shadow: 0 0 20px rgba(139,92,246,0.4);
   color: white;
   border: none;
@@ -163,7 +163,7 @@
 
 /* Bouton secondary cyan */
 .onchat-btn-secondary {
-  background: linear-gradient(135deg, #0891b2, #44BBF5);
+  background: linear-gradient(135deg, #0891b2, #D9AF80);
   box-shadow: 0 0 16px rgba(6,182,212,0.35);
   color: white;
   border: none;
@@ -180,7 +180,7 @@
 
 /* Pill badge (style "Écosystème CashPay...") */
 .onchat-pill {
-  background: linear-gradient(90deg, #562EBF, #7F46D3, #44BBF5);
+  background: linear-gradient(90deg, #75482F, #9A653F, #D9AF80);
   border-radius: 999px;
   color: white;
   font-weight: 600;
@@ -190,22 +190,22 @@
 
 /* Cercle icône style splash (bordure colorée) */
 .onchat-icon-ring-cyan {
-  border: 2px solid #44BBF5;
+  border: 2px solid #D9AF80;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(6,182,212,0.08);
-  color: #44BBF5;
+  color: #D9AF80;
 }
 .onchat-icon-ring-violet {
-  border: 2px solid #9333ea;
+  border: 2px solid #B78552;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(147,51,234,0.08);
-  color: #9333ea;
+  color: #B78552;
 }
 
 /* Particule scintillante (petits points) */
@@ -228,7 +228,7 @@
   border-radius: 0.75rem;
 }
 .onchat-input:focus {
-  border-color: #7F46D3;
+  border-color: #9A653F;
   box-shadow: 0 0 0 3px rgba(139,92,246,0.2);
   outline: none;
 }
@@ -311,5 +311,5 @@
   }
 }
 
-.onchat-theme .bg-zinc-900 { background-color: #141C38; }
+.onchat-theme .bg-zinc-900 { background-color: #4B3023; }
 .onchat-theme .bg-zinc-800 { background-color: #162044; }

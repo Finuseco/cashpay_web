@@ -274,7 +274,7 @@ export function GroupProfileView({ group, currentUser, onBack, onGroupUpdate }: 
                 </DialogContent>
             </Dialog>
 
-            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#141C38]"><Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft /></Button><h2 className="font-semibold text-lg ml-4">Infos du groupe</h2></header>
+            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#4B3023]"><Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft /></Button><h2 className="font-semibold text-lg ml-4">Infos du groupe</h2></header>
 
             <ScrollArea className="flex-1 min-h-0">
                 <div className="p-4 flex flex-col items-center">
@@ -305,7 +305,7 @@ export function GroupProfileView({ group, currentUser, onBack, onGroupUpdate }: 
                             <TabsTrigger value="members">Membres</TabsTrigger>
                             <TabsTrigger value="transactions">Finances</TabsTrigger>
                         </TabsList>
-                        <TabsContent value="members" className="mt-4 bg-[#141C38] rounded-lg p-4 space-y-3">
+                        <TabsContent value="members" className="mt-4 bg-[#4B3023] rounded-lg p-4 space-y-3">
                             {isCurrentUserAdmin && (<button onClick={() => setIsAddMemberOpen(true)} className="flex items-center gap-3 p-3 w-full text-left hover:bg-zinc-700 rounded-lg border border-dashed border-zinc-600 transition-all"><div className="h-10 w-10 bg-primary rounded-full flex items-center justify-center"><UserPlus className="h-5 w-5"/></div><p className="font-bold">Ajouter un membre</p></button>)}
                             {group.members.map(member => (
                                 <div key={member.id} className="flex items-center gap-3 p-2 hover:bg-zinc-800/50 rounded-lg">
@@ -318,7 +318,7 @@ export function GroupProfileView({ group, currentUser, onBack, onGroupUpdate }: 
                                 </div>
                             ))}
                         </TabsContent>
-                        <TabsContent value="transactions" className="mt-4 bg-[#141C38] rounded-lg p-0 overflow-hidden">
+                        <TabsContent value="transactions" className="mt-4 bg-[#4B3023] rounded-lg p-0 overflow-hidden">
                             {isLoadingTransactions ? <div className="text-center p-8"><Loader2 className="animate-spin h-6 w-6 mx-auto text-zinc-500"/></div> :
                              transactions.length > 0 ? (
                                 <Table><TableHeader className="bg-black/20"><TableRow className="border-zinc-700"><TableHead className="text-[10px]">Date</TableHead><TableHead className="text-[10px]">Opération</TableHead><TableHead className="text-right text-[10px]">Montant</TableHead></TableRow></TableHeader>

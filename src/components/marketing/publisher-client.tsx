@@ -9,7 +9,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
@@ -265,7 +265,7 @@ const CreatePlacementDialog = ({ onPlacementCreated }: { onPlacementCreated: () 
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                         <FormField control={form.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Nom</FormLabel><FormControl><Input placeholder="Ex: Bannière Header (728x90)" {...field} /></FormControl><FormMessage/></FormItem> )}/>
-                        <FormField control={form.control} name="format" render={({ field }) => ( <FormItem><FormLabel>Format</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue/></SelectTrigger></FormControl><SelectContent><SelectItem value="banner">Bannière</SelectItem><SelectItem value="popup">Pop-up / Carré</SelectItem><SelectItem value="video">Vidéo</SelectItem></SelectContent></Select><FormMessage/></FormItem> )}/>
+                        <FormField control={form.control} name="format" render={({ field }) => ( <FormItem><FormLabel>Format</FormLabel><ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}><FormControl><ChoiceTrigger><ChoiceValue/></ChoiceTrigger></FormControl><ChoiceContent><ChoiceItem value="banner">Bannière</ChoiceItem><ChoiceItem value="popup">Pop-up / Carré</ChoiceItem><ChoiceItem value="video">Vidéo</ChoiceItem></ChoiceContent></ChoiceGroup><FormMessage/></FormItem> )}/>
                          <DialogFooter>
                             <Button type="submit" disabled={isSubmitting}>
                                 {isSubmitting && <Loader2 className="animate-spin mr-2"/>} Créer

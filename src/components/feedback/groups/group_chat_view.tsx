@@ -15,7 +15,7 @@ import { postGroupMessage, deleteMessage, getConversationsForUser, forwardMessag
 import { cn } from '@/lib/utils';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { ActionPanel, ActionPanelTrigger, ActionPanelContent, ActionPanelItem, ActionPanelSeparator } from '@/components/ui/action-panel';
 import NextImage from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
@@ -152,17 +152,17 @@ const GroupMessageBubble = ({
     return (
         <div className={cn("flex w-full items-end gap-2 group", isSentByCurrentUser ? "justify-end" : "justify-start")}>
             <div className={cn("flex items-center", isSentByCurrentUser && "order-1")}>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                <ActionPanel>
+                    <ActionPanelTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 shrink-0 text-zinc-400">
                             <MoreVertical className="h-4 w-4" />
                         </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent className="bg-zinc-800 border-zinc-700 text-white">
-                        <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => onForward(message)}><Forward className="mr-2 h-4 w-4"/> Transférer</DropdownMenuItem>
-                        {isSentByCurrentUser && <DropdownMenuItem className="focus:bg-zinc-700 text-red-400" onClick={() => onDelete(message.id)}><Trash2 className="mr-2 h-4 w-4"/> Supprimer</DropdownMenuItem>}
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                    </ActionPanelTrigger>
+                    <ActionPanelContent className="bg-zinc-800 border-zinc-700 text-white">
+                        <ActionPanelItem className="focus:bg-zinc-700" onClick={() => onForward(message)}><Forward className="mr-2 h-4 w-4"/> Transférer</ActionPanelItem>
+                        {isSentByCurrentUser && <ActionPanelItem className="focus:bg-zinc-700 text-red-400" onClick={() => onDelete(message.id)}><Trash2 className="mr-2 h-4 w-4"/> Supprimer</ActionPanelItem>}
+                    </ActionPanelContent>
+                </ActionPanel>
             </div>
 
             <div className="flex flex-col gap-1 max-w-[75%]">
@@ -224,7 +224,7 @@ const DateSeparator = ({ date }: { date: string }) => {
 
     return (
         <div className="flex justify-center my-4">
-            <div className="px-3 py-1 text-[10px] text-white font-bold bg-[#141C38] rounded-full shadow-md uppercase tracking-wider">
+            <div className="px-3 py-1 text-[10px] text-white font-bold bg-[#4B3023] rounded-full shadow-md uppercase tracking-wider">
                 {formattedDate}
             </div>
         </div>
@@ -336,7 +336,7 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
 
     return (
         <div className="flex flex-col h-full min-h-0 bg-[#0b141a] text-white">
-            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#141C38] border-b border-zinc-700/50">
+            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#4B3023] border-b border-zinc-700/50">
                 <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden"><ArrowLeft /></Button>
                 <div className="ml-2 flex items-center gap-3 cursor-pointer flex-1 min-w-0" onClick={() => onViewGroupProfile(group)}>
                     <Avatar className="h-10 w-10 sm:h-12 sm:w-12">
@@ -351,16 +351,16 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
                  <div className="ml-auto flex items-center gap-1">
                     <Button variant="ghost" size="icon" disabled={creatingMeet} onClick={() => startGroupMeeting('video')} aria-label="Inviter le groupe en vidéo"><Video /></Button>
                     <Button variant="ghost" size="icon" disabled={creatingMeet} onClick={() => startGroupMeeting('audio')} aria-label="Inviter le groupe en audio"><Phone /></Button>
-                     <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                     <ActionPanel>
+                        <ActionPanelTrigger asChild>
                             <Button variant="ghost" size="icon"><MoreVertical /></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent className="bg-zinc-800 border-zinc-700 text-white">
-                             <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => onViewGroupProfile(group)}>
+                        </ActionPanelTrigger>
+                        <ActionPanelContent className="bg-zinc-800 border-zinc-700 text-white">
+                             <ActionPanelItem className="focus:bg-zinc-700" onClick={() => onViewGroupProfile(group)}>
                                 <UsersIcon className="mr-2 h-4 w-4"/> Infos du groupe
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                            </ActionPanelItem>
+                        </ActionPanelContent>
+                    </ActionPanel>
                 </div>
             </header>
 
@@ -422,7 +422,7 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
                     })}
                 </div>
             </ScrollArea>
-             <footer className="p-2 border-t border-zinc-700/50 bg-[#141C38] shrink-0">
+             <footer className="p-2 border-t border-zinc-700/50 bg-[#4B3023] shrink-0">
                 <div className="flex items-center gap-2">
                     <Popover>
                         <PopoverTrigger asChild>
@@ -432,14 +432,14 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
                             <EmojiPicker data={data} onEmojiSelect={(emoji: any) => setNewMessage(prev => prev + emoji.native)} theme="dark" />
                         </PopoverContent>
                     </Popover>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                    <ActionPanel>
+                        <ActionPanelTrigger asChild>
                             <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-white rounded-full h-11 w-11 bg-[#2a3942] hover:bg-zinc-700/80"><Plus/></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" side="top" className="bg-zinc-800 border-zinc-700 text-white">
-                            <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => fileInputRef.current?.click()}><Paperclip className="mr-2 h-4 w-4"/> Document / Image</DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                        </ActionPanelTrigger>
+                        <ActionPanelContent align="start" side="top" className="bg-zinc-800 border-zinc-700 text-white">
+                            <ActionPanelItem className="focus:bg-zinc-700" onClick={() => fileInputRef.current?.click()}><Paperclip className="mr-2 h-4 w-4"/> Document / Image</ActionPanelItem>
+                        </ActionPanelContent>
+                    </ActionPanel>
                     <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} accept="image/*,application/pdf" />
                     <Input
                         placeholder="Écrire un message..."

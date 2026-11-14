@@ -48,7 +48,7 @@ export default function LoanRepaymentClient({ loans, userId }: { loans: LoanHist
   };
 
   return (
-    <main className="min-h-full bg-[#000E38] p-4 text-white md:p-8">
+    <main className="min-h-full bg-[#5B3927] p-4 text-white md:p-8">
       <div className="mx-auto w-full max-w-5xl space-y-6">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div><h1 className="text-3xl font-bold">Remboursement LoanMe</h1><p className="mt-1 text-zinc-300">Payez une partie de votre dette ou soldez toute la dette, intérêts compris.</p></div>
@@ -71,7 +71,7 @@ export default function LoanRepaymentClient({ loans, userId }: { loans: LoanHist
 
             <div className="mt-5 rounded-xl border border-[#FF6600]/30 bg-[#FF6600]/10 p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <label className="flex-1"><span className="mb-2 block text-xs font-bold uppercase text-zinc-300">Remboursement partiel</span><input type="number" min="0.01" max={remaining} step="0.01" value={amounts[id] || ''} onChange={e => setAmounts(x => ({ ...x, [id]: e.target.value }))} className="w-full rounded-lg border border-white/10 bg-[#000E38] px-4 py-3 text-white outline-none focus:border-[#FF6600]" placeholder={`Montant en ${currency}`} /></label>
+                <label className="flex-1"><span className="mb-2 block text-xs font-bold uppercase text-zinc-300">Remboursement partiel</span><input type="number" min="0.01" max={remaining} step="0.01" value={amounts[id] || ''} onChange={e => setAmounts(x => ({ ...x, [id]: e.target.value }))} className="w-full rounded-lg border border-white/10 bg-[#5B3927] px-4 py-3 text-white outline-none focus:border-[#FF6600]" placeholder={`Montant en ${currency}`} /></label>
                 <button onClick={() => openRepayment(loan, amount)} className="rounded-lg bg-[#FF6600] px-5 py-3 font-bold">Rembourser</button>
                 <button onClick={() => openRepayment(loan, remaining)} className="rounded-lg border border-[#FF6600] px-5 py-3 font-bold text-[#FF6600]">Solder toute la dette ({symbol}{money(remaining)})</button>
               </div>
@@ -82,7 +82,7 @@ export default function LoanRepaymentClient({ loans, userId }: { loans: LoanHist
         })}
       </div>
 
-      {selected && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"><div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#071A4A] p-6 shadow-2xl"><h2 className="text-xl font-bold">Confirmer le remboursement</h2><p className="mt-2 text-zinc-300">Montant : {money(selected.amount)} {String((selected.loan as any).currency).toUpperCase()}</p><p className="mt-1 text-sm text-zinc-300">Le montant sera affecté à la dette LoanMe. Pour solder le crédit, le montant proposé est le solde total restant, intérêts et pénalités éventuelles compris.</p><input autoFocus type="password" inputMode="numeric" maxLength={6} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0,6))} onKeyDown={e => e.key === 'Enter' && void confirm()} placeholder="PIN" className="mt-4 w-full rounded-lg border border-white/10 bg-[#000E38] px-4 py-3 text-center text-xl tracking-[0.5em]" />{error && <p className="mt-2 text-sm text-red-300">{error}</p>}<div className="mt-5 flex gap-2"><button onClick={() => {setSelected(null);setPin('');setError('')}} disabled={processing} className="flex-1 rounded-lg border border-white/10 px-4 py-3">Annuler</button><button onClick={() => void confirm()} disabled={processing || !pin} className="flex-1 rounded-lg bg-[#FF6600] px-4 py-3 font-bold">{processing ? 'Traitement…' : 'Confirmer'}</button></div></div></div>}
+      {selected && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"><div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#071A4A] p-6 shadow-2xl"><h2 className="text-xl font-bold">Confirmer le remboursement</h2><p className="mt-2 text-zinc-300">Montant : {money(selected.amount)} {String((selected.loan as any).currency).toUpperCase()}</p><p className="mt-1 text-sm text-zinc-300">Le montant sera affecté à la dette LoanMe. Pour solder le crédit, le montant proposé est le solde total restant, intérêts et pénalités éventuelles compris.</p><input autoFocus type="password" inputMode="numeric" maxLength={6} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0,6))} onKeyDown={e => e.key === 'Enter' && void confirm()} placeholder="PIN" className="mt-4 w-full rounded-lg border border-white/10 bg-[#5B3927] px-4 py-3 text-center text-xl tracking-[0.5em]" />{error && <p className="mt-2 text-sm text-red-300">{error}</p>}<div className="mt-5 flex gap-2"><button onClick={() => {setSelected(null);setPin('');setError('')}} disabled={processing} className="flex-1 rounded-lg border border-white/10 px-4 py-3">Annuler</button><button onClick={() => void confirm()} disabled={processing || !pin} className="flex-1 rounded-lg bg-[#FF6600] px-4 py-3 font-bold">{processing ? 'Traitement…' : 'Confirmer'}</button></div></div></div>}
     </main>
   );
 }

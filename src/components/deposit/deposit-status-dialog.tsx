@@ -23,20 +23,20 @@ interface DepositStatusDialogProps {
 
 const AnimatedCircles = () => (
     <div className="flex justify-center items-center gap-3 py-8">
-        <motion.div 
+        <motion.div
             animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
             transition={{ repeat: Infinity, duration: 1.5, delay: 0 }}
-            className="h-4 w-4 rounded-full bg-[#000E38]" 
+            className="h-4 w-4 rounded-full bg-[#5B3927]"
         />
-        <motion.div 
+        <motion.div
             animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
             transition={{ repeat: Infinity, duration: 1.5, delay: 0.5 }}
-            className="h-4 w-4 rounded-full bg-[#FF6600]" 
+            className="h-4 w-4 rounded-full bg-[#FF6600]"
         />
-        <motion.div 
+        <motion.div
             animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
             transition={{ repeat: Infinity, duration: 1.5, delay: 1 }}
-            className="h-4 w-4 rounded-full bg-zinc-300 border border-zinc-400" 
+            className="h-4 w-4 rounded-full bg-zinc-300 border border-zinc-400"
         />
     </div>
 );
@@ -77,7 +77,7 @@ export function DepositStatusDialog({ open, reference, instructions, onClose, on
             setIsChecking(false);
         }
     };
-    
+
     useEffect(() => {
         if (status === 'success') {
             const timer = setTimeout(() => onSuccess(), 1500);

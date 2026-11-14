@@ -55,7 +55,7 @@ export function NewChatView({ currentUser, onBack, onNewConversation }: NewChatV
 
     return (
         <div className="flex flex-col h-full min-h-0 bg-[#0b141a] text-white">
-            <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#141C38]">
+            <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#4B3023]">
                 <Button variant="ghost" size="icon" onClick={onBack}>
                     <ArrowLeft />
                 </Button>

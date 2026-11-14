@@ -7,7 +7,7 @@ import { Card, CardHeader, CardContent, CardTitle, CardDescription } from "@/com
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceTrigger, ChoiceValue, ChoiceContent, ChoiceItem } from '@/components/ui/choice-group';
 import { Loader2, Info } from 'lucide-react';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import type { User } from '@/lib/types';
@@ -50,9 +50,9 @@ export function AgentTvSubscriptionClient({ agent }: { agent: User | null }) {
                 <div className="space-y-6 opacity-60">
                     <div className="space-y-2">
                         <Label>Opérateur TV</Label>
-                        <Select disabled>
-                            <SelectTrigger><SelectValue placeholder="Sélectionnez un opérateur"/></SelectTrigger>
-                        </Select>
+                        <ChoiceGroup disabled>
+                            <ChoiceTrigger><ChoiceValue placeholder="Sélectionnez un opérateur"/></ChoiceTrigger>
+                        </ChoiceGroup>
                     </div>
                     <div className="space-y-2">
                         <Label>Numéro de carte / décodeur</Label>

@@ -19,6 +19,7 @@ export async function validateSuperAgentAccess(adminId: number, targetUserId: nu
  */
 export async function logIntervention(adminId: number, targetUserId: number | null, actionType: string, detail: string, connection?: PoolClient) {
     await requireSuperAgent(adminId, connection);
+    if(actionType.startsWith('AGENT_RENEW_'))throw new Error('Utilisez le service de renouvellement pour cette opération.');
     if(actionType.startsWith('ENTERPRISE_'))throw new Error('Utilisez le service entreprise pour cette opération.');
     const conn = connection || await db.getConnection();
     try {

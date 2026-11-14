@@ -11,7 +11,7 @@ import { Loader2 } from "lucide-react";
 
 function AuthCheckLoading() {
   return (
-    <main className="flex h-full min-h-screen flex-col items-center justify-center p-8 bg-gradient-to-br from-[#000e38] to-[#223a7a]">
+    <main className="flex h-full min-h-screen flex-col items-center justify-center p-8 bg-gradient-to-br from-[#5B3927] to-[#223a7a]">
       <div className="flex flex-col items-center gap-4 text-white">
           <Loader2 className="h-8 w-8 animate-spin" />
       </div>
@@ -43,7 +43,7 @@ function AgentAuthCheckPage() {
     }
 
     return (
-        <main className="flex h-full min-h-screen flex-col items-center justify-center p-8 bg-gradient-to-br from-[#000e38] to-[#223a7a]">
+        <main className="flex h-full min-h-screen flex-col items-center justify-center p-8 bg-gradient-to-br from-[#5B3927] to-[#223a7a]">
             <div className="w-full max-w-md">
                 <PinLockForm user={user} isAgentFlow={true} />
             </div>

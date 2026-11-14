@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { postMessage, markConversationAsRead, deleteMessage, createInChatTransfer, forwardMessage, getConversationsForUser } from '@/lib/actions/message.actions';
 import { getUserCurrencies } from '@/lib/actions/currency.actions';
 import { useToast } from '@/hooks/use-toast';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../ui/dropdown-menu';
+import { ActionPanel, ActionPanelTrigger, ActionPanelContent, ActionPanelItem, ActionPanelSeparator } from '../ui/action-panel';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '../ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 
@@ -354,19 +354,19 @@ const MessageBubble = ({
   return (
     <div className={cn("flex w-full items-end gap-2 group", isSentByCurrentUser ? "justify-end" : "justify-start")}>
        <div className={cn("flex items-center", isSentByCurrentUser && "order-1")}>
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+            <ActionPanel>
+                <ActionPanelTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 shrink-0 text-zinc-400">
                         <MoreVertical className="h-4 w-4" />
                     </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="bg-zinc-800 border-zinc-700 text-white">
-                    {!isAudio && !isImage && !isDocument && !isProduct && <DropdownMenuItem className="focus:bg-zinc-700" onClick={handleCopy}><Copy className="mr-2 h-4 w-4"/> {t('copyButton')}</DropdownMenuItem>}
-                    {(isImage || isDocument) && <DropdownMenuItem className="focus:bg-zinc-700" onClick={handleDownload}><Download className="mr-2 h-4 w-4"/> Télécharger</DropdownMenuItem>}
-                    <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => onForward(message)}><Forward className="mr-2 h-4 w-4"/> Transférer</DropdownMenuItem>
-                    {isSentByCurrentUser && <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => onDeleteMessage(message.id)}><Trash2 className="mr-2 h-4 w-4"/> {t('deleteButton')}</DropdownMenuItem>}
-                </DropdownMenuContent>
-            </DropdownMenu>
+                </ActionPanelTrigger>
+                <ActionPanelContent className="bg-zinc-800 border-zinc-700 text-white">
+                    {!isAudio && !isImage && !isDocument && !isProduct && <ActionPanelItem className="focus:bg-zinc-700" onClick={handleCopy}><Copy className="mr-2 h-4 w-4"/> {t('copyButton')}</ActionPanelItem>}
+                    {(isImage || isDocument) && <ActionPanelItem className="focus:bg-zinc-700" onClick={handleDownload}><Download className="mr-2 h-4 w-4"/> Télécharger</ActionPanelItem>}
+                    <ActionPanelItem className="focus:bg-zinc-700" onClick={() => onForward(message)}><Forward className="mr-2 h-4 w-4"/> Transférer</ActionPanelItem>
+                    {isSentByCurrentUser && <ActionPanelItem className="focus:bg-zinc-700" onClick={() => onDeleteMessage(message.id)}><Trash2 className="mr-2 h-4 w-4"/> {t('deleteButton')}</ActionPanelItem>}
+                </ActionPanelContent>
+            </ActionPanel>
         </div>
 
       <div className={cn(
@@ -443,7 +443,7 @@ const DateSeparator = ({ date }: { date: string }) => {
 
     return (
         <div className="flex justify-center my-4">
-            <div className="px-3 py-1 text-xs text-white bg-[#141C38] rounded-full shadow-md">
+            <div className="px-3 py-1 text-xs text-white bg-[#4B3023] rounded-full shadow-md">
                 {formattedDate}
             </div>
         </div>
@@ -462,7 +462,7 @@ const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: (
     ];
 
     return (
-        <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#141C38] text-white">
+        <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#4B3023] text-white">
             <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden">
                 <ArrowLeft />
             </Button>
@@ -472,7 +472,7 @@ const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: (
                       <AvatarImage src={contact.profile_photo || ''} alt={contact.full_name} data-ai-hint="person portrait" />
                       <AvatarFallback>{contact.first_name?.[0]}</AvatarFallback>
                   </Avatar>
-                  {online && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#141C38]" />}
+                  {online && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#4B3023]" />}
               </div>
               <div className="min-w-0">
                   <h2 className="font-bold text-base truncate">{contact.full_name}</h2>
@@ -482,22 +482,22 @@ const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: (
             <div className="ml-auto flex items-center gap-1">
                  <Button variant="ghost" size="icon" onClick={() => onStartCall('video')}><Video /></Button>
                 <Button variant="ghost" size="icon" onClick={() => onStartCall('audio')}><Phone /></Button>
-                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                 <ActionPanel>
+                    <ActionPanelTrigger asChild>
                         <Button variant="ghost" size="icon"><MoreVertical /></Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent className="bg-zinc-800 border-zinc-700 text-white">
-                         <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => onStartCall('meeting')}>
+                    </ActionPanelTrigger>
+                    <ActionPanelContent className="bg-zinc-800 border-zinc-700 text-white">
+                         <ActionPanelItem className="focus:bg-zinc-700" onClick={() => onStartCall('meeting')}>
                             <UsersIcon className="mr-2 h-4 w-4"/> Démarrer une réunion
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-zinc-700"/>
+                        </ActionPanelItem>
+                        <ActionPanelSeparator className="bg-zinc-700"/>
                         {shortcuts.map(shortcut => (
-                            <DropdownMenuItem key={shortcut.href} asChild className="focus:bg-zinc-700">
+                            <ActionPanelItem key={shortcut.href} asChild className="focus:bg-zinc-700">
                                 <Link href={shortcut.href}><shortcut.icon className="mr-2 h-4 w-4"/>{shortcut.label}</Link>
-                            </DropdownMenuItem>
+                            </ActionPanelItem>
                         ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                    </ActionPanelContent>
+                </ActionPanel>
             </div>
         </header>
     );
@@ -942,7 +942,7 @@ const sender = isCurrentUserMessage
           </div>
       </ScrollArea>
 
-      <footer className="shrink-0 border-t border-zinc-700/50 bg-[#141C38] p-2">
+      <footer className="shrink-0 border-t border-zinc-700/50 bg-[#4B3023] p-2">
         <div className="flex items-center gap-2">
             <Popover>
                 <PopoverTrigger asChild>
@@ -952,15 +952,15 @@ const sender = isCurrentUserMessage
                     <EmojiPicker data={data} onEmojiSelect={(emoji: any) => setNewMessage(prev => prev + emoji.native)} theme="dark" />
                 </PopoverContent>
             </Popover>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <ActionPanel>
+            <ActionPanelTrigger asChild>
                 <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-white rounded-full h-11 w-11 bg-[#2a3942] hover:bg-zinc-700/80"><Plus/></Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="bg-zinc-800 border-zinc-700 text-white">
-                <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => setIsTransferDialogOpen(true)}><Banknote className="mr-2 h-4 w-4"/> {t('sendMoneyMenuItem')}</DropdownMenuItem>
-                <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => fileInputRef.current?.click()}><Paperclip className="mr-2 h-4 w-4"/> {t('documentMenuItem')}</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </ActionPanelTrigger>
+            <ActionPanelContent align="start" side="top" className="bg-zinc-800 border-zinc-700 text-white">
+                <ActionPanelItem className="focus:bg-zinc-700" onClick={() => setIsTransferDialogOpen(true)}><Banknote className="mr-2 h-4 w-4"/> {t('sendMoneyMenuItem')}</ActionPanelItem>
+                <ActionPanelItem className="focus:bg-zinc-700" onClick={() => fileInputRef.current?.click()}><Paperclip className="mr-2 h-4 w-4"/> {t('documentMenuItem')}</ActionPanelItem>
+            </ActionPanelContent>
+          </ActionPanel>
 
           <Input
             placeholder={t('messagePlaceholder')}

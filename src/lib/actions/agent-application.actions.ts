@@ -25,12 +25,14 @@ export interface AgentSubscription {
  * Récupère le statut d'abonnement agent d'un utilisateur.
  */
 export async function getAgentSubscription(userId: number): Promise<AgentSubscription | null> {
+    const actor = await getAuthenticatedUser();
+    if (!actor || Number(actor.id)!==Number(userId)) return null;
     try {
         const { rows } = await db.query('SELECT * FROM agent_subscriptions WHERE user_id = $1::integer', [userId]);
         if (rows.length === 0) return null;
         return {
             id: rows[0].id,
-            status: rows[0].status,
+            status: rows[0].status==='active' && (!rows[0].current_period_end || new Date(rows[0].current_period_end).getTime()<=Date.now()) ? 'expired' : rows[0].status,
             current_period_end: rows[0].current_period_end ? new Date(rows[0].current_period_end).toISOString() : null,
             is_promo_period: rows[0].is_promo_period,
             auto_renew: rows[0].auto_renew
@@ -59,6 +61,7 @@ export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal',
 
         if (!['client','agent'].includes(String(user.role).toLowerCase()) || String(user.status).toLowerCase() !== 'active') throw new Error('Compte Client ou Agent actif requis.');
         const subscription = await connection.query("SELECT status,current_period_end FROM agent_subscriptions WHERE user_id=$1 FOR UPDATE",[userId]);
+        if (plan==='promo' && subscription.rows.length) throw new Error('Le tarif d’essai est réservé à la première activation.');
         if (subscription.rows.some(row => row.status === 'active' && new Date(row.current_period_end).getTime() > Date.now())) throw new Error('Votre abonnement est déjà actif. Aucun nouveau débit.');
 
         // 2. Vérifier le PIN
@@ -99,7 +102,7 @@ export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal',
         // 6. Enregistrer l'abonnement
         await connection.query(`
             INSERT INTO agent_subscriptions (user_id, status, current_period_end, is_promo_period, auto_renew)
-            VALUES ($1::integer, 'active', $2::timestamp, $3::boolean, true)
+            VALUES ($1::integer, 'active', $2::timestamp, $3::boolean, false)
             ON CONFLICT (user_id) DO UPDATE SET
                 status = 'active',
                 current_period_end = EXCLUDED.current_period_end,
@@ -125,6 +128,8 @@ export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal',
  * Met à jour le paramètre de renouvellement automatique de l'abonnement.
  */
 export async function setAutoRenew(userId: number, autoRenew: boolean): Promise<{ success: boolean; error?: string }> {
+    const actor=await getAuthenticatedUser();
+    if(!actor||Number(actor.id)!==Number(userId)||typeof autoRenew!=='boolean')return {success:false,error:'Session du titulaire requise.'};
     try {
         const { rowCount } = await db.query(
             'UPDATE agent_subscriptions SET auto_renew = $1::boolean, updated_at = NOW() WHERE user_id = $2::integer',

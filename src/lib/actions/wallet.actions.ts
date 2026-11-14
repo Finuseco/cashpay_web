@@ -1,5 +1,6 @@
 
 'use server';
+import {feeValue} from '@/lib/fee-value';
 
 import { db } from '@/lib/db';
 import { enterpriseFeeWaived } from '@/lib/enterprise/policy';
@@ -107,9 +108,9 @@ export async function calculateTransactionFee(
         }
 
         const feeTiersRaw = rows[0].fee_tiers;
-        const feeTiers: FeeTier[] = typeof feeTiersRaw === 'string'
-            ? JSON.parse(feeTiersRaw)
-            : feeTiersRaw;
+        const parsed = typeof feeTiersRaw === 'string' ? JSON.parse(feeTiersRaw) : feeTiersRaw;
+        if(!Array.isArray(parsed))throw Error('Grille tarifaire invalide.');
+        const feeTiers:FeeTier[]=parsed.map(tier=>({...tier,min:Number(tier.min),max:Number(tier.max),fee:feeValue(tier)}));
 
         const tier = feeTiers.find(t => amount >= t.min && (t.max === 0 || amount <= t.max));
 

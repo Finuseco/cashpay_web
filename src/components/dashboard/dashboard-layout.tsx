@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTranslation } from "react-i18next";
 import { Loader2, MapPin } from 'lucide-react';
@@ -39,13 +39,15 @@ export function DashboardLayout({
   const [loadError, setLoadError] = useState('');
   const router = useRouter();
   const pathname = usePathname();
+  const sessionLoaded=useRef(false);
   const { openAlert } = useAlertDialog();
   const { toast } = useToast();
   const { isVisible: isFooterVisible } = useFooterStore();
 
   useEffect(() => {
     const fetchUser = async () => {
-      setIsLoading(true);
+      if(!sessionLoaded.current)setIsLoading(true);
+      setLoadError('');
       const fetchedUser = await getAuthenticatedUser();
 
       if (!fetchedUser) {
@@ -85,6 +87,8 @@ export function DashboardLayout({
           }
       }
 
+      sessionLoaded.current=true;
+      setIsLoading(false);
       // Cards/providers are needed on the dashboard, not to render the fee schedule or other client pages.
       if (pathname === '/dashboard') {
           const [currencyResult, cardResult] = await Promise.allSettled([getUserCurrencies(fetchedUser.id), getCardsForUser(fetchedUser.id, fetchedUser.full_name)]);

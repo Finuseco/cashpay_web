@@ -16,13 +16,13 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ActionPanel,
+  ActionPanelContent,
+  ActionPanelItem,
+  ActionPanelLabel,
+  ActionPanelSeparator,
+  ActionPanelTrigger,
+} from "@/components/ui/action-panel";
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { AddEditBoutiqueForm } from "./add-edit-boutique-form";
 import type { Boutique, User } from "@/lib/types";
@@ -150,24 +150,24 @@ export function BoutiquesClient({
                   </TableCell>
                   <TableCell className="text-muted-foreground">{boutique.address}</TableCell>
                   <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
+                    <ActionPanel>
+                      <ActionPanelTrigger asChild>
                         <Button aria-haspopup="true" size="icon" variant="ghost">
                           <MoreHorizontal className="h-4 w-4" />
                           <span className="sr-only">Menu</span>
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem onClick={() => handleEdit(boutique)}>
+                      </ActionPanelTrigger>
+                      <ActionPanelContent align="end">
+                        <ActionPanelLabel>Actions</ActionPanelLabel>
+                        <ActionPanelItem onClick={() => handleEdit(boutique)}>
                           <Edit className="mr-2 h-4 w-4" /> Modifier
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => handleDelete(boutique.id)}>
+                        </ActionPanelItem>
+                        <ActionPanelSeparator />
+                        <ActionPanelItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => handleDelete(boutique.id)}>
                           <Trash2 className="mr-2 h-4 w-4" /> Supprimer
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                        </ActionPanelItem>
+                      </ActionPanelContent>
+                    </ActionPanel>
                   </TableCell>
                 </TableRow>
               ))}

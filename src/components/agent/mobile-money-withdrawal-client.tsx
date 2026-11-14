@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { Loader2, UserCheck, ShieldCheck, Info, Smartphone } from 'lucide-react';
 import Image from 'next/image';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
@@ -225,12 +225,12 @@ export function MobileMoneyWithdrawalClient({ agent, agentCurrencies }: { agent:
                             <FormField control={form.control} name="currency" render={({ field }) => ( 
                                 <FormItem>
                                     <FormLabel>Devise</FormLabel>
-                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                        <FormControl><SelectTrigger className="h-11 font-semibold"><SelectValue/></SelectTrigger></FormControl>
-                                        <SelectContent>
-                                            {agentCurrencies.map(c => <SelectItem key={c.code} value={c.code}>{c.code}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
+                                    <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl><ChoiceTrigger className="h-11 font-semibold"><ChoiceValue/></ChoiceTrigger></FormControl>
+                                        <ChoiceContent>
+                                            {agentCurrencies.map(c => <ChoiceItem key={c.code} value={c.code}>{c.code}</ChoiceItem>)}
+                                        </ChoiceContent>
+                                    </ChoiceGroup>
                                 </FormItem> 
                             )}/>
                         </div>

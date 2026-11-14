@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle, MoreVertical, Globe, ExternalLink, Settings, Loader2 } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { ActionPanel, ActionPanelContent, ActionPanelItem, ActionPanelTrigger } from '@/components/ui/action-panel';
 import { getDomainsForUser } from '@/lib/actions/domain.actions';
 import type { User } from '@/lib/types';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
@@ -101,21 +101,21 @@ export default function MyDomainsPage() {
                                                 </TableCell>
                                                 <TableCell>{new Date(domain.expires).toLocaleDateString()}</TableCell>
                                                 <TableCell className="text-right">
-                                                    <DropdownMenu>
-                                                        <DropdownMenuTrigger asChild>
+                                                    <ActionPanel>
+                                                        <ActionPanelTrigger asChild>
                                                             <Button variant="ghost" size="icon"><MoreVertical /></Button>
-                                                        </DropdownMenuTrigger>
-                                                        <DropdownMenuContent>
-                                                            <DropdownMenuItem asChild>
+                                                        </ActionPanelTrigger>
+                                                        <ActionPanelContent>
+                                                            <ActionPanelItem asChild>
                                                                 <Link href={`/cloudmax/domains/${domain.name}`}>
                                                                     <Settings className="mr-2 h-4 w-4"/> Gérer
                                                                 </Link>
-                                                            </DropdownMenuItem>
-                                                            <DropdownMenuItem>
+                                                            </ActionPanelItem>
+                                                            <ActionPanelItem>
                                                                 <ExternalLink className="mr-2 h-4 w-4"/> Visiter le site
-                                                            </DropdownMenuItem>
-                                                        </DropdownMenuContent>
-                                                    </DropdownMenu>
+                                                            </ActionPanelItem>
+                                                        </ActionPanelContent>
+                                                    </ActionPanel>
                                                 </TableCell>
                                             </TableRow>
                                         ))}

@@ -1,4 +1,5 @@
 'use server';
+import {feeValue} from '@/lib/fee-value';
 import {enterpriseFeeWaived} from '@/lib/enterprise/policy';
 import { db } from '@/lib/db';
 import { countryToCode } from '@/lib/utils';
@@ -11,7 +12,7 @@ function parseRows(rows: any[]): FeeStructure[] {
         const raw = typeof row.fee_tiers === 'string' ? JSON.parse(row.fee_tiers) : row.fee_tiers;
         if (!Array.isArray(raw)) throw new Error(`Grille tarifaire invalide : ${row.transaction_type}/${row.currency}.`);
         const tiers = raw.map(tier => {
-            const min = Number(tier.min), max = Number(tier.max), fee = String(tier.fee).trim();
+            const min = Number(tier.min), max = Number(tier.max), fee = feeValue(tier);
             if (!Number.isFinite(min) || !Number.isFinite(max) || min < 0 || (max !== 0 && max < min) || !/^\d+(?:\.\d+)?%?$/.test(fee)) throw new Error(`Palier tarifaire invalide : ${row.transaction_type}/${row.currency}.`);
             return { min, max, fee };
         });

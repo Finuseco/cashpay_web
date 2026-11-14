@@ -30,7 +30,7 @@ interface ChannelInfo {
 function VerifyOtpPageLoading() {
     return (
         <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden p-4 sm:p-8 bg-zinc-900">
-             <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-br from-[#000e38] to-[#223a7a] rounded-b-[3rem] md:rounded-b-[4rem]" />
+             <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-br from-[#5B3927] to-[#223a7a] rounded-b-[3rem] md:rounded-b-[4rem]" />
             <div className="w-full max-w-md z-10 my-auto">
                 <Skeleton className="h-[400px] w-full rounded-lg" />
             </div>
@@ -188,7 +188,7 @@ function VerifyOtpPageContent() {
 
     return (
         <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden p-4 sm:p-8 bg-zinc-900">
-            <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-br from-[#000e38] to-[#223a7a] rounded-b-[3rem] md:rounded-b-[4rem]" />
+            <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-br from-[#5B3927] to-[#223a7a] rounded-b-[3rem] md:rounded-b-[4rem]" />
             <div className="w-full max-w-md z-10 my-auto">
                 {pageContent}
             </div>

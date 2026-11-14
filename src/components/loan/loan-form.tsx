@@ -99,7 +99,7 @@ export function LoanForm({ user, currencies, interestRate = 21, interestRates = 
 
 
   return (
-    <Card className="shadow-2xl border-none bg-[#000E38] rounded-3xl overflow-hidden">
+    <Card className="shadow-2xl border-none bg-[#5B3927] rounded-3xl overflow-hidden">
       <CardHeader className="bg-[#071a4a] border-b border-[#FF6600]/30">
         <CardTitle className="text-xl text-white">Calculateur de Prêt</CardTitle>
         <CardDescription>Saisissez le montant et choisissez la durée de remboursement. Le recouvrement automatique et les pénalités commencent après sept jours de grâce suivant chaque échéance ; les dettes restent dues après la fin du contrat.</CardDescription>

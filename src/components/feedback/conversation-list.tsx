@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { format, isToday, isYesterday } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useMemo } from 'react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui/dropdown-menu";
+import { ActionPanel, ActionPanelContent, ActionPanelItem, ActionPanelTrigger } from "../ui/action-panel";
 import Link from "next/link";
 import { OnChatLogo } from './on-chat-logo';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -84,9 +84,9 @@ const ConversationItem = ({ conv, onSelect, currentUserId, isActive }: { conv: C
                     </AvatarFallback>
                 </Avatar>
                 {online ? (
-                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#0D1226]" />
+                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#2B1D16]" />
                 ) : (
-                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-zinc-500 ring-2 ring-[#0D1226]" />
+                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-zinc-500 ring-2 ring-[#2B1D16]" />
                 )}
             </div>
             <div className="flex-1 min-w-0 border-t border-zinc-700/50 py-3">
@@ -127,24 +127,24 @@ export function ConversationList({ conversations, onSelectContact, onNewChat, on
   }, [conversations, searchTerm]);
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-[#0D1226] text-white">
-       <header className="flex flex-col p-2 sm:p-3 shrink-0 bg-[#141C38]">
+    <div className="h-full min-h-0 flex flex-col bg-[#2B1D16] text-white">
+       <header className="flex flex-col p-2 sm:p-3 shrink-0 bg-[#4B3023]">
           <div className="flex items-center justify-between">
              <OnChatLogo />
              <div className="flex items-center gap-1">
                 <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-white rounded-full" onClick={onNewChat}>
                    <MessageSquarePlus />
                 </Button>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                <ActionPanel>
+                    <ActionPanelTrigger asChild>
                         <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-white rounded-full"><Menu /></Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent className="bg-zinc-800 border-zinc-700 text-white">
-                        <DropdownMenuItem className="focus:bg-zinc-700" onClick={onCreateGroup}><UsersIcon className="mr-2 h-4 w-4"/> Nouveau Groupe</DropdownMenuItem>
-                        <DropdownMenuItem className="focus:bg-zinc-700" onClick={onNewChat}>Nouveau Chat</DropdownMenuItem>
-                        <DropdownMenuItem className="focus:bg-zinc-700">Paramètres</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                    </ActionPanelTrigger>
+                    <ActionPanelContent className="bg-zinc-800 border-zinc-700 text-white">
+                        <ActionPanelItem className="focus:bg-zinc-700" onClick={onCreateGroup}><UsersIcon className="mr-2 h-4 w-4"/> Nouveau Groupe</ActionPanelItem>
+                        <ActionPanelItem className="focus:bg-zinc-700" onClick={onNewChat}>Nouveau Chat</ActionPanelItem>
+                        <ActionPanelItem className="focus:bg-zinc-700">Paramètres</ActionPanelItem>
+                    </ActionPanelContent>
+                </ActionPanel>
              </div>
           </div>
           <Tabs defaultValue="chats" className="w-full mt-2" onValueChange={setActiveTab}>

@@ -18,13 +18,13 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ActionPanel,
+  ActionPanelContent,
+  ActionPanelItem,
+  ActionPanelLabel,
+  ActionPanelSeparator,
+  ActionPanelTrigger,
+} from "@/components/ui/action-panel";
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { AddEditProductForm } from "@/components/agent/add-edit-product-form";
 import { AddEditBookForm } from "@/components/agent/add-edit-book-form";
@@ -173,24 +173,24 @@ export function ProductManagementClient({ initialProducts, categories, boutiques
                   <TableCell className="text-right font-mono">${product.sellingPrice.toFixed(2)}</TableCell>
                   <TableCell className={cn("text-right font-semibold", product.stock === 0 ? "text-destructive" : product.stock > 0 && product.stock <= 5 ? "text-yellow-500" : "")}>{product.stock}</TableCell>
                   <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
+                    <ActionPanel>
+                      <ActionPanelTrigger asChild>
                         <Button aria-haspopup="true" size="icon" variant="ghost">
                           <MoreHorizontal className="h-4 w-4" />
                           <span className="sr-only">Menu</span>
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem onClick={() => handleEdit(product)}>
+                      </ActionPanelTrigger>
+                      <ActionPanelContent align="end">
+                        <ActionPanelLabel>Actions</ActionPanelLabel>
+                        <ActionPanelItem onClick={() => handleEdit(product)}>
                           <Edit className="mr-2 h-4 w-4" /> Modifier
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => handleDelete(product)}>
+                        </ActionPanelItem>
+                        <ActionPanelSeparator />
+                        <ActionPanelItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => handleDelete(product)}>
                           <Trash2 className="mr-2 h-4 w-4" /> Supprimer
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                        </ActionPanelItem>
+                      </ActionPanelContent>
+                    </ActionPanel>
                   </TableCell>
                 </TableRow>
               ))}

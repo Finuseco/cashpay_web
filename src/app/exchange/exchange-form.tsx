@@ -23,7 +23,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from "@/components/ui/choice-group";
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { createTransaction } from "@/lib/actions/transaction.actions";
 import { getGuaranteedFxQuote, type ExchangeRate } from "@/lib/actions/exchange.actions";
@@ -252,12 +252,12 @@ export function ExchangeForm({ user, currencies, initialRates, localCurrencyCode
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t('exchangeFromWalletLabel')}</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Select currency" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {availableCurrencies.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl><ChoiceTrigger><ChoiceValue placeholder="Choisir une devise" /></ChoiceTrigger></FormControl>
+                      <ChoiceContent>
+                        {availableCurrencies.map(c => <ChoiceItem key={c} value={c}>{c}</ChoiceItem>)}
+                      </ChoiceContent>
+                    </ChoiceGroup>
                     <FormMessage />
                     <p className="text-xs text-muted-foreground">Solde: {userBalance}</p>
                   </FormItem>
@@ -269,12 +269,12 @@ export function ExchangeForm({ user, currencies, initialRates, localCurrencyCode
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t('exchangeToWalletLabel')}</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Select currency" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {availableCurrencies.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl><ChoiceTrigger><ChoiceValue placeholder="Choisir une devise" /></ChoiceTrigger></FormControl>
+                      <ChoiceContent>
+                        {availableCurrencies.map(c => <ChoiceItem key={c} value={c}>{c}</ChoiceItem>)}
+                      </ChoiceContent>
+                    </ChoiceGroup>
                      <FormMessage />
                   </FormItem>
                 )}

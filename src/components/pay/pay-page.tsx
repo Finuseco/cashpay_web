@@ -78,12 +78,12 @@ export default function PayPage() {
         onOpenChange={setIsScannerOpen}
         onScanSuccess={handleScanSuccess}
       />
-      <main className="flex-1 p-4 md:p-8 bg-[#000E38] text-white min-h-screen">
+      <main className="flex-1 p-4 md:p-8 bg-[#5B3927] text-white min-h-screen">
         <div className="max-w-lg mx-auto w-full">
           <h1 className="text-2xl font-bold text-white mb-6 text-center">{t('payTitle')}</h1>
           
           {!scannedData ? (
-             <Card className="bg-[#000E38] border border-white/10 shadow-2xl rounded-3xl overflow-hidden">
+             <Card className="bg-[#5B3927] border border-white/10 shadow-2xl rounded-3xl overflow-hidden">
                 <CardContent className="p-6 flex flex-col items-center justify-center text-center gap-3">
                     <ScanLine className="h-16 w-16 text-[#FF6600]" />
                     <p className="text-slate-300">{t('payScannerDescription')}</p>

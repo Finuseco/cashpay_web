@@ -1,143 +1,246 @@
-
-'use client';
-
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Briefcase, Loader2, ShieldCheck, RefreshCw } from 'lucide-react';
-import { useAlertDialog } from '@/hooks/use-alert-dialog';
-import type { User } from '@/lib/types';
-import { getAgentSubscription, subscribeAsAgent, type AgentSubscription } from '@/lib/actions/agent-application.actions';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Form, FormControl, FormField, FormItem } from '@/components/ui/form';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
-import { useToast } from '@/hooks/use-toast';
-
-const pinSchema = z.object({
-  pin: z.string().length(4, "Le PIN doit contenir 4 chiffres."),
-});
-
-export function BecomeAgentSection({ user }: { user: User | null }) {
-    const { openAlert } = useAlertDialog();
-    const { toast } = useToast();
-    const [isClient, setIsClient] = useState(false);
-    const [subscription, setSubscription] = useState<AgentSubscription | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [isPinOpen, setIsPinOpen] = useState(false);
-    const [selectedPlan, setSelectedPlan] = useState<'promo' | 'normal'>('normal');
-
-    const pinForm = useForm<z.infer<typeof pinSchema>>({ resolver: zodResolver(pinSchema) });
-
-    useEffect(() => {
-        setIsClient(true);
-        if (user) {
-            getAgentSubscription(user.id).then(setSubscription);
-        }
-    }, [user]);
-
-    const handleCheckStatus = async () => {
-        if (!user) return;
-        setIsLoading(true);
-        const sub = await getAgentSubscription(user.id);
-        setSubscription(sub);
-        setIsLoading(false);
-        if (!sub) {
-            toast({ title: "Aucun abonnement", description: "Vous n'êtes pas encore enregistré comme agent." });
-        }
-    };
-
-    const handleConfirmPin = async (values: z.infer<typeof pinSchema>) => {
-        if (!user) return;
-        setIsLoading(true);
-        const result = await subscribeAsAgent(user.id, selectedPlan, values.pin);
-        setIsLoading(false);
-
-        if (result.success) {
-            openAlert({ title: "Félicitations", description: "Votre statut d'agent est désormais actif.", variant: 'success' });
-            setIsPinOpen(false);
-            handleCheckStatus();
-        } else {
-            openAlert({ title: "Échec", description: result.error, variant: 'error' });
-            pinForm.reset();
-        }
-    };
-
-    if (!isClient) return null;
-
-    if (subscription && subscription.status === 'active') {
-        return (
-            <div className="flex items-center justify-between p-4 bg-green-50 border border-green-200 rounded-2xl">
-                <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
-                        <ShieldCheck className="h-6 w-6 text-green-600" />
-                    </div>
-                    <div>
-                        <p className="font-bold text-sm text-green-800">Compte Agent Actif</p>
-                        <p className="text-[10px] text-green-600 font-bold uppercase">Accès illimité aux outils</p>
-                    </div>
-                </div>
-                <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleCheckStatus} disabled={isLoading}>
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin"/> : <RefreshCw className="h-4 w-4 text-green-600"/>}
-                </Button>
-            </div>
-        );
+"use client";
+import { useEffect, useState } from "react";
+import type { User } from "@/lib/types";
+import {
+  getAgentSubscription,
+  subscribeAsAgent,
+  setAutoRenew,
+  type AgentSubscription,
+} from "@/lib/actions/agent-application.actions";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+export function BecomeAgentSection({
+  user,
+  onRenewed,
+}: {
+  user: User | null;
+  onRenewed?: () => void;
+}) {
+  const [subscription, setSubscription] = useState<AgentSubscription | null>(
+      null,
+    ),
+    [loaded, setLoaded] = useState(false),
+    [plan, setPlan] = useState<"normal" | "promo">("normal"),
+    [fee, setFee] = useState<number | null>(null),
+    [busy, setBusy] = useState(false),
+    [pin, setPin] = useState(""),
+    [confirm, setConfirm] = useState(false),
+    [message, setMessage] = useState(""),
+    [error, setError] = useState("");
+  async function refresh() {
+    if (user) {
+      const sub = await getAgentSubscription(user.id);
+      setSubscription(sub);
+      if (
+        sub?.status === "active" &&
+        sub.current_period_end &&
+        new Date(sub.current_period_end).getTime() > Date.now()
+      )
+        onRenewed?.();
+      setLoaded(true);
     }
-
-    return (
-        <div className="space-y-6">
-            <div className="space-y-4">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground text-center block">Sélectionner un plan d'activation</Label>
-                <RadioGroup value={selectedPlan} onValueChange={(v: any) => setSelectedPlan(v)} className="grid grid-cols-2 gap-3">
-                    <div className="relative">
-                        <RadioGroupItem value="promo" id="p-promo" className="sr-only peer" />
-                        <Label htmlFor="p-promo" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 h-20")}>
-                            <span className="font-black text-xl text-primary">$1</span>
-                            <span className="text-[9px] uppercase font-black tracking-tighter">Essai 30j</span>
-                        </Label>
-                    </div>
-                    <div className="relative">
-                        <RadioGroupItem value="normal" id="p-normal" className="sr-only peer" />
-                        <Label htmlFor="p-normal" className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl cursor-pointer transition-all peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 h-20")}>
-                            <span className="font-black text-xl text-primary">$3</span>
-                            <span className="text-[9px] uppercase font-black tracking-tighter">Standard / mois</span>
-                        </Label>
-                    </div>
-                </RadioGroup>
-            </div>
-
-            <Button className="w-full h-12 font-black text-xs uppercase tracking-widest shadow-lg" variant="gradient" onClick={() => setIsPinOpen(true)} disabled={isLoading}>
-                ACTIVER LE STATUT AGENT
+  }
+  useEffect(() => {
+    let live = true;
+    if (user)
+      getAgentSubscription(user.id)
+        .then((s) => {
+          if (live) {
+            setSubscription(s);
+            setLoaded(true);
+            if (s) setPlan("normal");
+          }
+        })
+        .catch(() => {
+          if (live) setError("Statut indisponible. Réessayez.");
+        });
+    return () => {
+      live = false;
+    };
+  }, [user?.id]);
+  useEffect(() => {
+    let live = true;
+    setFee(null);
+    setConfirm(false);
+    fetch(`/api/v1/agent/subscription/fees?plan=${plan}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!live) return;
+        if (!data.success || !Number.isFinite(data.fee))
+          throw Error(data.error || "Tarif indisponible.");
+        setFee(data.fee);
+      })
+      .catch((e) => {
+        if (live) setError(e.message);
+      });
+    return () => {
+      live = false;
+    };
+  }, [plan, user?.id]);
+  const active =
+    subscription?.status === "active" &&
+    !!subscription.current_period_end &&
+    new Date(subscription.current_period_end).getTime() > Date.now();
+  async function renew(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user || fee === null || busy || !confirm) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await subscribeAsAgent(
+        user.id,
+        subscription ? "normal" : plan,
+        pin,
+        fee,
+      );
+      if (!result.success) throw Error(result.error);
+      setPin("");
+      setConfirm(false);
+      setMessage("Abonnement Agent renouvelé pour 30 jours.");
+      await refresh();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function automatic(enabled: boolean) {
+    if (!user || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await setAutoRenew(user.id, enabled);
+      if (!r.success) throw Error(r.error);
+      await refresh();
+      setMessage(
+        enabled
+          ? "Renouvellement automatique activé. Après un échec, nouvelle tentative toutes les 48 heures."
+          : "Renouvellement automatique désactivé. Vous pourrez renouveler manuellement.",
+      );
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="space-y-4 rounded-2xl border bg-card p-4">
+      <h3 className="font-semibold">Abonnement Agent</h3>
+      {!loaded ? (
+        <div>
+          <p role="status">Chargement du statut…</p>
+          {error && (
+            <Button
+              variant="outline"
+              onClick={() =>
+                refresh().catch(() =>
+                  setError("Statut indisponible. Réessayez."),
+                )
+              }
+            >
+              Réessayer
             </Button>
-
-            <Dialog open={isPinOpen} onOpenChange={setIsPinOpen}>
-                <DialogContent className="max-w-xs bg-zinc-900 border-zinc-800 text-white p-6 rounded-[2rem]">
-                    <DialogHeader className="text-center">
-                        <DialogTitle className="text-xl font-black uppercase">Validation</DialogTitle>
-                        <DialogDescription className="text-zinc-400">Confirmation du débit de {selectedPlan === 'promo' ? '1.00' : '3.00'} USD.</DialogDescription>
-                    </DialogHeader>
-                    <Form {...pinForm}>
-                        <form onSubmit={pinForm.handleSubmit(handleConfirmPin)} className="space-y-6 pt-4 text-center">
-                            <FormField control={pinForm.control} name="pin" render={({ field }) => (
-                                <FormItem>
-                                    <FormControl>
-                                        <div className="flex justify-center">
-                                            <InputOTP maxLength={4} {...field}><InputOTPGroup><InputOTPSlot index={0}/><InputOTPSlot index={1}/><InputOTPSlot index={2}/><InputOTPSlot index={3}/></InputOTPGroup></InputOTP>
-                                        </div>
-                                    </FormControl>
-                                </FormItem>
-                            )}/>
-                            <Button type="submit" variant="gradient" className="w-full h-12 font-bold" disabled={isLoading}>
-                                {isLoading ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : "PAYER ET ACTIVER"}
-                            </Button>
-                        </form>
-                    </Form>
-                </DialogContent>
-            </Dialog>
+          )}
         </div>
-    );
+      ) : (
+        <>
+          <p>
+            {active ? "Actif" : "Expiré ou non activé"}
+            {subscription?.current_period_end &&
+              ` — fin : ${new Date(subscription.current_period_end).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" })}`}
+          </p>
+          {subscription && (
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={!!subscription.auto_renew}
+                disabled={busy}
+                onChange={(e) => automatic(e.target.checked)}
+              />
+              <span>
+                Renouveler automatiquement au tarif standard. En cas d’échec,
+                réessayer après 48 heures, sans découvert.
+              </span>
+            </label>
+          )}
+          {!active && (
+            <form onSubmit={renew} className="space-y-4">
+              {!subscription && (
+                <RadioGroup
+                  value={plan}
+                  onValueChange={(v) => {
+                    setPlan(v as any);
+                    setError("");
+                  }}
+                >
+                  <label className="flex gap-2">
+                    <RadioGroupItem value="normal" />
+                    Standard, 30 jours
+                  </label>
+                  <label className="flex gap-2">
+                    <RadioGroupItem value="promo" />
+                    Première activation, 30 jours
+                  </label>
+                </RadioGroup>
+              )}
+              <p className="font-semibold">
+                Montant à autoriser :{" "}
+                {fee === null
+                  ? "Chargement du tarif…"
+                  : `${fee.toFixed(2)} USD`}
+              </p>
+              <label className="block">
+                Votre PIN
+                <Input
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={pin}
+                  onChange={(e) =>
+                    setPin(e.target.value.replace(/\D/g, "").slice(0, 4))
+                  }
+                  maxLength={4}
+                  required
+                />
+              </label>
+              <label className="flex gap-2">
+                <input
+                  type="checkbox"
+                  checked={confirm}
+                  onChange={(e) => setConfirm(e.target.checked)}
+                  required
+                />
+                J’autorise ce prélèvement pour 30 jours.
+              </label>
+              <Button
+                disabled={busy || fee === null || pin.length !== 4 || !confirm}
+              >
+                {busy
+                  ? "Traitement…"
+                  : subscription
+                    ? "Renouveler manuellement"
+                    : "Activer mon abonnement"}
+              </Button>
+            </form>
+          )}
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() =>
+              refresh().catch(() => setError("Statut indisponible."))
+            }
+          >
+            Actualiser le statut
+          </Button>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="text-destructive">
+          {error}
+        </p>
+      )}
+      {message && <p role="status">{message}</p>}
+    </section>
+  );
 }

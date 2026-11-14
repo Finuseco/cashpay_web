@@ -28,7 +28,7 @@ import { format } from 'date-fns';
 import type { ResellerApiCredentials } from '@/lib/types';
 import { Switch } from '../ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { Label } from '@/components/ui/label';
 import { useTranslation } from "react-i18next";
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
@@ -342,7 +342,7 @@ const ResellerView = ({ user }: { user: UserType | null }) => {
                                     <DialogHeader><DialogTitle>{t('batchConfigTitle')}</DialogTitle><DialogDescription>{t('batchConfigDescription', {count: selectedTerminalIds.size})}</DialogDescription></DialogHeader>
                                     <div className="space-y-4 py-4">
                                         <Label>{t('newServicePlanLabel')}</Label>
-                                        <Select onValueChange={setSelectedBatchPlan}><SelectTrigger><SelectValue placeholder={t('choosePlanPlaceholder')}/></SelectTrigger><SelectContent><SelectItem value="prd_mobile_regional">Mobile Regional</SelectItem><SelectItem value="prd_mobile_priority">Mobile Priority 50GB</SelectItem></SelectContent></Select>
+                                        <ChoiceGroup onValueChange={setSelectedBatchPlan}><ChoiceTrigger><ChoiceValue placeholder={t('choosePlanPlaceholder')}/></ChoiceTrigger><ChoiceContent><ChoiceItem value="prd_mobile_regional">Mobile Regional</ChoiceItem><ChoiceItem value="prd_mobile_priority">Mobile Priority 50GB</ChoiceItem></ChoiceContent></ChoiceGroup>
                                     </div>
                                     <DialogFooter><Button onClick={handleBatchConfigure} disabled={isActionLoading || !selectedBatchPlan}>{t('applyChangesButton')}</Button></DialogFooter>
                                 </DialogContent>

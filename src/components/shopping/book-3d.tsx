@@ -43,7 +43,7 @@ export function Book3D({ frontCover, backCover, className, editionType = 'extern
                     {/* Front Cover */}
                     <div className={cn(
                         "absolute inset-0 backface-hidden shadow-2xl rounded-r-md overflow-hidden z-10 translate-z-[15px]",
-                        isCashPayEdition ? "bg-gradient-to-br from-[#000E38] to-[#001a5e] p-8 flex flex-col justify-between text-white border-r-4 border-orange-500" : ""
+                        isCashPayEdition ? "bg-gradient-to-br from-[#5B3927] to-[#001a5e] p-8 flex flex-col justify-between text-white border-r-4 border-orange-500" : ""
                     )}>
                         {isCashPayEdition ? (
                             <>
@@ -68,7 +68,7 @@ export function Book3D({ frontCover, backCover, className, editionType = 'extern
                     {/* Back Cover */}
                     <div className={cn(
                         "absolute inset-0 backface-hidden shadow-2xl rounded-l-md overflow-hidden rotate-y-180 -translate-z-[15px]",
-                        isCashPayEdition ? "bg-[#000E38] p-8 text-white flex flex-col justify-between" : "bg-zinc-800"
+                        isCashPayEdition ? "bg-[#5B3927] p-8 text-white flex flex-col justify-between" : "bg-zinc-800"
                     )}>
                         {isCashPayEdition ? (
                             <>

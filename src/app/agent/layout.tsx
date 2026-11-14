@@ -1,6 +1,7 @@
 
 'use client';
 
+import {BecomeAgentSection} from '@/components/settings/become-agent';
 import { AgentHeader } from '@/components/agent/agent-header';
 import React, { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -100,6 +101,7 @@ export default function AgentLayout({
                     Renouveler mon Abonnement
                   </Button>
               </Alert>
+              <div className="mt-6"><BecomeAgentSection user={user} onRenewed={()=>setSubscriptionStatus('active')}/></div>
             </div>
           </main>
           <CopyrightFooter />

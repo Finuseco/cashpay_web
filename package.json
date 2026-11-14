@@ -11,7 +11,9 @@
     "loans:enable": "node server/loans/manage.cjs enable",
     "loans:status": "node server/loans/manage.cjs status",
     "enterprise:enable": "node server/enterprise/manage.cjs enable",
-    "enterprise:status": "node server/enterprise/manage.cjs status"
+    "enterprise:status": "node server/enterprise/manage.cjs status",
+    "agents:enable": "node server/agents/manage.cjs enable",
+    "agents:status": "node server/agents/manage.cjs status"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",

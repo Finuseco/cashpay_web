@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { FullscreenToggle } from '@/components/ui/fullscreen-toggle';
 import { ArrowRightLeft, Users, Globe } from 'lucide-react';
@@ -53,18 +53,18 @@ export default function PublicRatesPage() {
             <header className="flex justify-between items-center mb-6">
                 <Logo className="h-12"/>
                 <div className="flex items-center gap-2">
-                    <Select onValueChange={handleCountryChange} defaultValue={selectedCountryCode}>
-                        <SelectTrigger className="w-[180px]">
-                            <SelectValue placeholder="Sélectionner un pays" />
-                        </SelectTrigger>
-                        <SelectContent>
+                    <ChoiceGroup onValueChange={handleCountryChange} defaultValue={selectedCountryCode}>
+                        <ChoiceTrigger className="w-[180px]">
+                            <ChoiceValue placeholder="Sélectionner un pays" />
+                        </ChoiceTrigger>
+                        <ChoiceContent>
                             {countries.map(country => (
-                                <SelectItem key={country.code} value={country.code}>
+                                <ChoiceItem key={country.code} value={country.code}>
                                     {country.name}
-                                </SelectItem>
+                                </ChoiceItem>
                             ))}
-                        </SelectContent>
-                    </Select>
+                        </ChoiceContent>
+                    </ChoiceGroup>
                     <FullscreenToggle />
                 </div>
             </header>
