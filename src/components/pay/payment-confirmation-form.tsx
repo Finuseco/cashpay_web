@@ -239,7 +239,7 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
   return (
     <>
     <Dialog open={isPinDialogOpen} onOpenChange={setIsPinDialogOpen}>
-        <DialogContent className="max-w-xs p-6 bg-[#5B3927] border-white/10 text-white rounded-xl">
+        <DialogContent className="max-w-xs p-6 bg-[#2A0E42] border-white/10 text-white rounded-xl">
             <DialogHeader className="text-center">
                 <div className="h-12 w-12 bg-[#FF6600]/10 border border-[#FF6600]/30 rounded-lg flex items-center justify-center mx-auto mb-2"><ShieldCheck className="text-[#FF6600]"/></div>
                 <DialogTitle>Validation PIN</DialogTitle>
@@ -264,7 +264,7 @@ export function PaymentConfirmationForm({ user, paymentData, userCurrencies, onS
         </DialogContent>
     </Dialog>
 
-    <Card className="border-none shadow-2xl !bg-[#5B3927] rounded-xl overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+    <Card className="border-none shadow-2xl !bg-[#2A0E42] rounded-xl overflow-hidden animate-in fade-in zoom-in-95 duration-300">
       <CardHeader className="text-center !bg-[#07194D] pb-4 border-b border-white/10">
         <div className="h-12 w-12 bg-[#07194D] border border-white/10 rounded-lg flex items-center justify-center mx-auto mb-3">
             <ShoppingCart className="h-6 w-6 text-[#FF6600]" />

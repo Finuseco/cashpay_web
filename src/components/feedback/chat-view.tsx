@@ -443,7 +443,7 @@ const DateSeparator = ({ date }: { date: string }) => {
 
     return (
         <div className="flex justify-center my-4">
-            <div className="px-3 py-1 text-xs text-white bg-[#4B3023] rounded-full shadow-md">
+            <div className="px-3 py-1 text-xs text-white bg-[#2A0E42] rounded-full shadow-md">
                 {formattedDate}
             </div>
         </div>
@@ -462,7 +462,7 @@ const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: (
     ];
 
     return (
-        <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#4B3023] text-white">
+        <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#2A0E42] text-white">
             <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden">
                 <ArrowLeft />
             </Button>
@@ -472,7 +472,7 @@ const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: (
                       <AvatarImage src={contact.profile_photo || ''} alt={contact.full_name} data-ai-hint="person portrait" />
                       <AvatarFallback>{contact.first_name?.[0]}</AvatarFallback>
                   </Avatar>
-                  {online && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#4B3023]" />}
+                  {online && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#2A0E42]" />}
               </div>
               <div className="min-w-0">
                   <h2 className="font-bold text-base truncate">{contact.full_name}</h2>
@@ -942,7 +942,7 @@ const sender = isCurrentUserMessage
           </div>
       </ScrollArea>
 
-      <footer className="shrink-0 border-t border-zinc-700/50 bg-[#4B3023] p-2">
+      <footer className="shrink-0 border-t border-zinc-700/50 bg-[#2A0E42] p-2">
         <div className="flex items-center gap-2">
             <Popover>
                 <PopoverTrigger asChild>

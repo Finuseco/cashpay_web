@@ -59,6 +59,8 @@ function NotificationItem({ notification }: { notification: Notification }) {
 export function DashboardHeader({ user, currencies, cards, children, pageTitle }: { user: User | null; currencies?: Currency[], cards?: Card[], children?: React.ReactNode, pageTitle?: string }) {
   const { t } = useTranslation();
   const router = useRouter();
+  const { openAlert } = useAlertDialog();
+  const [isUsdtActivating, setIsUsdtActivating] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [renderedPageTitle, setRenderedPageTitle] = useState(pageTitle);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -176,7 +178,7 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
   }, [user?.id]);
 
   return (
-    <header className="relative bg-gradient-to-br from-[#5B3927] to-[#FF6600] text-primary-foreground pb-4 shadow-lg rounded-b-[2rem]">
+    <header className="relative bg-gradient-to-br from-[#2A0E42] to-[#FF6600] text-primary-foreground pb-4 shadow-lg rounded-b-[2rem]">
       <div className="container mx-auto pt-4 px-4">
         <div className="relative flex items-center justify-between">
             <div className="flex items-center gap-3 text-sm font-medium">
@@ -334,11 +336,14 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
                     <UsdtBalanceCard
                         usdtBalance={usdtBalance}
                         isActivated={isUsdtActivated}
+                        isActivating={isUsdtActivating}
                         onReceive={() => setUsdtAction("receive")}
                         onSend={() => setUsdtAction("send")}
                         onBuy={() => setUsdtAction("buy")}
                         onSell={() => setUsdtAction("sell")}
                         onActivate={async () => {
+                          if (isUsdtActivating) return;
+                          setIsUsdtActivating(true);
                           try {
                             const response = await fetch("/api/v1/crypto/usdt-trc20/address", {
                               method: "POST",
@@ -346,15 +351,15 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
                             });
                             const data = await response.json().catch(() => null);
 
-                            if (response.ok && data?.success) {
+                            if (response.ok && data?.success && data?.address) {
                               setIsUsdtActivated(true);
                               await refreshCryptoBalances();
                             } else {
-                              console.error("[DashboardHeader] USDT activation failed:", data?.error);
+                              openAlert({title: "Activation USDT indisponible", description: data?.message || "Impossible de créer votre adresse. Réessayez ou contactez l’assistance.", variant: "error"});
                             }
                           } catch (error) {
-                            console.error("[DashboardHeader] USDT activation failed:", error);
-                          }
+                            openAlert({title: "Connexion impossible", description: "L’activation USDT n’a pas abouti. Veuillez réessayer.", variant: "error"});
+                          } finally { setIsUsdtActivating(false); }
                         }}
                     />
                 </div>

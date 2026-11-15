@@ -78,7 +78,7 @@ export default function ReferralPage({ params }: { params: { code: string } }) {
     <div className="flex flex-col min-h-screen bg-zinc-950 text-white font-sans">
       <main className="flex-1 pb-20">
         {/* Header Hero */}
-        <div className="relative p-6 md:p-12 flex flex-col items-center text-center bg-gradient-to-br from-[#5B3927] via-[#5B3927] to-primary/40 rounded-b-[3rem] shadow-2xl border-b border-white/10">
+        <div className="relative p-6 md:p-12 flex flex-col items-center text-center bg-gradient-to-br from-[#2A0E42] via-[#2A0E42] to-primary/40 rounded-b-[3rem] shadow-2xl border-b border-white/10">
             <div className="absolute top-4 right-4 z-10 flex gap-2">
                 <LanguageSwitcher />
             </div>
@@ -88,7 +88,7 @@ export default function ReferralPage({ params }: { params: { code: string } }) {
                     <AvatarImage src={referrer.profile_photo || ''} alt={referrer.full_name} />
                     <AvatarFallback className="text-4xl bg-zinc-800">{referrer.full_name?.[0]}</AvatarFallback>
                 </Avatar>
-                <div className="absolute -bottom-2 -right-2 bg-green-500 rounded-full p-1.5 border-4 border-[#5B3927]">
+                <div className="absolute -bottom-2 -right-2 bg-green-500 rounded-full p-1.5 border-4 border-[#2A0E42]">
                     <ShieldCheck className="h-5 w-5 text-white" />
                 </div>
             </div>

@@ -218,7 +218,7 @@ export function LoanHistoryClient({
   }
 
   return (
-    <main className="min-h-full w-full bg-[#5B3927] px-4 py-6 text-white md:px-8">
+    <main className="min-h-full w-full bg-[#2A0E42] px-4 py-6 text-white md:px-8">
       <div className="mx-auto w-full max-w-5xl">
         <header className="mb-6">
           <h1 className="text-3xl font-bold">Historique LoanMe</h1>
@@ -364,7 +364,7 @@ export function LoanHistoryClient({
                   </div>
 
                   {active && (
-                    <section className="border-b border-white/10 bg-[#5B3927] p-5">
+                    <section className="border-b border-white/10 bg-[#2A0E42] p-5">
                       <h3 className="font-semibold text-[#FF6600]">
                         Remboursement manuel
                       </h3>
@@ -410,7 +410,7 @@ export function LoanHistoryClient({
                           return (
                           <div
                             key={Number(item.id) || `${id}-${index}`}
-                            className="rounded-lg border border-white/10 bg-[#5B3927] p-4"
+                            className="rounded-lg border border-white/10 bg-[#2A0E42] p-4"
                           >
                             <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
                               <div>
@@ -480,7 +480,7 @@ export function LoanHistoryClient({
                           return (
                             <div
                               key={Number(repayment.id) || `${id}-rep-${index}`}
-                              className="flex flex-col gap-2 rounded-lg border border-white/10 bg-[#5B3927] p-4 sm:flex-row sm:justify-between"
+                              className="flex flex-col gap-2 rounded-lg border border-white/10 bg-[#2A0E42] p-4 sm:flex-row sm:justify-between"
                             >
                               <div>
                                 <p className="font-medium">

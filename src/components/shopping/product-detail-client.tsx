@@ -870,7 +870,7 @@ const handlePostComment = async () => {
           )}
 
           {product.details?.editionType === 'cashpay' && (
-            <Badge className="bg-[#5B3927] text-white">
+            <Badge className="bg-[#2A0E42] text-white">
               <ShieldCheck className="h-3 w-3 mr-1 text-orange-500" />
               Édition CashPay
             </Badge>
@@ -933,7 +933,7 @@ const handlePostComment = async () => {
         ) : null}
 
           {/* Statistiques du produit — données réelles */}
-          <section className="rounded-xl border border-[#FF6600]/30 bg-[#5B3927] p-4">
+          <section className="rounded-xl border border-[#FF6600]/30 bg-[#2A0E42] p-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="flex min-w-0 items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3">
                 <Eye className="h-5 w-5 shrink-0 text-[#FF6600]" />

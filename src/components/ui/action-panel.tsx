@@ -1,85 +1,30 @@
 "use client";
 import * as React from "react";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Slot } from "@radix-ui/react-slot";
 import { RadioGroup, RadioGroupItem } from "./radio-group";
 import { cn } from "@/lib/utils";
 const Context = React.createContext<any>(null);
 export function ActionPanel({ children, open, onOpenChange }: any) {
   const [local, setLocal] = React.useState(false);
-  const id = React.useId();
-  return (
-    <Context.Provider
-      value={{
-        open: open ?? local,
-        set: (v: boolean) => {
-          setLocal(v);
-          onOpenChange?.(v);
-        },
-        id,
-      }}
-    >
-      <div className="inline-flex max-w-full flex-col items-stretch">
-        {children}
-      </div>
-    </Context.Provider>
-  );
+  const set = (value: boolean) => { setLocal(value); onOpenChange?.(value); };
+  return <Context.Provider value={{open: open ?? local, set}}>
+    <PopoverPrimitive.Root open={open ?? local} onOpenChange={set}>
+      {children}
+    </PopoverPrimitive.Root>
+  </Context.Provider>;
 }
-export const ActionPanelTrigger = React.forwardRef<HTMLButtonElement, any>(
-  ({ asChild, children, onClick, ...props }, ref) => {
-    const c = React.useContext(Context),
-      Component = asChild ? Slot : "button";
-    return (
-      <Component
-        {...props}
-        ref={ref}
-        type="button"
-        aria-expanded={c.open}
-        aria-controls={c.id}
-        onClick={(e) => {
-          onClick?.(e);
-          if (!e.defaultPrevented) c.set(!c.open);
-        }}
-      >
-        {children}
-      </Component>
-    );
-  },
-);
-ActionPanelTrigger.displayName = "ActionPanelTrigger";
+export const ActionPanelTrigger = PopoverPrimitive.Trigger;
 export const ActionPanelContent = React.forwardRef<HTMLDivElement, any>(
-  (
-    {
-      children,
-      className,
-      align,
-      side,
-      sideOffset,
-      forceMount,
-      onCloseAutoFocus,
-      ...props
-    },
-    ref,
-  ) => {
-    const c = React.useContext(Context);
-    return c.open ? (
-      <div
-        {...props}
-        ref={ref}
-        id={c.id}
-        role="group"
-        aria-label="Actions disponibles"
-        className={cn(
-          "flex max-w-full flex-wrap gap-2 rounded-xl border bg-card p-3 text-card-foreground my-2",
-          className,
-        )}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") c.set(false);
-        }}
-      >
+  ({children, className, align = "end", sideOffset = 8, ...props}, ref) => (
+    <PopoverPrimitive.Portal>
+      <PopoverPrimitive.Content ref={ref} align={align} sideOffset={sideOffset}
+        collisionPadding={12} {...props}
+        className={cn("z-[60] flex flex-col gap-2 rounded-xl border bg-popover p-3 text-popover-foreground shadow-xl outline-none max-w-[calc(100vw-24px)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto", className)}>
         {children}
-      </div>
-    ) : null;
-  },
+      </PopoverPrimitive.Content>
+    </PopoverPrimitive.Portal>
+  )
 );
 ActionPanelContent.displayName = "ActionPanelContent";
 export const ActionPanelItem = React.forwardRef<HTMLButtonElement, any>(

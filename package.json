@@ -13,7 +13,9 @@
     "enterprise:enable": "node server/enterprise/manage.cjs enable",
     "enterprise:status": "node server/enterprise/manage.cjs status",
     "agents:enable": "node server/agents/manage.cjs enable",
-    "agents:status": "node server/agents/manage.cjs status"
+    "agents:status": "node server/agents/manage.cjs status",
+    "crypto:usdt:check": "node server/crypto/check-usdt.cjs",
+    "test:usdt:custody": "node tests/usdt-custody.cjs"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",

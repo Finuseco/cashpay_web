@@ -28,23 +28,23 @@ export default async function AgentDashboardPage() {
     }
 
     const actionButtons = [
-        { title: "Dépôt Client", href: "/agent/deposit", icon: <ArrowDownToLine className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#5B3927] to-[#FF6600]' },
-        { title: "Retrait Client", href: "/agent/withdraw", icon: <ArrowUpFromLine className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#5B3927] to-[#FF6600]' },
-        { title: "Transfert", href: "/agent/transfer", icon: <ArrowRightLeft className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#5B3927] to-[#FF6600]' },
-        { title: "Retrait Mobile Money", href: "/agent/mobile-money-withdrawal", icon: <Banknote className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#5B3927] to-[#FF6600]' },
-        { title: "Vendre Produit", href: "/agent/sell", icon: <ShoppingCart className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#5B3927] to-[#FF6600]' },
-        { title: "Gestion Produits", href: "/agent/products", icon: <PlusCircle className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#5B3927] to-[#FF6600]' },
-        { title: "Acheter Crédit", href: "/agent/airtime", icon: <Smartphone className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#5B3927] to-[#FF6600]' },
-        { title: "Réabonnement TV", href: "/agent/tv-subscription", icon: <Tv2 className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#5B3927] to-[#FF6600]' },
-        { title: "Transfert Inter.", href: "/agent/international-transfer", icon: <Globe className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#5B3927] to-[#FF6600]' },
-        { title: "Marketing", href: "/agent/marketing", icon: <Megaphone className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#5B3927] to-[#FF6600]' },
+        { title: "Dépôt Client", href: "/agent/deposit", icon: <ArrowDownToLine className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#2A0E42] to-[#FF6600]' },
+        { title: "Retrait Client", href: "/agent/withdraw", icon: <ArrowUpFromLine className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#2A0E42] to-[#FF6600]' },
+        { title: "Transfert", href: "/agent/transfer", icon: <ArrowRightLeft className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#2A0E42] to-[#FF6600]' },
+        { title: "Retrait Mobile Money", href: "/agent/mobile-money-withdrawal", icon: <Banknote className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#2A0E42] to-[#FF6600]' },
+        { title: "Vendre Produit", href: "/agent/sell", icon: <ShoppingCart className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#2A0E42] to-[#FF6600]' },
+        { title: "Gestion Produits", href: "/agent/products", icon: <PlusCircle className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#2A0E42] to-[#FF6600]' },
+        { title: "Acheter Crédit", href: "/agent/airtime", icon: <Smartphone className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#2A0E42] to-[#FF6600]' },
+        { title: "Réabonnement TV", href: "/agent/tv-subscription", icon: <Tv2 className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#2A0E42] to-[#FF6600]' },
+        { title: "Transfert Inter.", href: "/agent/international-transfer", icon: <Globe className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#2A0E42] to-[#FF6600]' },
+        { title: "Marketing", href: "/agent/marketing", icon: <Megaphone className="h-8 w-8 text-white" />, bgColor: 'bg-gradient-to-br from-[#2A0E42] to-[#FF6600]' },
     ];
 
     return (
         <div className="space-y-6">
             {/* Balance Cards */}
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <Card className="relative overflow-hidden bg-[#5B3927] text-white border-none shadow-lg">
+                <Card className="relative overflow-hidden bg-[#2A0E42] text-white border-none shadow-lg">
                     <Wallet className="absolute -right-8 -bottom-8 h-32 w-32 text-white/10 -rotate-12" />
                     <CardHeader className="relative z-10">
                         <CardTitle className="text-white/90 text-sm font-medium">Solde USD</CardTitle>
@@ -93,15 +93,15 @@ export default async function AgentDashboardPage() {
 
             {/* List Actions */}
             <div className="space-y-3">
-                <Link href="/agent/products" className="w-full flex justify-between items-center p-4 rounded-lg bg-gradient-to-r from-[#5B3927] to-[#FF6600] text-white font-semibold shadow-md">
+                <Link href="/agent/products" className="w-full flex justify-between items-center p-4 rounded-lg bg-gradient-to-r from-[#2A0E42] to-[#FF6600] text-white font-semibold shadow-md">
                     <span>Gestion des stocks</span>
                     <ChevronsRight className="h-6 w-6" />
                 </Link>
-                <Link href="/agent/history" className="w-full flex justify-between items-center p-4 rounded-lg bg-gradient-to-r from-[#5B3927] to-[#FF6600] text-white font-semibold shadow-md">
+                <Link href="/agent/history" className="w-full flex justify-between items-center p-4 rounded-lg bg-gradient-to-r from-[#2A0E42] to-[#FF6600] text-white font-semibold shadow-md">
                     <span>Historiques des transactions</span>
                     <ChevronsRight className="h-6 w-6" />
                 </Link>
-                 <Link href="/agent/reports" className="w-full flex justify-between items-center p-4 rounded-lg bg-gradient-to-r from-[#5B3927] to-[#FF6600] text-white font-semibold shadow-md">
+                 <Link href="/agent/reports" className="w-full flex justify-between items-center p-4 rounded-lg bg-gradient-to-r from-[#2A0E42] to-[#FF6600] text-white font-semibold shadow-md">
                     <span>Rapports de commissions</span>
                     <ChevronsRight className="h-6 w-6" />
                 </Link>

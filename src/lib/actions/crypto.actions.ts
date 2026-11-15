@@ -30,10 +30,15 @@ const SUPPORTED_CRYPTOS = ['BTC', 'ETH', 'USDT_ERC20', 'USDT_TRC20', 'AFC'];
  * @returns A promise that resolves to a record mapping currency codes to their addresses.
  */
 export async function getUserCryptoAddresses(userId: number): Promise<Record<string, string>> {
+    const authenticated = await getAuthenticatedUser();
+    if (!authenticated || Number(authenticated.id) !== Number(userId)) return {};
     const connection = await db.getConnection();
 
     try {
         await connection.query('BEGIN');
+        // Same lock as the explicit activation route, preventing duplicate address inserts.
+        await connection.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`usdt-address:${userId}`]);
+
 
         const { rows } = await connection.query(
             'SELECT currency_code, address FROM user_crypto_addresses WHERE user_id = $1',

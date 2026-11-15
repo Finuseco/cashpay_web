@@ -84,9 +84,9 @@ const ConversationItem = ({ conv, onSelect, currentUserId, isActive }: { conv: C
                     </AvatarFallback>
                 </Avatar>
                 {online ? (
-                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#2B1D16]" />
+                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#2A0E42]" />
                 ) : (
-                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-zinc-500 ring-2 ring-[#2B1D16]" />
+                    <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-zinc-500 ring-2 ring-[#2A0E42]" />
                 )}
             </div>
             <div className="flex-1 min-w-0 border-t border-zinc-700/50 py-3">
@@ -127,8 +127,8 @@ export function ConversationList({ conversations, onSelectContact, onNewChat, on
   }, [conversations, searchTerm]);
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-[#2B1D16] text-white">
-       <header className="flex flex-col p-2 sm:p-3 shrink-0 bg-[#4B3023]">
+    <div className="h-full min-h-0 flex flex-col bg-[#2A0E42] text-white">
+       <header className="flex flex-col p-2 sm:p-3 shrink-0 bg-[#2A0E42]">
           <div className="flex items-center justify-between">
              <OnChatLogo />
              <div className="flex items-center gap-1">

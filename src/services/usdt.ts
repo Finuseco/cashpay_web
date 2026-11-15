@@ -59,6 +59,11 @@ export async function ensureUserUsdtAddress(
     const current: string | undefined = found.rows[0]?.address;
 
     if (current && isBase58TronAddress(current)) {
+      await client.query(
+        `INSERT INTO user_crypto_balances (user_id, currency_code, balance)
+         VALUES ($1, $2, 0) ON CONFLICT (user_id, currency_code) DO NOTHING`,
+        [userId, USDT_CURRENCY_CODE],
+      );
       await client.query('COMMIT');
       return { address: current, existing: true };
     }

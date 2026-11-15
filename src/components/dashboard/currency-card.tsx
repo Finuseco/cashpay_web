@@ -20,7 +20,7 @@ interface CurrencyCardProps extends Currency {
 }
 
 const currencyColors: { [key: string]: string } = {
-    USD: 'bg-gradient-to-br from-[#5B3927] to-[#5B3927]/80',
+    USD: 'bg-gradient-to-br from-[#2A0E42] to-[#2A0E42]/80',
     EUR: 'bg-gradient-to-br from-blue-700 to-blue-500',
     CDF: 'bg-gradient-to-br from-orange-600 to-orange-400',
 };

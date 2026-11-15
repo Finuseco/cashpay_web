@@ -224,7 +224,7 @@ const DateSeparator = ({ date }: { date: string }) => {
 
     return (
         <div className="flex justify-center my-4">
-            <div className="px-3 py-1 text-[10px] text-white font-bold bg-[#4B3023] rounded-full shadow-md uppercase tracking-wider">
+            <div className="px-3 py-1 text-[10px] text-white font-bold bg-[#2A0E42] rounded-full shadow-md uppercase tracking-wider">
                 {formattedDate}
             </div>
         </div>
@@ -336,7 +336,7 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
 
     return (
         <div className="flex flex-col h-full min-h-0 bg-[#0b141a] text-white">
-            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#4B3023] border-b border-zinc-700/50">
+            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#2A0E42] border-b border-zinc-700/50">
                 <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden"><ArrowLeft /></Button>
                 <div className="ml-2 flex items-center gap-3 cursor-pointer flex-1 min-w-0" onClick={() => onViewGroupProfile(group)}>
                     <Avatar className="h-10 w-10 sm:h-12 sm:w-12">
@@ -422,7 +422,7 @@ export function GroupChatView({ group: initialGroup, currentUser, onBack, onUpda
                     })}
                 </div>
             </ScrollArea>
-             <footer className="p-2 border-t border-zinc-700/50 bg-[#4B3023] shrink-0">
+             <footer className="p-2 border-t border-zinc-700/50 bg-[#2A0E42] shrink-0">
                 <div className="flex items-center gap-2">
                     <Popover>
                         <PopoverTrigger asChild>

@@ -26,7 +26,7 @@ const AnimatedCircles = () => (
         <motion.div
             animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
             transition={{ repeat: Infinity, duration: 1.5, delay: 0 }}
-            className="h-4 w-4 rounded-full bg-[#5B3927]"
+            className="h-4 w-4 rounded-full bg-[#2A0E42]"
         />
         <motion.div
             animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
