@@ -54,7 +54,7 @@ export function CreateGroupForm({ onBack, onCreated }: { onBack?: () => void; on
 
     return (
         <div className="bg-[#0b141a] h-full min-h-0 flex flex-col">
-            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#141C38] text-white">
+            <header className="flex items-center p-2 sm:p-3 shrink-0 bg-[#2A0E42] text-white">
                 <Button variant="ghost" size="icon" onClick={() => (onBack ? onBack() : router.back())}>
                     <ArrowLeft />
                 </Button>

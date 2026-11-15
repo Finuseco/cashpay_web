@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from "@/components/ui/choice-group";
 import { registerLoanMePartner } from "@/lib/actions/loanme.actions";
 import { getAuthenticatedUser } from "@/lib/actions/user.actions";
 
@@ -70,17 +70,17 @@ const RegisterForm = () => {
                 <FormField control={form.control} name="companyType" render={({ field }) => ( 
                     <FormItem>
                         <FormLabel>{t('companyTypeLabel', 'Type d\'établissement')}</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl><SelectTrigger><SelectValue placeholder={t('selectPlaceholder', 'Sélectionnez un type')} /></SelectTrigger></FormControl>
-                            <SelectContent>
-                                <SelectItem value="ONG">ONG</SelectItem>
-                                <SelectItem value="Societe">Société (SARL, SA, etc.)</SelectItem>
-                                <SelectItem value="Etablissement">Établissement</SelectItem>
-                                <SelectItem value="Microfinance">Micro-finance</SelectItem>
-                                <SelectItem value="Banque">Banque</SelectItem>
-                                <SelectItem value="Autre">Autre</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl><ChoiceTrigger><ChoiceValue placeholder={t('selectPlaceholder', 'Sélectionnez un type')} /></ChoiceTrigger></FormControl>
+                            <ChoiceContent>
+                                <ChoiceItem value="ONG">ONG</ChoiceItem>
+                                <ChoiceItem value="Societe">Société (SARL, SA, etc.)</ChoiceItem>
+                                <ChoiceItem value="Etablissement">Établissement</ChoiceItem>
+                                <ChoiceItem value="Microfinance">Micro-finance</ChoiceItem>
+                                <ChoiceItem value="Banque">Banque</ChoiceItem>
+                                <ChoiceItem value="Autre">Autre</ChoiceItem>
+                            </ChoiceContent>
+                        </ChoiceGroup>
                         <FormMessage />
                     </FormItem> 
                 )} />

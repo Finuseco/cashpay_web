@@ -2,14 +2,14 @@ import { db } from '@/lib/db';
 import { VideoPolicyError } from '@/lib/video-policy';
 export async function soundForVideo(id: number) {
     const { rows } = await db.query(`SELECT COALESCE(sound.source_media_id, sound.media_id) AS "sourceId", sound.title,
-        (COALESCE(root.allow_reuse, FALSE) = TRUE AND m.visibility = 'public' AND m.expires_at > NOW()) AS "allowReuse",
+        (COALESCE(root.allow_reuse, FALSE) = TRUE AND m.visibility = 'public' AND (m.expires_at IS NULL OR m.expires_at > NOW())) AS "allowReuse",
         sound.author_user_id AS "authorId", u.full_name AS "authorName", u.profile_photo AS "authorAvatar",
-        CASE WHEN m.visibility = 'public' AND m.expires_at > NOW() THEN COALESCE(m.file_url, 'https://app.cashpay-all.com' || m.file_path, '') ELSE '' END AS url
+        CASE WHEN m.visibility = 'public' AND (m.expires_at IS NULL OR m.expires_at > NOW()) THEN COALESCE(m.file_url, 'https://app.cashpay-all.com' || m.file_path, '') ELSE '' END AS url
         FROM onchat_video_sounds sound
         LEFT JOIN onchat_video_sounds root ON root.media_id = COALESCE(sound.source_media_id, sound.media_id)
         LEFT JOIN media m ON m.id = root.media_id JOIN users u ON u.id = sound.author_user_id
         JOIN media target ON target.id = sound.media_id
-        WHERE sound.media_id = $1 AND target.visibility = 'public' AND target.expires_at > NOW()`, [id]);
+        WHERE sound.media_id = $1 AND target.visibility = 'public' AND (target.expires_at IS NULL OR target.expires_at > NOW())`, [id]);
     const sound = rows[0];
     if (sound?.authorAvatar?.startsWith('/')) sound.authorAvatar = `https://app.cashpay-all.com${sound.authorAvatar}`;
     return sound || null;
@@ -30,7 +30,7 @@ export async function insertPublishedVideo(sql: string, values: unknown[], form:
         if (sourceValue) {
             const requested = Number(sourceValue);
             if (!Number.isSafeInteger(requested) || requested <= 0) throw new VideoPolicyError('Source audio invalide.');
-            const { rows } = await connection.query(`SELECT s.media_id, s.author_user_id, s.title FROM onchat_video_sounds s JOIN media m ON m.id = s.media_id WHERE s.media_id = $1 AND s.source_media_id IS NULL AND s.allow_reuse = TRUE AND m.visibility = 'public' AND m.expires_at > NOW() FOR SHARE OF s, m`, [requested]);
+            const { rows } = await connection.query(`SELECT s.media_id, s.author_user_id, s.title FROM onchat_video_sounds s JOIN media m ON m.id = s.media_id WHERE s.media_id = $1 AND s.source_media_id IS NULL AND s.allow_reuse = TRUE AND m.visibility = 'public' AND (m.expires_at IS NULL OR m.expires_at > NOW()) FOR SHARE OF s, m`, [requested]);
             if (!rows.length) throw new VideoPolicyError('Ce son n’est plus autorisé à la réutilisation.');
             sourceId = requested;
             authorId = Number(rows[0].author_user_id);

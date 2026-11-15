@@ -44,7 +44,7 @@ export function InternationalTransferSendForm({ user, currencies, provider, onBa
 
     useEffect(() => {
         if (watchAmount && parseFloat(watchAmount) > 0) {
-            calculateTransactionFee(parseFloat(watchAmount), watchCurrency, provider === 'paypal' ? 'WD_PAYPAL' : 'WD_MOMO', user.country)
+            calculateTransactionFee(parseFloat(watchAmount), watchCurrency, provider === 'paypal' ? 'WD_PAYPAL' : 'WD_MOMO', user.country, undefined, user.id)
                 .then(setFee);
         }
     }, [watchAmount, watchCurrency, provider, user.country]);

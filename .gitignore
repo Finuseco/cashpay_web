@@ -67,3 +67,6 @@ public/images/signatures/
 
 # Private conversation attachments
 storage/onchat/
+
+# Runtime-generated public video poster cache
+public/.onchat-thumbnails/

@@ -34,7 +34,7 @@ const CertificateLayout = ({ user, logoBase64 }: { user: User; logoBase64: strin
     const [securityHash] = useState(() => generateMockHash(user.id_wallet || 'CASH_PAY'));
 
     return (
-        <div className="bg-white text-zinc-900 font-sans border-[12px] border-double border-[#000E38]/10 p-10 min-h-[1050px] relative flex flex-col">
+        <div className="bg-white text-zinc-900 font-sans border-[12px] border-double border-[#2A0E42]/10 p-10 min-h-[1050px] relative flex flex-col">
             {/* Watermark Logo */}
             <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none">
                 <img src="/logos/logo.png" alt="" className="w-[500px]" />
@@ -46,12 +46,12 @@ const CertificateLayout = ({ user, logoBase64 }: { user: User; logoBase64: strin
                     {logoBase64 ? (
                         <img src={logoBase64} alt="CashPay All" className="h-12 w-auto mb-2" />
                     ) : (
-                        <h1 className="text-2xl font-black text-[#000E38]">CASH PAY ALL</h1>
+                        <h1 className="text-2xl font-black text-[#2A0E42]">CASH PAY ALL</h1>
                     )}
                     <p className="text-[10px] font-black uppercase tracking-widest text-[#FF6600]">Digital Financial Services & Online Payments</p>
                 </div>
                 <div className="text-right">
-                    <h2 className="text-xl font-black uppercase tracking-tighter text-[#000E38]">Certificat d'Enregistrement</h2>
+                    <h2 className="text-xl font-black uppercase tracking-tighter text-[#2A0E42]">Certificat d'Enregistrement</h2>
                     <p className="text-xs text-zinc-500 font-bold uppercase">Document Officiel • {creationDate}</p>
                 </div>
             </div>
@@ -59,10 +59,10 @@ const CertificateLayout = ({ user, logoBase64 }: { user: User; logoBase64: strin
             <div className="grid grid-cols-3 gap-8 mb-8 relative z-10">
                 <div className="col-span-2 space-y-4">
                     <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 text-left">
-                        <h3 className="text-[9px] font-black text-[#000E38]/40 uppercase tracking-widest mb-2 border-b border-zinc-200 pb-1 flex items-center gap-1.5">
+                        <h3 className="text-[9px] font-black text-[#2A0E42]/40 uppercase tracking-widest mb-2 border-b border-zinc-200 pb-1 flex items-center gap-1.5">
                             <UserIcon className="h-3 w-3" /> Informations du Titulaire
                         </h3>
-                        <p className="text-xl font-black text-[#000E38] uppercase">{user.full_name}</p>
+                        <p className="text-xl font-black text-[#2A0E42] uppercase">{user.full_name}</p>
                         <div className="grid grid-cols-2 gap-4 mt-3 text-xs">
                             <div>
                                 <p className="text-[8px] font-bold text-zinc-400 uppercase">Profession</p>
@@ -79,14 +79,14 @@ const CertificateLayout = ({ user, logoBase64 }: { user: User; logoBase64: strin
                         </div>
                     </div>
 
-                    <div className="p-4 rounded-xl bg-[#000E38]/5 border border-[#000E38]/10 text-left">
-                        <h3 className="text-[9px] font-black text-[#000E38]/40 uppercase tracking-widest mb-2 border-b border-[#000E38]/10 pb-1 flex items-center gap-1.5">
+                    <div className="p-4 rounded-xl bg-[#2A0E42]/5 border border-[#2A0E42]/10 text-left">
+                        <h3 className="text-[9px] font-black text-[#2A0E42]/40 uppercase tracking-widest mb-2 border-b border-[#2A0E42]/10 pb-1 flex items-center gap-1.5">
                             <Wallet className="h-3 w-3" /> Identification du Compte
                         </h3>
                         <div className="flex justify-between items-center">
                             <div>
                                 <p className="text-[8px] font-bold text-zinc-400 uppercase">ID Portefeuille Souverain</p>
-                                <p className="text-2xl font-black text-[#000E38] font-mono tracking-tighter">{user.id_wallet}</p>
+                                <p className="text-2xl font-black text-[#2A0E42] font-mono tracking-tighter">{user.id_wallet}</p>
                             </div>
                             <div className="text-right">
                                 <p className="text-[8px] font-bold text-zinc-400 uppercase">Type de Compte</p>
@@ -115,13 +115,13 @@ const CertificateLayout = ({ user, logoBase64 }: { user: User; logoBase64: strin
                 <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
                         <div>
-                            <h4 className="font-black text-[#000E38] uppercase flex items-center gap-1.5 mb-1">
+                            <h4 className="font-black text-[#2A0E42] uppercase flex items-center gap-1.5 mb-1">
                                 <ShieldCheck className="h-3 w-3 text-[#FF6600]" /> Bienvenue dans l'Écosystème
                             </h4>
                             <p>Merci d'avoir rejoint <strong>CashPay All</strong>. Nous nous engageons à soutenir vos activités numériques, paiements et transferts. Notre plateforme est conçue pour vous offrir des solutions financières sécurisées et innovantes.</p>
                         </div>
                         <div>
-                            <h4 className="font-black text-[#000E38] uppercase flex items-center gap-1.5 mb-1">
+                            <h4 className="font-black text-[#2A0E42] uppercase flex items-center gap-1.5 mb-1">
                                 <Lock className="h-3 w-3 text-[#FF6600]" /> Informations de Sécurité
                             </h4>
                             <p>Vous êtes seul responsable de la sécurité de vos identifiants. Ne partagez jamais votre code PIN à 4 chiffres ou vos codes OTP avec qui que ce soit, y compris les personnes prétendant être des agents CashPay.</p>
@@ -129,13 +129,13 @@ const CertificateLayout = ({ user, logoBase64 }: { user: User; logoBase64: strin
                     </div>
                     <div className="space-y-3">
                         <div>
-                            <h4 className="font-black text-[#000E38] uppercase flex items-center gap-1.5 mb-1">
+                            <h4 className="font-black text-[#2A0E42] uppercase flex items-center gap-1.5 mb-1">
                                 <Info className="h-3 w-3 text-[#FF6600]" /> Institution non bancaire
                             </h4>
                             <p><strong>CashPay All</strong> est un fournisseur de services financiers numériques, <strong>pas une banque</strong>. Nous offrons le traitement des paiements en ligne et la gestion de portefeuilles numériques souverains.</p>
                         </div>
                         <div>
-                            <h4 className="font-black text-[#000E38] uppercase flex items-center gap-1.5 mb-1">
+                            <h4 className="font-black text-[#2A0E42] uppercase flex items-center gap-1.5 mb-1">
                                 <Globe className="h-3 w-3 text-[#FF6600]" /> Disponibilité des Services
                             </h4>
                             <p>Votre portefeuille prend en charge les devises internationales (USD, EUR) et les devises locales. Certaines fonctionnalités sont soumises à la disponibilité régionale et au consentement de l'utilisateur.</p>
@@ -144,7 +144,7 @@ const CertificateLayout = ({ user, logoBase64 }: { user: User; logoBase64: strin
                 </div>
 
                 <div className="p-4 bg-zinc-50 border border-zinc-200 rounded-xl">
-                    <h4 className="font-black text-[#000E38] uppercase mb-1 flex items-center gap-1.5">
+                    <h4 className="font-black text-[#2A0E42] uppercase mb-1 flex items-center gap-1.5">
                         <Building className="h-3 w-3 text-[#FF6600]"/> Protection des Données
                     </h4>
                     <p>Vous restez le propriétaire principal de vos données personnelles. CashPay All traite vos informations avec une confidentialité stricte. Les données ne sont partagées qu'avec des partenaires tiers (banques, émetteurs de cartes) lorsque cela est nécessaire.</p>
@@ -170,7 +170,7 @@ const CertificateLayout = ({ user, logoBase64 }: { user: User; logoBase64: strin
                     ) : (
                         <div className="h-16 w-48 border-b-2 border-zinc-200 ml-auto"></div>
                     )}
-                    <p className="text-[9px] font-bold uppercase text-[#000E38] text-right">Signature Numérique Autorisée</p>
+                    <p className="text-[9px] font-bold uppercase text-[#2A0E42] text-right">Signature Numérique Autorisée</p>
                 </div>
             </div>
             

@@ -9,7 +9,7 @@ import { Button } from '../ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../ui/form';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '../ui/choice-group';
 
 const profileFormSchema = z.object({
     first_name: z.string().min(2, "Le prénom est requis."),

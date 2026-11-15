@@ -424,7 +424,7 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
 
       return (
         <>
-            <Card className="w-full max-w-5xl mx-auto bg-[#000E38] text-white shadow-2xl rounded-3xl border-0 relative">
+            <Card className="w-full max-w-5xl mx-auto bg-[#2A0E42] text-white shadow-2xl rounded-3xl border-0 relative">
                 <div className="absolute top-4 right-4 z-10">
                     <div className="flex items-center gap-1 rounded-full border border-white/20 bg-black/20 p-1 text-xs font-medium">
                         <Button onClick={() => setCurrentLang('fr')} size="sm" className={cn("rounded-full h-6 px-3", currentLang === 'fr' ? 'bg-primary text-white' : 'bg-transparent text-white/70 hover:bg-white/10')}>FR</Button>
@@ -645,7 +645,7 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
             </Card>
 
             <AlertDialog open={validationDialog.open} onOpenChange={(open) => setValidationDialog(v => ({ ...v, open }))}>
-                <AlertDialogContent className="bg-[#000E38] text-white border-primary">
+                <AlertDialogContent className="bg-[#2A0E42] text-white border-primary">
                     <AlertDialogHeader>
                         <AlertDialogTitle>{t('errorTitle')}</AlertDialogTitle>
                     </AlertDialogHeader>
@@ -657,7 +657,7 @@ export function CompleteProfileForm({ phone, countryCode, countryName, province,
             </AlertDialog>
 
             <AlertDialog open={registrationSuccessDialog} onOpenChange={setRegistrationSuccessDialog}>
-                <AlertDialogContent className="bg-[#000E38] text-white border-primary">
+                <AlertDialogContent className="bg-[#2A0E42] text-white border-primary">
                     <AlertDialogHeader>
                         <AlertDialogTitle>{t('registrationSuccess')}</AlertDialogTitle>
                     </AlertDialogHeader>

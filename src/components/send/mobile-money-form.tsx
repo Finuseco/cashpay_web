@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { Button } from '@/components/ui/button';
 import type { User, Country } from '@/lib/types';
 import { useState, useCallback, useEffect, useMemo } from 'react';
@@ -109,19 +109,19 @@ export function MobileMoneyForm({ control, countries }: { control: any, countrie
                 render={({ field }) => (
                     <FormItem>
                         <FormLabel>Pays du bénéficiaire</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl><SelectTrigger><SelectValue placeholder="Sélectionnez un pays"/></SelectTrigger></FormControl>
-                            <SelectContent>
+                        <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl><ChoiceTrigger><ChoiceValue placeholder="Sélectionnez un pays"/></ChoiceTrigger></FormControl>
+                            <ChoiceContent>
                                 {countries.filter(c => airtelCountries.includes(c.code) || mpesaCountries.includes(c.code)).map(country => (
-                                    <SelectItem key={country.code} value={country.code}>
+                                    <ChoiceItem key={country.code} value={country.code}>
                                         <div className="flex items-center gap-2">
                                             <Image src={`https://flagcdn.com/w20/${country.code.toLowerCase()}.png`} width={20} height={15} alt={country.name || ""}/>
                                             <span>{country.name} ({country.dial_code})</span>
                                         </div>
-                                    </SelectItem>
+                                    </ChoiceItem>
                                 ))}
-                            </SelectContent>
-                        </Select>
+                            </ChoiceContent>
+                        </ChoiceGroup>
                         <FormMessage />
                     </FormItem>
                 )}
@@ -132,17 +132,17 @@ export function MobileMoneyForm({ control, countries }: { control: any, countrie
                 render={({ field }) => (
                     <FormItem>
                         <FormLabel>Opérateur Mobile Money du bénéficiaire</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value} disabled={!destinationCountry || availableOperators.length === 0}>
+                        <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value} value={field.value} disabled={!destinationCountry || availableOperators.length === 0}>
                             <FormControl>
-                                <SelectTrigger><SelectValue placeholder="Sélectionnez un opérateur" /></SelectTrigger>
+                                <ChoiceTrigger><ChoiceValue placeholder="Sélectionnez un opérateur" /></ChoiceTrigger>
                             </FormControl>
-                            <SelectContent>
+                            <ChoiceContent>
                                 {availableOperators.map(op => (
-                                    <SelectItem key={op.id} value={op.id}>{op.name}</SelectItem>
+                                    <ChoiceItem key={op.id} value={op.id}>{op.name}</ChoiceItem>
                                 ))}
-                                <SelectItem value="orange" disabled>Orange Money (Bientôt)</SelectItem>
-                            </SelectContent>
-                        </Select>
+                                <ChoiceItem value="orange" disabled>Orange Money (Bientôt)</ChoiceItem>
+                            </ChoiceContent>
+                        </ChoiceGroup>
                         <FormMessage />
                     </FormItem>
                 )}

@@ -9,13 +9,13 @@ import type { User } from "@/lib/types";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { FullscreenToggle } from "../ui/fullscreen-toggle";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  ActionPanel,
+  ActionPanelContent,
+  ActionPanelItem,
+  ActionPanelLabel,
+  ActionPanelSeparator,
+  ActionPanelTrigger,
+} from "@/components/ui/action-panel"
 
 const SportsLogo = () => (
     <svg viewBox="0 0 250 30" className="h-7 w-auto" aria-label="BestWinMoney.cd">
@@ -54,8 +54,8 @@ export function SportsHeader({ user, balance }: { user: User | null, balance: st
         
         <div className="flex items-center gap-3">
             <FullscreenToggle />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            <ActionPanel>
+              <ActionPanelTrigger asChild>
                 <button className="flex items-center gap-2 outline-none">
                     <Avatar className="h-10 w-10 border-2 border-yellow-400">
                         <AvatarImage src={user?.profile_photo || "/avatars/default.png"} alt={user?.full_name || "User"} />
@@ -64,19 +64,19 @@ export function SportsHeader({ user, balance }: { user: User | null, balance: st
                         </AvatarFallback>
                     </Avatar>
                 </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56 bg-zinc-800 border-zinc-700 text-white" align="end">
-                <DropdownMenuLabel>{user?.full_name}</DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-zinc-700"/>
-                <DropdownMenuItem className="focus:bg-zinc-700">
+              </ActionPanelTrigger>
+              <ActionPanelContent className="w-56 bg-zinc-800 border-zinc-700 text-white" align="end">
+                <ActionPanelLabel>{user?.full_name}</ActionPanelLabel>
+                <ActionPanelSeparator className="bg-zinc-700"/>
+                <ActionPanelItem className="focus:bg-zinc-700">
                     <Wallet className="mr-2 h-4 w-4" />
                     <div className="flex flex-col">
                         <span>{t('sportsHeaderBalance')}</span>
                         <span className="font-semibold text-green-500">{balance} CDF</span>
                     </div>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </ActionPanelItem>
+              </ActionPanelContent>
+            </ActionPanel>
         </div>
       </div>
     </header>

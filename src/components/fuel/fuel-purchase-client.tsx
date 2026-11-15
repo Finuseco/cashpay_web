@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Badge, } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -204,12 +204,12 @@ export function FuelPurchaseClient({ user, initialStations, currencies }: { user
                                     <FormField control={form.control} name="stationId" render={({ field }) => (
                                         <FormItem className="flex-1">
                                             <FormLabel>Station-Service</FormLabel>
-                                            <Select onValueChange={field.onChange} value={field.value}>
-                                                <FormControl><SelectTrigger className="h-12"><SelectValue placeholder="Choisir une station"/></SelectTrigger></FormControl>
-                                                <SelectContent>
-                                                    {initialStations.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name} ({s.province})</SelectItem>)}
-                                                </SelectContent>
-                                            </Select>
+                                            <ChoiceGroup onValueChange={field.onChange} value={field.value}>
+                                                <FormControl><ChoiceTrigger className="h-12"><ChoiceValue placeholder="Choisir une station"/></ChoiceTrigger></FormControl>
+                                                <ChoiceContent>
+                                                    {initialStations.map(s => <ChoiceItem key={s.id} value={s.id.toString()}>{s.name} ({s.province})</ChoiceItem>)}
+                                                </ChoiceContent>
+                                            </ChoiceGroup>
                                         </FormItem>
                                     )}/>
                                     <Button type="button" variant="outline" size="icon" className="mt-8 h-12 w-12 rounded-xl" onClick={() => setIsScannerOpen(true)}>
@@ -221,23 +221,23 @@ export function FuelPurchaseClient({ user, initialStations, currencies }: { user
                                     <FormField control={form.control} name="productId" render={({ field }) => (
                                         <FormItem>
                                             <FormLabel>Carburant</FormLabel>
-                                            <Select onValueChange={field.onChange} value={field.value} disabled={!selectedStation}>
-                                                <FormControl><SelectTrigger className="h-11"><SelectValue/></SelectTrigger></FormControl>
-                                                <SelectContent>
-                                                    {selectedStation?.products.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
-                                                </SelectContent>
-                                            </Select>
+                                            <ChoiceGroup onValueChange={field.onChange} value={field.value} disabled={!selectedStation}>
+                                                <FormControl><ChoiceTrigger className="h-11"><ChoiceValue/></ChoiceTrigger></FormControl>
+                                                <ChoiceContent>
+                                                    {selectedStation?.products.map(p => <ChoiceItem key={p.id} value={p.id.toString()}>{p.name}</ChoiceItem>)}
+                                                </ChoiceContent>
+                                            </ChoiceGroup>
                                         </FormItem>
                                     )}/>
                                     <FormField control={form.control} name="paymentCurrency" render={({ field }) => (
                                         <FormItem>
                                             <FormLabel>Payer avec</FormLabel>
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                <FormControl><SelectTrigger className="h-11"><SelectValue/></SelectTrigger></FormControl>
-                                                <SelectContent>
-                                                    {currencies.map(c => <SelectItem key={c.code} value={c.code}>{c.code}</SelectItem>)}
-                                                </SelectContent>
-                                            </Select>
+                                            <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                                                <FormControl><ChoiceTrigger className="h-11"><ChoiceValue/></ChoiceTrigger></FormControl>
+                                                <ChoiceContent>
+                                                    {currencies.map(c => <ChoiceItem key={c.code} value={c.code}>{c.code}</ChoiceItem>)}
+                                                </ChoiceContent>
+                                            </ChoiceGroup>
                                         </FormItem>
                                     )}/>
                                 </div>

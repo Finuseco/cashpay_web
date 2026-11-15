@@ -90,7 +90,7 @@ export function AgentWithdrawClient() {
   useEffect(() => {
       if (verifiedClient?.countryCode && amountValue > 0 && currencyValue) {
           const fetchFee = async () => {
-              const fee = await calculateTransactionFee(amountValue, currencyValue as any, 'WD', verifiedClient.countryCode!);
+              const fee = await calculateTransactionFee(amountValue, currencyValue as any, 'WD', verifiedClient.countryCode!, undefined, verifiedClient.userId || undefined);
               setTransactionFee(fee);
           }
           fetchFee();

@@ -1,4 +1,5 @@
 'use client';
+import {NativeChoice,NativeOption} from '@/components/ui/choice-group';
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -418,18 +419,18 @@ export default function EventsPage() {
               <div className="flex items-center gap-2">
                 <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
 
-                <select
+                <NativeChoice
                   value={sort}
                   onChange={(event) => setSort(event.target.value)}
                   className="h-10 rounded-md border bg-background px-3 text-sm"
                   aria-label="Trier les événements"
                 >
-                  <option value="date-desc">Plus récents</option>
-                  <option value="date-asc">Date la plus proche</option>
-                  <option value="name">Nom A-Z</option>
-                  <option value="price-asc">Prix croissant</option>
-                  <option value="price-desc">Prix décroissant</option>
-                </select>
+                  <NativeOption value="date-desc">Plus récents</NativeOption>
+                  <NativeOption value="date-asc">Date la plus proche</NativeOption>
+                  <NativeOption value="name">Nom A-Z</NativeOption>
+                  <NativeOption value="price-asc">Prix croissant</NativeOption>
+                  <NativeOption value="price-desc">Prix décroissant</NativeOption>
+                </NativeChoice>
               </div>
             </div>
 

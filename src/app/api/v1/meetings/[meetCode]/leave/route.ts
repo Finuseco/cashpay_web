@@ -26,7 +26,7 @@ export async function POST(
 
         await db.query(
             `UPDATE meeting_participants SET left_at = NOW()
-             WHERE meeting_id = $1 AND user_id = $2`,
+             WHERE meeting_id = $1 AND user_id = $2 AND media_session_id IS NULL`,
             [rows[0].id, user.id]
         );
         await db.query("SELECT pg_notify('onchat_meetings', $1)", [JSON.stringify({ meetCode })]);

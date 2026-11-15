@@ -31,7 +31,7 @@ import type { User, Currency } from '@/lib/types';
 import { Loader2 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { getUserCurrencies } from "@/lib/actions/currency.actions";
-import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "../ui/select";
+import { ChoiceGroup, ChoiceTrigger, ChoiceContent, ChoiceItem, ChoiceValue } from "../ui/choice-group";
 import { getExchangeRatesForCountry } from "@/lib/actions/exchange.actions";
 import { countryToCode } from "@/lib/utils";
 
@@ -200,20 +200,20 @@ export function AirtimeForm({ user }: { user: User | null }) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Payer avec le portefeuille</FormLabel>
-                   <Select onValueChange={field.onChange} defaultValue={field.value}>
+                   <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sélectionner un portefeuille" />
-                      </SelectTrigger>
+                      <ChoiceTrigger>
+                        <ChoiceValue placeholder="Sélectionner un portefeuille" />
+                      </ChoiceTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <ChoiceContent>
                       {userCurrencies.map((c) => (
-                        <SelectItem key={c.code} value={c.code}>
+                        <ChoiceItem key={c.code} value={c.code}>
                           {c.code} (Solde: {c.balance})
-                        </SelectItem>
+                        </ChoiceItem>
                       ))}
-                    </SelectContent>
-                  </Select>
+                    </ChoiceContent>
+                  </ChoiceGroup>
                   <FormMessage />
                 </FormItem>
               )}

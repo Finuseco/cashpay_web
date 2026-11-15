@@ -8,7 +8,7 @@ import { Check, Cloud, Server, Search, Loader2, XCircle, CheckCircle, ExternalLi
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { Input } from '@/components/ui/input';
 import { checkDomainAvailability, addDomainToCart, purchaseDomain } from '@/lib/actions/domain.actions';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import Link from 'next/link';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import type { User } from '@/lib/types';
@@ -112,17 +112,17 @@ function CloudWebSection({ user }: { user: User | null }) {
                     {searchResult?.available && (
                          <div className="pt-2">
                             <Label>Durée d'enregistrement</Label>
-                            <Select value={duration} onValueChange={setDuration}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
+                            <ChoiceGroup value={duration} onValueChange={setDuration}>
+                                <ChoiceTrigger>
+                                    <ChoiceValue />
+                                </ChoiceTrigger>
+                                <ChoiceContent>
                                     {[...Array(10).keys()].map(i => {
                                         const years = i + 1;
-                                        return <SelectItem key={years} value={String(years)}>{years} an{years > 1 ? 's' : ''} - {DOMAIN_PRICE_PER_YEAR * years}$</SelectItem>
+                                        return <ChoiceItem key={years} value={String(years)}>{years} an{years > 1 ? 's' : ''} - {DOMAIN_PRICE_PER_YEAR * years}$</ChoiceItem>
                                     })}
-                                </SelectContent>
-                            </Select>
+                                </ChoiceContent>
+                            </ChoiceGroup>
                         </div>
                     )}
 

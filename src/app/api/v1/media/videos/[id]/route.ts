@@ -1,3 +1,4 @@
+import {soundForVideo} from '@/lib/video-sounds';
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
@@ -24,6 +25,7 @@ async function getVideo(id: number, userId: number | null) {
       m.file_url,
       m.duration_seconds,
       m.thumbnail_url,
+      CASE WHEN $2::integer IS NULL OR m.owner_type<>'user' THEN FALSE ELSE EXISTS(SELECT 1 FROM user_followers f WHERE f.follower_user_id=$2 AND f.followed_user_id=m.owner_id) END AS is_following,
 
       COALESCE(
         (
@@ -57,7 +59,7 @@ async function getVideo(id: number, userId: number | null) {
     WHERE m.id = $1
       AND m.media_type = 'video'
       AND m.visibility = 'public'
-      AND m.expires_at > NOW()
+      AND (m.expires_at IS NULL OR m.expires_at > NOW())
     LIMIT 1
     `,
     [id, userId]
@@ -157,25 +159,31 @@ export async function GET(
       }
     }
 
+    const sound=await soundForVideo(id);
+    const favorites=(await db.query('SELECT COUNT(*)::int AS total,COALESCE(BOOL_OR(user_id=$2),FALSE) AS selected FROM onchat_video_favorites WHERE media_id=$1',[id,userId])).rows[0];
     return NextResponse.json({
       success: true,
       video: {
-        id: video.id,
+        id: video.id, sound,
+        shareUrl:`${BASE_URL}/onchat/videos/${video.id}`,
         type: "video",
         url:
           video.file_url ||
           (video.file_path
             ? `${BASE_URL}${video.file_path}`
             : null),
-        thumbnailUrl: video.thumbnail_url,
+        thumbnailUrl: video.thumbnail_url || `${BASE_URL}/api/v1/media/videos/${video.id}/thumbnail`,
         durationSeconds: video.duration_seconds,
         visibility: video.visibility,
         createdAt: video.created_at,
         updatedAt: video.updated_at,
         expiresAt: video.expires_at,
-        publisher
+        publisher,
+        follow: { isFollowing: Boolean(video.is_following) },
+        interactions: {isFavorite:Boolean(favorites.selected),favorites:Number(favorites.total),likes:Number(video.likes_count),comments:Number(video.comments_count),isLiked:Boolean(video.is_liked)}
       },
       interactions: {
+        isFavorite:Boolean(favorites.selected),favorites:Number(favorites.total),
         likes: Number(video.likes_count),
         comments: Number(video.comments_count),
         isLiked: Boolean(video.is_liked)

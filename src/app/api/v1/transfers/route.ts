@@ -270,12 +270,7 @@ async function prepareCashTransfer(
     try {
         const fee =
             Number(
-                await calculateTransactionFee(
-                    amount,
-                    currency,
-                    'TR',
-                    sender.country,
-                    connection
+                await calculateTransactionFee(amount, currency, 'TR', sender.country, connection, sender.id
                 )
             );
 
@@ -845,8 +840,7 @@ export async function POST(
                     throw new Error('Solde USDT invalide.');
                 }
 
-                const configuredFee = await calculateTransactionFee(
-                    amount, 'USDT', 'WD_CRYPTO_MONEY', sender.country, client
+                const configuredFee = await calculateTransactionFee(amount, 'USDT', 'WD_CRYPTO_MONEY', sender.country, client, sender.id
                 );
                 const feeAmount = Number(configuredFee);
 
@@ -1077,12 +1071,7 @@ export async function POST(
                 }
 
                 // Utilise la règle de frais déjà configurée pour WD_CRYPTO_MONEY.
-                const configuredFee = await calculateTransactionFee(
-                    amount,
-                    'BTC',
-                    'WD_CRYPTO_MONEY',
-                    sender.country,
-                    client
+                const configuredFee = await calculateTransactionFee(amount, 'BTC', 'WD_CRYPTO_MONEY', sender.country, client, sender.id
                 );
 
                 const feeAmount = Number(configuredFee);

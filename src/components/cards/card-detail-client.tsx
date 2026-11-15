@@ -23,7 +23,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
@@ -405,17 +405,17 @@ export function CardDetailClient({ card, initialControls }: { card: CardType, in
                                     render={({ field }) => (
                                         <FormItem className="w-full sm:w-48">
                                             <FormLabel>Période</FormLabel>
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
                                                 <FormControl>
-                                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                                    <ChoiceTrigger><ChoiceValue /></ChoiceTrigger>
                                                 </FormControl>
-                                                <SelectContent>
-                                                    <SelectItem value="TRANSACTION">Par Transaction</SelectItem>
-                                                    <SelectItem value="DAY">Par Jour</SelectItem>
-                                                    <SelectItem value="WEEK">Par Semaine</SelectItem>
-                                                    <SelectItem value="MONTH">Par Mois</SelectItem>
-                                                </SelectContent>
-                                            </Select>
+                                                <ChoiceContent>
+                                                    <ChoiceItem value="TRANSACTION">Par Transaction</ChoiceItem>
+                                                    <ChoiceItem value="DAY">Par Jour</ChoiceItem>
+                                                    <ChoiceItem value="WEEK">Par Semaine</ChoiceItem>
+                                                    <ChoiceItem value="MONTH">Par Mois</ChoiceItem>
+                                                </ChoiceContent>
+                                            </ChoiceGroup>
                                         </FormItem>
                                     )}
                                 />

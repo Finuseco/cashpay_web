@@ -118,7 +118,7 @@ export default function CpkAppPage() {
         const updateFee = async () => {
             if (watchedAmount > 0 && watchedCurrency && user && isClient) {
                 try {
-                    const calculatedFee = await calculateTransactionFee(watchedAmount, watchedCurrency, 'HSM_LOCK', user.country);
+                    const calculatedFee = await calculateTransactionFee(watchedAmount, watchedCurrency, 'HSM_LOCK', user.country, undefined, user.id);
                     setFee(calculatedFee);
                 } catch (e) { setFee(0); }
             }

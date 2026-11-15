@@ -1,3 +1,4 @@
+import {meetingPhase} from '@/lib/meeting-email';
 /**
  * GET /api/v1/meetings/:meetCode/status
  * Retourne le statut live d'une réunion (utilisé pour le polling dans le chat).
@@ -28,7 +29,7 @@ export async function GET(
 
         const { rows } = await db.query(
             `SELECT m.meeting_provider_id AS meet_code, m.status, m.topic, m.type,
-                    m.created_at AS started_at, u.full_name AS host_name, m.host_user_id,
+                    m.started_at,m.ended_at, u.full_name AS host_name, m.host_user_id,
                     COALESCE(m.scheduled_at, m.created_at) AS scheduled_at,
                     COALESCE(m.duration_min, 0) AS duration_min,
                     COALESCE(m.price_amount, 0) AS price_amount,
@@ -66,6 +67,8 @@ export async function GET(
             success: true,
             meetCode: r.meet_code,
             status: r.status,
+            phase:meetingPhase(r),
+            endedAt:r.ended_at?new Date(r.ended_at).toISOString():null,
             topic: r.topic,
             type: r.type,
             participants: Number(r.participants) || 0,

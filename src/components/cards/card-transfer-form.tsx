@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import type { Card, User, Currency } from "@/lib/types";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from "@/components/ui/choice-group";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Loader2, ArrowDown, ShieldCheck } from "lucide-react";
@@ -184,10 +184,10 @@ export function CardTransferForm({ user, cards, currencies, onComplete }: { user
                         render={({ field }) => (
                             <FormItem>
                                 <FormLabel>{t('cardTransferFromLabel')}</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <FormControl><SelectTrigger><SelectValue placeholder={t('cardTransferFromPlaceholder')} /></SelectTrigger></FormControl>
-                                    <SelectContent>{cards.map(c => <SelectItem key={c.id} value={c.id}>{`•••• ${c.last4} (${getCurrencyForCard(c.currency, currencies)?.balance} ${c.currency})`}</SelectItem>)}</SelectContent>
-                                </Select>
+                                <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl><ChoiceTrigger><ChoiceValue placeholder={t('cardTransferFromPlaceholder')} /></ChoiceTrigger></FormControl>
+                                    <ChoiceContent>{cards.map(c => <ChoiceItem key={c.id} value={c.id}>{`•••• ${c.last4} (${getCurrencyForCard(c.currency, currencies)?.balance} ${c.currency})`}</ChoiceItem>)}</ChoiceContent>
+                                </ChoiceGroup>
                                 <FormMessage />
                             </FormItem>
                         )}
@@ -198,10 +198,10 @@ export function CardTransferForm({ user, cards, currencies, onComplete }: { user
                         render={({ field }) => (
                             <FormItem>
                                 <FormLabel>{t('cardTransferToLabel')}</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <FormControl><SelectTrigger><SelectValue placeholder={t('cardTransferToPlaceholder')} /></SelectTrigger></FormControl>
-                                    <SelectContent>{cards.map(c => <SelectItem key={c.id} value={c.id}>{`•••• ${c.last4} (${c.currency})`}</SelectItem>)}</SelectContent>
-                                </Select>
+                                <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl><ChoiceTrigger><ChoiceValue placeholder={t('cardTransferToPlaceholder')} /></ChoiceTrigger></FormControl>
+                                    <ChoiceContent>{cards.map(c => <ChoiceItem key={c.id} value={c.id}>{`•••• ${c.last4} (${c.currency})`}</ChoiceItem>)}</ChoiceContent>
+                                </ChoiceGroup>
                                 <FormMessage />
                             </FormItem>
                         )}

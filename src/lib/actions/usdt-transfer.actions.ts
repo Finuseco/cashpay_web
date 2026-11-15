@@ -107,12 +107,7 @@ export async function prepareUsdtTransfer(args: UsdtTransferArgs) {
     let feeAmount: number;
 
     try {
-        const configuredFee = await calculateTransactionFee(
-            amount,
-            'USDT',
-            USDT_TYPE,
-            user.country,
-            feeConnection
+        const configuredFee = await calculateTransactionFee(amount, 'USDT', USDT_TYPE, user.country, feeConnection, user.id
         );
 
         feeAmount = Number(configuredFee);

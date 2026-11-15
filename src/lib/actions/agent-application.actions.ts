@@ -1,12 +1,14 @@
 
 'use server';
+import {enterpriseFeeWaived} from '@/lib/enterprise/policy';
 
+import { regionalScope, assertManagedUser } from '@/lib/super-agent-access';
 import type { User } from '@/lib/types';
 import { db } from '../db';
 import { handleDbError } from './helpers';
 import { calculateTransactionFee } from './wallet.actions';
 import { createTransaction } from './transaction.actions';
-import { verifyCurrentUserPin } from './auth.actions';
+import { verifyCurrentUserPin, getAuthenticatedUser } from './user.actions';
 
 export interface AgentSubscription {
     id?: number;
@@ -23,12 +25,14 @@ export interface AgentSubscription {
  * Récupère le statut d'abonnement agent d'un utilisateur.
  */
 export async function getAgentSubscription(userId: number): Promise<AgentSubscription | null> {
+    const actor = await getAuthenticatedUser();
+    if (!actor || Number(actor.id)!==Number(userId)) return null;
     try {
         const { rows } = await db.query('SELECT * FROM agent_subscriptions WHERE user_id = $1::integer', [userId]);
         if (rows.length === 0) return null;
         return {
             id: rows[0].id,
-            status: rows[0].status,
+            status: rows[0].status==='active' && (!rows[0].current_period_end || new Date(rows[0].current_period_end).getTime()<=Date.now()) ? 'expired' : rows[0].status,
             current_period_end: rows[0].current_period_end ? new Date(rows[0].current_period_end).toISOString() : null,
             is_promo_period: rows[0].is_promo_period,
             auto_renew: rows[0].auto_renew
@@ -43,7 +47,9 @@ export async function getAgentSubscription(userId: number): Promise<AgentSubscri
  * Active ou renouvelle un abonnement agent en débitant réellement le compte de l'utilisateur.
  * Calcule une période de 30 jours.
  */
-export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal', pin: string): Promise<{ success: boolean; error?: string }> {
+export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal', pin: string, acceptedFee?: number): Promise<{ success: boolean; error?: string }> {
+    const actor = await getAuthenticatedUser();
+    if (!actor || Number(actor.id) !== Number(userId)) return {success:false,error:'Session du titulaire requise.'};
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
@@ -52,7 +58,12 @@ export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal',
         const { rows: userRows } = await connection.query('SELECT * FROM users WHERE id = $1::integer FOR UPDATE', [userId]);
         if (userRows.length === 0) throw new Error('Utilisateur non trouvé.');
         const user = userRows[0] as User;
-        
+
+        if (!['client','agent'].includes(String(user.role).toLowerCase()) || String(user.status).toLowerCase() !== 'active') throw new Error('Compte Client ou Agent actif requis.');
+        const subscription = await connection.query("SELECT status,current_period_end FROM agent_subscriptions WHERE user_id=$1 FOR UPDATE",[userId]);
+        if (plan==='promo' && subscription.rows.length) throw new Error('Le tarif d’essai est réservé à la première activation.');
+        if (subscription.rows.some(row => row.status === 'active' && new Date(row.current_period_end).getTime() > Date.now())) throw new Error('Votre abonnement est déjà actif. Aucun nouveau débit.');
+
         // 2. Vérifier le PIN
         const pinVerification = await verifyCurrentUserPin(pin);
         if (!pinVerification.success) {
@@ -61,11 +72,13 @@ export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal',
 
         // 3. Calculer les frais
         const feeCode = plan === 'promo' ? 'AGENT_SUB_PROMO' : 'AGENT_SUB_NORMAL';
-        const fee = await calculateTransactionFee(1, 'USD', feeCode, user.country, connection);
+        const fee = await calculateTransactionFee(1, 'USD', feeCode, user.country, connection, user.id);
 
-        if (fee <= 0) {
+        if (!Number.isFinite(fee) || fee < 0 || (fee === 0 && !await enterpriseFeeWaived(connection,user.id,feeCode))) {
             throw new Error(`Le tarif pour le plan '${plan}' n'est pas encore configuré pour votre pays.`);
         }
+
+        if (acceptedFee !== undefined && (!Number.isFinite(acceptedFee) || Math.abs(acceptedFee - fee) > 0.000001)) throw new Error('Tarif modifié. Actualisez et confirmez le nouveau montant.');
 
         // 4. Débiter le compte
         const transactionResult = await createTransaction({
@@ -81,7 +94,7 @@ export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal',
         if (!transactionResult.success) {
             throw new Error(transactionResult.error || "Le paiement de l'abonnement ha échoué. Vérifiez votre solde.");
         }
-        
+
         // 5. Calculer la date de fin (Aujourd'hui + 30 jours)
         const periodEndDate = new Date();
         periodEndDate.setDate(periodEndDate.getDate() + 30);
@@ -89,14 +102,14 @@ export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal',
         // 6. Enregistrer l'abonnement
         await connection.query(`
             INSERT INTO agent_subscriptions (user_id, status, current_period_end, is_promo_period, auto_renew)
-            VALUES ($1::integer, 'active', $2::timestamp, $3::boolean, true)
+            VALUES ($1::integer, 'active', $2::timestamp, $3::boolean, false)
             ON CONFLICT (user_id) DO UPDATE SET
                 status = 'active',
                 current_period_end = EXCLUDED.current_period_end,
                 is_promo_period = EXCLUDED.is_promo_period,
                 updated_at = NOW()
         `, [userId, periodEndDate, plan === 'promo']);
-        
+
         // 7. Mettre à jour le rôle de l'utilisateur
         await connection.query("UPDATE users SET role = 'Agent', status = 'Active' WHERE id = $1::integer", [userId]);
 
@@ -115,6 +128,8 @@ export async function subscribeAsAgent(userId: number, plan: 'promo' | 'normal',
  * Met à jour le paramètre de renouvellement automatique de l'abonnement.
  */
 export async function setAutoRenew(userId: number, autoRenew: boolean): Promise<{ success: boolean; error?: string }> {
+    const actor=await getAuthenticatedUser();
+    if(!actor||Number(actor.id)!==Number(userId)||typeof autoRenew!=='boolean')return {success:false,error:'Session du titulaire requise.'};
     try {
         const { rowCount } = await db.query(
             'UPDATE agent_subscriptions SET auto_renew = $1::boolean, updated_at = NOW() WHERE user_id = $2::integer',
@@ -132,14 +147,15 @@ export async function setAutoRenew(userId: number, autoRenew: boolean): Promise<
  * Récupère tous les abonnements du pays (Pour le Super Agent).
  */
 export async function getCountryAgentSubscriptions(countryName: string): Promise<AgentSubscription[]> {
+    const scope = await regionalScope(countryName);
     try {
         const { rows } = await db.query(`
-            SELECT s.*, u.full_name, u.id_wallet 
+            SELECT s.*, u.full_name, u.id_wallet
             FROM agent_subscriptions s
             JOIN users u ON s.user_id = u.id
-            WHERE u.country = $1::text
+            WHERE ${scope.sql}
             ORDER BY s.current_period_end ASC
-        `, [countryName]);
+        `, scope.values);
         return rows.map(r => ({
             ...r,
             current_period_end: r.current_period_end ? new Date(r.current_period_end).toISOString() : null
@@ -157,6 +173,7 @@ export async function forceAgentRenewal(adminId: number, targetUserId: number, a
     try {
         await connection.query('BEGIN');
 
+        await assertManagedUser(adminId, targetUserId, connection);
         // 1. Vérifier le PIN Super Agent
         const { rows: adminRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1::integer', [adminId]);
         if (adminRows.length === 0 || !(await require('bcryptjs').compare(adminPin, adminRows[0].pin_hash))) {
@@ -167,10 +184,15 @@ export async function forceAgentRenewal(adminId: number, targetUserId: number, a
         const { rows: agentRows } = await connection.query('SELECT * FROM users WHERE id = $1::integer', [targetUserId]);
         if (agentRows.length === 0) throw new Error("Agent cible introuvable.");
         const agent = agentRows[0];
+        if (!['Agent','SubSuperAgent'].includes(agent.role) || String(agent.status).toLowerCase() !== 'active') throw new Error('Agent actif requis.');
+        const { rows: subscriptions } = await connection.query('SELECT current_period_end, status FROM agent_subscriptions WHERE user_id = $1 FOR UPDATE', [targetUserId]);
+        if (!subscriptions.length) throw new Error('Abonnement existant requis.');
+        if (subscriptions[0].status === 'active' && new Date(subscriptions[0].current_period_end).getTime() > Date.now()) throw new Error('Cet abonnement est encore actif. Aucun débit effectué.');
 
         // 3. Procéder au débit (Tarif normal)
-        const fee = await calculateTransactionFee(1, 'USD', 'AGENT_SUB_NORMAL', agent.country, connection);
-        
+        const fee = await calculateTransactionFee(1, 'USD', 'AGENT_SUB_NORMAL', agent.country, connection, agent.id);
+
+        if (!Number.isFinite(fee) || fee < 0 || (fee === 0 && !await enterpriseFeeWaived(connection,agent.id,'AGENT_SUB_NORMAL'))) throw new Error('Tarif de renouvellement absent.');
         const tx = await createTransaction({
             user: require('@/lib/utils').formatUser(agent),
             typeCode: 'AGENT_SUB',
@@ -188,12 +210,12 @@ export async function forceAgentRenewal(adminId: number, targetUserId: number, a
         newEnd.setDate(newEnd.getDate() + 30);
 
         await connection.query(`
-            UPDATE agent_subscriptions 
-            SET status = 'active', current_period_end = $1::timestamp, updated_at = NOW() 
+            UPDATE agent_subscriptions
+            SET status = 'active', current_period_end = $1::timestamp, updated_at = NOW()
             WHERE user_id = $2::integer
         `, [newEnd, targetUserId]);
 
-        await connection.query("UPDATE users SET role = 'Agent', status = 'Active' WHERE id = $1::integer", [targetUserId]);
+        // Preserve the existing administrative rank and account status.
 
         await connection.query('COMMIT');
         return { success: true };

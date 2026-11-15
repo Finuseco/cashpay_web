@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { Button } from '@/components/ui/button';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import type { User, Currency } from '@/lib/types';
@@ -121,15 +121,15 @@ export function CryptoTransferForm({ user, type, currencies = [] }: CryptoTransf
                         render={({ field }) => (
                             <FormItem>
                                 <FormLabel>Choisissez une cryptomonnaie</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <FormControl><SelectTrigger><SelectValue/></SelectTrigger></FormControl>
-                                    <SelectContent>
-                                        <SelectItem value="BTC">Bitcoin (BTC)</SelectItem>
-                                        <SelectItem value="ETH">Ethereum (ETH)</SelectItem>
-                                        <SelectItem value="USDT_ERC20">Tether (USDT - ERC20)</SelectItem>
-                                        <SelectItem value="USDT_TRC20">Tether (USDT - TRC20)</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl><ChoiceTrigger><ChoiceValue/></ChoiceTrigger></FormControl>
+                                    <ChoiceContent>
+                                        <ChoiceItem value="BTC">Bitcoin (BTC)</ChoiceItem>
+                                        <ChoiceItem value="ETH">Ethereum (ETH)</ChoiceItem>
+                                        <ChoiceItem value="USDT_ERC20">Tether (USDT - ERC20)</ChoiceItem>
+                                        <ChoiceItem value="USDT_TRC20">Tether (USDT - TRC20)</ChoiceItem>
+                                    </ChoiceContent>
+                                </ChoiceGroup>
                             </FormItem>
                         )}
                     />
@@ -176,12 +176,12 @@ export function CryptoTransferForm({ user, type, currencies = [] }: CryptoTransf
             <CardContent>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                        <FormField control={form.control} name="crypto" render={({ field }) => ( <FormItem><FormLabel>Retirer en</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue/></SelectTrigger></FormControl><SelectContent>
-                            <SelectItem value="BTC">Bitcoin (BTC)</SelectItem>
-                            <SelectItem value="ETH">Ethereum (ETH)</SelectItem>
-                            <SelectItem value="USDT_ERC20">Tether (USDT - ERC20)</SelectItem>
-                            <SelectItem value="USDT_TRC20">Tether (USDT - TRC20)</SelectItem>
-                        </SelectContent></Select><FormMessage /></FormItem> )}/>
+                        <FormField control={form.control} name="crypto" render={({ field }) => ( <FormItem><FormLabel>Retirer en</FormLabel><ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}><FormControl><ChoiceTrigger><ChoiceValue/></ChoiceTrigger></FormControl><ChoiceContent>
+                            <ChoiceItem value="BTC">Bitcoin (BTC)</ChoiceItem>
+                            <ChoiceItem value="ETH">Ethereum (ETH)</ChoiceItem>
+                            <ChoiceItem value="USDT_ERC20">Tether (USDT - ERC20)</ChoiceItem>
+                            <ChoiceItem value="USDT_TRC20">Tether (USDT - TRC20)</ChoiceItem>
+                        </ChoiceContent></ChoiceGroup><FormMessage /></FormItem> )}/>
                         <FormField control={form.control} name="amount" render={({ field }) => ( <FormItem><FormLabel>Montant</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )}/>
                         <FormField control={form.control} name="recipientAddress" render={({ field }) => ( <FormItem><FormLabel>Adresse du destinataire</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
                         

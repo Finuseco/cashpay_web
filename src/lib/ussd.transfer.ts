@@ -122,11 +122,7 @@ export async function handleUssdTransfer(
             };
         }
 
-        const fee = await calculateTransactionFee(
-            amount,
-            activeCurrency,
-            'TR',
-            user.country
+        const fee = await calculateTransactionFee(amount, activeCurrency, 'TR', user.country, undefined, user.id
         );
 
         return {
@@ -188,6 +184,7 @@ export async function handleUssdTransfer(
             currency: activeCurrency,
             description:
                 `Transfert USSD vers ${data.targetName}`,
+            metadata: { channel: 'ussd' },
             receiver_id: data.targetId,
             receiver_wallet_id: data.targetWallet
         });

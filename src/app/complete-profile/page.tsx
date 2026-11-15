@@ -13,7 +13,7 @@ import Link from 'next/link';
 
 function Header() {
     return (
-        <header className="w-full bg-[#000E38] h-20 flex items-center justify-between px-6 md:px-12 fixed top-0 left-0 right-0 z-50 shadow-lg border-b border-white/5">
+        <header className="w-full bg-[#2A0E42] h-20 flex items-center justify-between px-6 md:px-12 fixed top-0 left-0 right-0 z-50 shadow-lg border-b border-white/5">
             <Logo />
             <div className="flex items-center gap-4">
                 <LanguageSwitcher />
@@ -27,8 +27,8 @@ function Footer() {
     const year = new Date().getFullYear();
     return (
         <footer className="w-full max-w-5xl mx-auto py-12 px-6 text-center space-y-6">
-            <Separator className="bg-[#000E38]/10" />
-            <div className="flex justify-center gap-8 text-[11px] font-black uppercase tracking-widest text-[#000E38]/60">
+            <Separator className="bg-[#2A0E42]/10" />
+            <div className="flex justify-center gap-8 text-[11px] font-black uppercase tracking-widest text-[#2A0E42]/60">
                 <Link href="#" className="hover:text-[#FF6600] transition-colors">{t('loginTermsAndConditions')}</Link>
                 <Link href="#" className="hover:text-[#FF6600] transition-colors">{t('loginDevelopers')}</Link>
             </div>
@@ -102,7 +102,7 @@ function CompleteProfilePageContent() {
 export default function CompleteProfilePage() {
     return (
         <Suspense fallback={
-            <div className="flex h-screen w-full items-center justify-center bg-[#000E38] text-white">
+            <div className="flex h-screen w-full items-center justify-center bg-[#2A0E42] text-white">
                 <Loader2 className="animate-spin h-10 w-10 text-[#FF6600]" />
             </div>
         }>

@@ -16,7 +16,7 @@ import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { useRouter } from 'next/navigation';
 import { useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from "@/components/ui/choice-group";
 import { registerMlmPartner } from "@/lib/actions/mlm.actions";
 import { getAuthenticatedUser } from "@/lib/actions/user.actions";
 
@@ -74,47 +74,47 @@ const RegisterForm = () => {
                  <FormField control={form.control} name="companyType" render={({ field }) => ( 
                     <FormItem>
                         <FormLabel>Type d'établissement</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl><SelectTrigger><SelectValue placeholder="Sélectionnez un type" /></SelectTrigger></FormControl>
-                            <SelectContent>
-                                <SelectItem value="Usine de Production">Usine de Production</SelectItem>
-                                <SelectItem value="Fabrication">Fabrication</SelectItem>
-                                <SelectItem value="Agro-alimentaire">Agro-alimentaire</SelectItem>
-                                <SelectItem value="Pharmacie">Pharmacie</SelectItem>
-                                <SelectItem value="Revendeur">Revendeur / Distributeur</SelectItem>
-                                <SelectItem value="Autre">Autre</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl><ChoiceTrigger><ChoiceValue placeholder="Sélectionnez un type" /></ChoiceTrigger></FormControl>
+                            <ChoiceContent>
+                                <ChoiceItem value="Usine de Production">Usine de Production</ChoiceItem>
+                                <ChoiceItem value="Fabrication">Fabrication</ChoiceItem>
+                                <ChoiceItem value="Agro-alimentaire">Agro-alimentaire</ChoiceItem>
+                                <ChoiceItem value="Pharmacie">Pharmacie</ChoiceItem>
+                                <ChoiceItem value="Revendeur">Revendeur / Distributeur</ChoiceItem>
+                                <ChoiceItem value="Autre">Autre</ChoiceItem>
+                            </ChoiceContent>
+                        </ChoiceGroup>
                         <FormMessage />
                     </FormItem> 
                 )} />
                  <FormField control={form.control} name="productCategory" render={({ field }) => (
                     <FormItem>
                         <FormLabel>{t('productCategoryLabel')}</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl><SelectTrigger><SelectValue placeholder={t('productCategoryPlaceholder')} /></SelectTrigger></FormControl>
-                            <SelectContent>
-                                <SelectItem value="Cosmétiques">Cosmétiques</SelectItem>
-                                <SelectItem value="Alimentaire & Boissons">Alimentaire & Boissons</SelectItem>
-                                <SelectItem value="Chimique">Produits Chimiques / Entretien</SelectItem>
-                                <SelectItem value="Mode">Mode & Habillement</SelectItem>
-                                <SelectItem value="Technologie">Technologie & Électronique</SelectItem>
-                                <SelectItem value="Autre">Autre</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl><ChoiceTrigger><ChoiceValue placeholder={t('productCategoryPlaceholder')} /></ChoiceTrigger></FormControl>
+                            <ChoiceContent>
+                                <ChoiceItem value="Cosmétiques">Cosmétiques</ChoiceItem>
+                                <ChoiceItem value="Alimentaire & Boissons">Alimentaire & Boissons</ChoiceItem>
+                                <ChoiceItem value="Chimique">Produits Chimiques / Entretien</ChoiceItem>
+                                <ChoiceItem value="Mode">Mode & Habillement</ChoiceItem>
+                                <ChoiceItem value="Technologie">Technologie & Électronique</ChoiceItem>
+                                <ChoiceItem value="Autre">Autre</ChoiceItem>
+                            </ChoiceContent>
+                        </ChoiceGroup>
                         <FormMessage />
                     </FormItem>
                 )} />
                 <FormField control={form.control} name="commissionCurrency" render={({ field }) => (
                     <FormItem>
                         <FormLabel>Devise des commissions</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl><SelectTrigger><SelectValue/></SelectTrigger></FormControl>
-                            <SelectContent>
-                                <SelectItem value="USD">USD</SelectItem>
-                                <SelectItem value="CDF">CDF</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl><ChoiceTrigger><ChoiceValue/></ChoiceTrigger></FormControl>
+                            <ChoiceContent>
+                                <ChoiceItem value="USD">USD</ChoiceItem>
+                                <ChoiceItem value="CDF">CDF</ChoiceItem>
+                            </ChoiceContent>
+                        </ChoiceGroup>
                         <FormMessage />
                     </FormItem>
                 )}/>

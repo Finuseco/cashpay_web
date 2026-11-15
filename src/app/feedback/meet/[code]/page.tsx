@@ -21,7 +21,7 @@ export default function MeetPage() {
         (async () => {
             const me = await getAuthenticatedUser(); if (!active) return;
             setUser(me); if (!me) return;
-            const response = await fetch(`/api/v1/meetings/${encodeURIComponent(code)}/billing?currency=${encodeURIComponent(currency)}`, { cache: 'no-store' });
+            const response = await fetch(`/api/v1/meetings/${encodeURIComponent(code)}/billing?currency=${encodeURIComponent(currency)}`, { cache: 'no-store', signal:AbortSignal.timeout(20000) });
             const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Réunion indisponible.');
             if (active) { setQuote(result.quote); setTopic(result.topic); }
         })().catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
@@ -30,13 +30,13 @@ export default function MeetPage() {
     async function join() {
         if (!quote) return; setBusy(true); setError('');
         try {
-            const response = await fetch(`/api/v1/meetings/${encodeURIComponent(code)}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, currency: quote.currency, maxDebit: quote.totalDebit, consent: true, ticketCode }) });
+            const response = await fetch(`/api/v1/meetings/${encodeURIComponent(code)}/join`, { method: 'POST', signal:AbortSignal.timeout(20000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, currency: quote.currency, maxDebit: quote.totalDebit, consent: true, ticketCode }) });
             const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Admission refusée.');
             setPin(''); setEntered(true);
         } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
     }
     if (entered && user && quote) return <MeetInterface meetCode={code} user={user} withVideo={withVideo} isHost={quote.isHost} />;
-    return <main className="h-[100dvh] overflow-y-auto bg-background text-foreground p-4 md:p-10 flex items-center justify-center"><div className="w-full max-w-3xl rounded-3xl border border-border bg-card shadow-2xl overflow-hidden grid md:grid-cols-2"><div className="p-8 text-white flex flex-col justify-between gap-8" style={{ background: 'linear-gradient(145deg,#562EBF,#1F62D5)' }}><div><Video className="h-10 w-10 text-[#44BBF5]" /><p className="text-sm mt-6 text-white/70">OnChat Meet</p><h1 className="font-bold text-3xl mt-2">{topic || 'Bienvenue dans votre réunion'}</h1></div><p className="text-sm text-white/70">Échangez, apprenez et partagez la scène. Vous gardez le contrôle de votre participation.</p></div><section className="p-6 md:p-8 space-y-4">
+    return <main className="h-[100dvh] overflow-y-auto bg-background text-foreground p-4 md:p-10 flex items-center justify-center"><div className="w-full max-w-3xl rounded-3xl border border-border bg-card shadow-2xl overflow-hidden grid md:grid-cols-2"><div className="p-8 text-white flex flex-col justify-between gap-8" style={{ background: 'linear-gradient(145deg,#59158D,#1F62D5)' }}><div><Video className="h-10 w-10 text-[#A66BE0]" /><p className="text-sm mt-6 text-white/70">OnChat Meet</p><h1 className="font-bold text-3xl mt-2">{topic || 'Bienvenue dans votre réunion'}</h1></div><p className="text-sm text-white/70">Échangez, apprenez et partagez la scène. Vous gardez le contrôle de votre participation.</p></div><section className="p-6 md:p-8 space-y-4">
         {loading ? <Loader2 className="animate-spin" aria-label="Chargement" /> : !user ? <><p>Connectez-vous pour rejoindre cette réunion.</p><Button onClick={() => router.push('/feedback/login')}>Se connecter</Button></> : quote ? <>
             <h2 className="font-semibold text-xl">{quote.isHost ? 'Espace organisateur' : 'Votre participation'}</h2><div className="flex gap-2"><Button variant={withVideo ? 'default' : 'outline'} onClick={() => setWithVideo(true)}>Vidéo</Button><Button variant={!withVideo ? 'default' : 'outline'} onClick={() => setWithVideo(false)}>Audio</Button></div>
             {quote.requiresTicket ? <div className="space-y-3"><p className="text-sm flex gap-2"><Ticket className="h-5 w-5 text-secondary" />Un billet personnel est nécessaire pour entrer.</p><Label htmlFor="ticket-code">Code de participation</Label><Input id="ticket-code" value={ticketCode} onChange={e => setTicketCode(e.target.value)} autoComplete="off" /><Button variant="outline" onClick={() => router.push(`/events/${quote.eventId}`)}>Acheter un billet</Button></div> : quote.totalDebit > 0 ? <>

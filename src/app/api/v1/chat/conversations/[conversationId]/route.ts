@@ -1,3 +1,4 @@
+import {validatedLocation} from '@/lib/chat-location';
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { db } from '@/lib/db';
@@ -182,6 +183,7 @@ export async function POST(
         if (typeof value === 'string' && value.length <= 512) metadata[key] = value;
       }
     }
+    if(type==='location'){try{Object.assign(metadata,validatedLocation(body.metadata));}catch(error){return NextResponse.json({success:false,error:(error as Error).message},{status:400});}}
     if (fileUrl) Object.assign(metadata, { fileUrl, fileName: fileName || 'Pièce jointe' });
     const attachmentMetadata = Object.keys(metadata).length ? metadata : undefined;
     // No transaction spans this lookup; release the pool slot before postMessage opens its transaction.

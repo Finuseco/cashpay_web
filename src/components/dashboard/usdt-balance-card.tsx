@@ -17,6 +17,7 @@ interface UsdtBalanceCardProps {
   onActivate?: () => void | Promise<void>;
   isActivated?: boolean;
   className?: string;
+  isActivating?: boolean;
 }
 
 /**
@@ -31,6 +32,7 @@ export function UsdtBalanceCard({
   onSell,
   onActivate,
   isActivated = false,
+  isActivating = false,
   className,
 }: UsdtBalanceCardProps) {
   const hasBalance =
@@ -39,8 +41,8 @@ export function UsdtBalanceCard({
   return (
     <Card
       className={cn(
-        'w-[19.2rem] h-48 flex-shrink-0 transition-shadow duration-300 hover:shadow-xl text-primary-foreground rounded-2xl shadow-lg relative overflow-hidden',
-        'bg-gradient-to-br from-[#0b3d2e] via-[#0a2a21] to-[#050505]',
+        'w-[19.2rem] h-40 flex-shrink-0 transition-shadow duration-300 hover:shadow-xl text-primary-foreground rounded-2xl shadow-lg relative overflow-hidden',
+        'bg-gradient-to-br from-[#59158d] via-[#2a0e42] to-[#190a28]',
         className
       )}
     >
@@ -60,13 +62,13 @@ export function UsdtBalanceCard({
         variant="outline"
         className="absolute right-3 top-3 z-30 h-7 min-w-[58px] px-2 text-[10px] font-semibold border-white/20 bg-black/70 text-white hover:bg-white/10 hover:text-white"
         onClick={onActivate}
-        disabled={isActivated}
+        disabled={isActivated || isActivating}
       >
-        {isActivated ? 'Actif' : 'Activer'}
+        {isActivated ? 'Actif' : isActivating ? 'Activation…' : 'Activer'}
       </Button>
 
       <CardContent className="p-4 flex flex-col justify-between h-full relative z-10">
-        <div>
+        <div className="pr-16">
           <span className="text-base font-semibold text-white">
             Solde USDT
           </span>
@@ -86,12 +88,12 @@ export function UsdtBalanceCard({
         </div>
 
         {/* Ligne 1 : Recevoir / Envoyer */}
-        <div className="grid grid-cols-2 gap-1 mb-1">
+        <div className="grid grid-cols-4 gap-1">
           <Button
             type="button"
             size="sm"
             variant="outline"
-            className="h-7 px-1 text-[9px] border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+            className="h-7 min-w-0 gap-0.5 [&_svg]:size-3 px-1 text-[9px] border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
             disabled={!isActivated}
             onClick={onReceive}
           >
@@ -103,22 +105,19 @@ export function UsdtBalanceCard({
             type="button"
             size="sm"
             variant="outline"
-            className="h-7 px-1 text-[9px] border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+            className="h-7 min-w-0 gap-0.5 [&_svg]:size-3 px-1 text-[9px] border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
             disabled={!isActivated}
             onClick={onSend}
           >
             <ArrowUpFromLine className="mr-0.5 h-3 w-3" />
             Envoyer
           </Button>
-        </div>
 
-        {/* Ligne 2 : Acheter / Vendre */}
-        <div className="grid grid-cols-2 gap-1">
           <Button
             type="button"
             size="sm"
             variant="outline"
-            className="h-7 px-1 text-[9px] border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
+            className="h-7 min-w-0 gap-0.5 [&_svg]:size-3 px-1 text-[9px] border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
             disabled={!isActivated}
             onClick={onBuy}
           >
@@ -130,7 +129,7 @@ export function UsdtBalanceCard({
             type="button"
             size="sm"
             variant="outline"
-            className="h-7 px-1 text-[9px] border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300"
+            className="h-7 min-w-0 gap-0.5 [&_svg]:size-3 px-1 text-[9px] border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300"
             disabled={!isActivated}
             onClick={onSell}
           >

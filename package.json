@@ -7,7 +7,16 @@
     "start": "next start -p 8002",
     "build": "next build",
     "lint": "next lint",
-    "generate-vapid": "node -e \"const webpush = require('web-push'); const vapidKeys = webpush.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY=' + vapidKeys.publicKey); console.log('VAPID_PRIVATE_KEY=' + vapidKeys.privateKey);\""
+    "generate-vapid": "node -e \"const webpush = require('web-push'); const vapidKeys = webpush.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY=' + vapidKeys.publicKey); console.log('VAPID_PRIVATE_KEY=' + vapidKeys.privateKey);\"",
+    "loans:enable": "node server/loans/manage.cjs enable",
+    "loans:status": "node server/loans/manage.cjs status",
+    "enterprise:enable": "node server/enterprise/manage.cjs enable",
+    "enterprise:status": "node server/enterprise/manage.cjs status",
+    "agents:enable": "node server/agents/manage.cjs enable",
+    "agents:status": "node server/agents/manage.cjs status",
+    "crypto:usdt:check": "node server/crypto/check-usdt.cjs",
+    "test:usdt:custody": "node tests/usdt-custody.cjs",
+    "test:loans:calendar": "node tests/loan-approval-clock.cjs"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",
@@ -45,6 +54,7 @@
     "dotenv": "^16.4.5",
     "embla-carousel-autoplay": "^8.6.0",
     "embla-carousel-react": "^8.1.7",
+    "emoji-mart": "^5.6.0",
     "firebase": "^10.12.3",
     "firebase-admin": "^12.2.0",
     "framer-motion": "^11.3.17",
@@ -59,6 +69,8 @@
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
     "jszip": "^3.10.1",
+    "livekit-client": "^2.23.0",
+    "livekit-server-sdk": "^2.19.2",
     "lodash": "^4.17.21",
     "lucide-react": "^0.414.0",
     "next": "14.2.35",
@@ -87,7 +99,8 @@
     "web-push": "^3.6.7",
     "ws": "^8.21.3",
     "zod": "^3.23.8",
-    "zustand": "^4.5.4"
+    "zustand": "^4.5.4",
+    "@next/env": "14.2.35"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

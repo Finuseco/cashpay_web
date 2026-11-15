@@ -6,14 +6,14 @@ import { LogOut, LayoutDashboard, ShoppingCart, History, Users, Store, BarChart,
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/logo';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-    DropdownMenuGroup,
-} from "@/components/ui/dropdown-menu"
+    ActionPanel,
+    ActionPanelContent,
+    ActionPanelItem,
+    ActionPanelLabel,
+    ActionPanelSeparator,
+    ActionPanelTrigger,
+    ActionPanelGroup,
+} from "@/components/ui/action-panel"
 import { useRouter, usePathname } from 'next/navigation';
 import type { User } from '@/lib/types';
 import { LanguageSwitcher } from '@/components/ui/language-switcher';
@@ -79,31 +79,31 @@ export function AgentHeader({ agent }: { agent?: User | null }) {
                             ))}
                             {/* Menu "Plus" pour les liens additionnels */}
                             <NavigationMenuItem>
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
+                                <ActionPanel>
+                                    <ActionPanelTrigger asChild>
                                         <button className={cn(navigationMenuTriggerStyle(), "flex items-center gap-1")}>
                                             Plus <ChevronDown className="h-3 w-3" />
                                         </button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent className="w-52" align="center">
-                                        <DropdownMenuGroup>
+                                    </ActionPanelTrigger>
+                                    <ActionPanelContent className="w-52" align="center">
+                                        <ActionPanelGroup>
                                             {moreNavLinks.map((link) => (
-                                                <DropdownMenuItem key={link.href} onClick={() => router.push(link.href)} className={cn(pathname.startsWith(link.href) && "bg-accent")}>
+                                                <ActionPanelItem key={link.href} onClick={() => router.push(link.href)} className={cn(pathname.startsWith(link.href) && "bg-accent")}>
                                                     <link.icon className="mr-2 h-4 w-4" />
                                                     {link.label}
-                                                </DropdownMenuItem>
+                                                </ActionPanelItem>
                                             ))}
-                                        </DropdownMenuGroup>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
+                                        </ActionPanelGroup>
+                                    </ActionPanelContent>
+                                </ActionPanel>
                             </NavigationMenuItem>
                         </NavigationMenuList>
                     </NavigationMenu>
                 </div>
                 <div className="flex items-center gap-2">
                     <LanguageSwitcher />
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                    <ActionPanel>
+                        <ActionPanelTrigger asChild>
                            <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                               <Avatar className="h-10 w-10 border-2 border-primary">
                                 <AvatarImage src={agent?.profile_photo || undefined} alt={agent?.full_name || "User"} />
@@ -112,32 +112,32 @@ export function AgentHeader({ agent }: { agent?: User | null }) {
                                 </AvatarFallback>
                               </Avatar>
                             </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent className="w-56" align="end">
-                            <DropdownMenuLabel>Menu Agent</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                             <DropdownMenuItem onClick={() => router.push('/dashboard')}>
+                        </ActionPanelTrigger>
+                        <ActionPanelContent className="w-56" align="end">
+                            <ActionPanelLabel>Menu Agent</ActionPanelLabel>
+                            <ActionPanelSeparator />
+                             <ActionPanelItem onClick={() => router.push('/dashboard')}>
                                 <span>Espace Client</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => router.push('/agent/profile')}>
+                            </ActionPanelItem>
+                            <ActionPanelItem onClick={() => router.push('/agent/profile')}>
                                 <UserIcon className="mr-2 h-4 w-4" />
                                 <span>Profil</span>
-                            </DropdownMenuItem>
-                             <DropdownMenuItem onClick={() => router.push('/marketing/ads')}>
+                            </ActionPanelItem>
+                             <ActionPanelItem onClick={() => router.push('/marketing/ads')}>
                                 <Megaphone className="mr-2 h-4 w-4" />
                                 <span>Gestion des publicités</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => router.push('/settings')}>
+                            </ActionPanelItem>
+                            <ActionPanelItem onClick={() => router.push('/settings')}>
                                 <Settings className="mr-2 h-4 w-4" />
                                 <span>Paramètres</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={handleLogout}>
+                            </ActionPanelItem>
+                            <ActionPanelSeparator />
+                            <ActionPanelItem onClick={handleLogout}>
                                 <LogOut className="mr-2 h-4 w-4" />
                                 <span>Déconnexion</span>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                            </ActionPanelItem>
+                        </ActionPanelContent>
+                    </ActionPanel>
                 </div>
             </div>
         </header>

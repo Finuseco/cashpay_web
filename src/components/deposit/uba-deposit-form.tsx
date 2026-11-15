@@ -9,7 +9,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { User } from '@/lib/types';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from "../ui/choice-group";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
@@ -56,12 +56,12 @@ export const UbaDepositForm = ({ user, onSubmit, isSubmitting }: UbaDepositFormP
                 render={({ field }) => (
                     <FormItem>
                     <FormLabel>{t('depositCurrencyLabel')}</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled>
-                        <FormControl><SelectTrigger><SelectValue/></SelectTrigger></FormControl>
-                        <SelectContent>
-                            <SelectItem value="NGN">NGN</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <ChoiceGroup onValueChange={field.onChange} defaultValue={field.value} disabled>
+                        <FormControl><ChoiceTrigger><ChoiceValue/></ChoiceTrigger></FormControl>
+                        <ChoiceContent>
+                            <ChoiceItem value="NGN">NGN</ChoiceItem>
+                        </ChoiceContent>
+                    </ChoiceGroup>
                     <FormMessage />
                     </FormItem>
                 )}

@@ -35,6 +35,7 @@ function date(v: unknown): string {
   return Number.isNaN(d.getTime())
     ? 'Non disponible'
     : d.toLocaleDateString('fr-FR', {
+        weekday: 'long',
         day: '2-digit',
         month: 'long',
         year: 'numeric',
@@ -217,7 +218,7 @@ export function LoanHistoryClient({
   }
 
   return (
-    <main className="min-h-full w-full bg-[#000E38] px-4 py-6 text-white md:px-8">
+    <main className="min-h-full w-full bg-[#2A0E42] px-4 py-6 text-white md:px-8">
       <div className="mx-auto w-full max-w-5xl">
         <header className="mb-6">
           <h1 className="text-3xl font-bold">Historique LoanMe</h1>
@@ -278,7 +279,7 @@ export function LoanHistoryClient({
               const repayments = Array.isArray((loan as any).repayments)
                 ? (loan as any).repayments
                 : [];
-              const active = status === 'approved' && remaining > 0.005;
+              const active = ['approved','defaulted','overdue'].includes(status) && remaining > 0.005;
 
               return (
                 <article
@@ -306,27 +307,27 @@ export function LoanHistoryClient({
 
                   <div className="grid gap-4 border-b border-white/10 p-5 sm:grid-cols-2 lg:grid-cols-4">
                     <div>
-                      <p className="text-xs text-zinc-400">Début</p>
+                      <p className="text-xs text-zinc-400">{String(loan.status).toLowerCase() === 'pending' ? 'Demande déposée' : 'Approbation'}</p>
                       {(() => {
-                        const dd = dateWithDay((loan as any).start_date || (loan as any).approval_date || (loan as any).request_date);
+                        const dd = dateWithDay(String(loan.status).toLowerCase() === 'pending' ? (loan as any).request_date : (loan as any).approval_date || (loan as any).start_date);
                         return dd ? (
                           <p className="mt-1 text-sm leading-snug">
                             <span className="font-medium">{dd.line1}</span><br/>
                             <span className="text-zinc-400">{dd.line2}</span>
                           </p>
-                        ) : <p className="mt-1 text-sm text-zinc-400">Non disponible</p>;
+                        ) : <p className="mt-1 text-sm text-zinc-400">{String(loan.status).toLowerCase() === 'pending' ? 'Après approbation' : 'Non disponible'}</p>;
                       })()}
                     </div>
                     <div>
                       <p className="text-xs text-zinc-400">Fin prévue</p>
                       {(() => {
-                        const dd = dateWithDay((loan as any).end_date);
+                        const dd = dateWithDay(String(loan.status).toLowerCase() === 'pending' ? null : (loan as any).end_date);
                         return dd ? (
                           <p className="mt-1 text-sm leading-snug">
                             <span className="font-medium">{dd.line1}</span><br/>
                             <span className="text-zinc-400">{dd.line2}</span>
                           </p>
-                        ) : <p className="mt-1 text-sm text-zinc-400">Non disponible</p>;
+                        ) : <p className="mt-1 text-sm text-zinc-400">{String(loan.status).toLowerCase() === 'pending' ? 'Après approbation' : 'Non disponible'}</p>;
                       })()}
                     </div>
                     <div>
@@ -363,7 +364,7 @@ export function LoanHistoryClient({
                   </div>
 
                   {active && (
-                    <section className="border-b border-white/10 bg-[#000E38] p-5">
+                    <section className="border-b border-white/10 bg-[#2A0E42] p-5">
                       <h3 className="font-semibold text-[#FF6600]">
                         Remboursement manuel
                       </h3>
@@ -409,7 +410,7 @@ export function LoanHistoryClient({
                           return (
                           <div
                             key={Number(item.id) || `${id}-${index}`}
-                            className="rounded-lg border border-white/10 bg-[#000E38] p-4"
+                            className="rounded-lg border border-white/10 bg-[#2A0E42] p-4"
                           >
                             <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
                               <div>
@@ -479,7 +480,7 @@ export function LoanHistoryClient({
                           return (
                             <div
                               key={Number(repayment.id) || `${id}-rep-${index}`}
-                              className="flex flex-col gap-2 rounded-lg border border-white/10 bg-[#000E38] p-4 sm:flex-row sm:justify-between"
+                              className="flex flex-col gap-2 rounded-lg border border-white/10 bg-[#2A0E42] p-4 sm:flex-row sm:justify-between"
                             >
                               <div>
                                 <p className="font-medium">

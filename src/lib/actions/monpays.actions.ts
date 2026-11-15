@@ -1,4 +1,5 @@
 'use server';
+import {enterpriseFeeWaived} from '@/lib/enterprise/policy';
 
 import type { MonPaysCompany, MonPaysActivity, User } from '../types';
 import { db } from '@/lib/db';
@@ -499,16 +500,11 @@ export async function createMonPaysCompany(args: { user: User; pin: string; comp
             ON CONFLICT (transaction_type, currency, country_code) DO NOTHING
         `).catch(() => { /* table peut ne pas exister encore, on ignore */ });
 
-        let referenceFeeUSD = await calculateTransactionFee(
-            0,
-            'USD',
-            'MONPAYS_PAGE',
-            user.country,
-            connection
+        let referenceFeeUSD = await calculateTransactionFee(0, 'USD', 'MONPAYS_PAGE', user.country, connection, user.id
         );
 
         // Fallback : 30 USD si la règle n'a pas pu être insérée (DB sans la table fee_structures)
-        if (referenceFeeUSD <= 0) {
+        if (referenceFeeUSD <= 0 && !await enterpriseFeeWaived(connection,user.id,'MONPAYS_PAGE')) {
             referenceFeeUSD = 30;
         }
 
@@ -869,8 +865,8 @@ export async function getMonPaysCreationFee(paymentCurrency: string = 'USD'): Pr
             ON CONFLICT (transaction_type, currency, country_code) DO NOTHING
         `).catch(() => {});
         // Cherche d'abord le fee spécifique au pays de l'utilisateur (ex: CD, FR…), puis fallback GBL
-        let referenceFeeUSD = await calculateTransactionFee(0, 'USD', 'MONPAYS_PAGE', user.country, connection);
-        if (!(referenceFeeUSD > 0)) referenceFeeUSD = 30; // fallback absolu 30 USD
+        let referenceFeeUSD = await calculateTransactionFee(0, 'USD', 'MONPAYS_PAGE', user.country, connection, user.id);
+        if (!(referenceFeeUSD > 0) && !await enterpriseFeeWaived(connection,user.id,'MONPAYS_PAGE')) referenceFeeUSD = 30; // fallback absolu 30 USD
 
         const currency = String(paymentCurrency || 'USD').toUpperCase();
         let fee = referenceFeeUSD;

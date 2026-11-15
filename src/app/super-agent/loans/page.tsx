@@ -35,7 +35,7 @@ export default function SuperAgentLoans() {
     const [isCountryPinDialogOpen, setIsCountryPinDialogOpen] = useState(false);
     const [superAgent, setSuperAgent] = useState<any>(null);
     const [filter, setFilter] = useState('');
-    
+
     const { openAlert } = useAlertDialog();
 
     const fetchData = async () => {
@@ -54,7 +54,7 @@ export default function SuperAgentLoans() {
     };
 
     useEffect(() => {
-        fetchData();
+        fetchData().catch(() => { setIsLoading(false); openAlert({ title: 'Chargement impossible', description: 'Données indisponibles. Actualisez la page pour réessayer.', variant: 'error' }); });
     }, []);
 
     const handleCountryLoanCollection = async () => {
@@ -145,7 +145,7 @@ export default function SuperAgentLoans() {
         if (result?.success) {
             openAlert({
                 title: actionType === 'collect' ? 'Action de Recouvrement Terminée' : (actionType === 'approve' ? 'Prêt Approuvé' : 'Demande Rejetée'),
-                description: actionType === 'collect' 
+                description: actionType === 'collect'
                     ? "L'opération a été traitée. Si le solde était insuffisant, une pénalité a été appliquée."
                     : (actionType === 'approve' ? `Les fonds ont été crédités au client.` : `La demande a été rejetée.`),
                 variant: 'success'
@@ -219,8 +219,8 @@ export default function SuperAgentLoans() {
                 </div>
                 <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-                    <Input 
-                        placeholder="Rechercher un client..." 
+                    <Input
+                        placeholder="Rechercher un client..."
                         className="pl-9 bg-zinc-800 border-zinc-700"
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
@@ -230,21 +230,21 @@ export default function SuperAgentLoans() {
 
             {/* Dialog Action (Approve/Reject/Collect) */}
             <Dialog open={!!selectedLoan && actionType !== 'view_schedule'} onOpenChange={(open) => !open && setSelectedLoan(null)}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
                         <DialogTitle>
                             {actionType === 'collect' ? 'Recouvrement Forcé' : (actionType === 'approve' ? 'Approuver le Prêt' : 'Rejeter la demande')}
                         </DialogTitle>
                         <DialogDescription className="text-zinc-400">
-                            {actionType === 'collect' 
+                            {actionType === 'collect'
                                 ? "Si le solde du client est suffisant, l'échéance sera prélevée. SINON, une pénalité sera ajoutée à sa dette totale."
-                                : (actionType === 'approve' 
+                                : (actionType === 'approve'
                                     ? "En approuvant, les fonds seront immédiatement transférés au client."
                                     : "Cette action annulera la demande de crédit.")
                             }
                         </DialogDescription>
                     </DialogHeader>
-                    
+
                     <div className="p-4 bg-muted/50 rounded-lg space-y-2 text-sm">
                         <div className="flex justify-between"><span>Client:</span><span className="font-bold">{selectedLoan?.full_name}</span></div>
                         <div className="flex justify-between"><span>ID Wallet:</span><span className="font-mono text-primary">{selectedLoan?.id_wallet}</span></div>
@@ -269,9 +269,9 @@ export default function SuperAgentLoans() {
 
                     <DialogFooter>
                         <Button variant="ghost" onClick={() => setSelectedLoan(null)}>Annuler</Button>
-                        <Button 
-                            onClick={handleConfirmAction} 
-                            disabled={isProcessing || pin.length < 4} 
+                        <Button
+                            onClick={handleConfirmAction}
+                            disabled={isProcessing || pin.length < 4}
                             variant={actionType === 'reject' ? 'destructive' : 'default'}
                             className={cn(actionType === 'collect' && "bg-yellow-600 hover:bg-yellow-700 text-white")}
                         >
@@ -292,7 +292,7 @@ export default function SuperAgentLoans() {
                     }
                 }}
             >
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white">
                     <DialogHeader>
                         <DialogTitle>Recouvrement national</DialogTitle>
                         <DialogDescription className="text-zinc-400">
@@ -369,12 +369,12 @@ export default function SuperAgentLoans() {
 
             {/* Dialog Échéancier */}
             <Dialog open={!!selectedLoan && actionType === 'view_schedule'} onOpenChange={(open) => !open && setSelectedLoan(null)}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-lg">
+                <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto bg-zinc-900 border-zinc-800 text-white max-w-lg">
                     <DialogHeader>
                         <DialogTitle>Échéancier : {selectedLoan?.full_name}</DialogTitle>
                         <DialogDescription>Plan de remboursement et statut des paiements.</DialogDescription>
                     </DialogHeader>
-                    
+
                     <ScrollArea className="max-h-[400px] mt-4">
                         <Table>
                             <TableHeader>
@@ -390,7 +390,7 @@ export default function SuperAgentLoans() {
                                     const isMissed = !item.isPaid && isPast(item.dueDate) && !isToday(item.dueDate);
                                     return (
                                         <TableRow key={idx} className="border-zinc-800">
-                                            <TableCell className="text-sm">{format(item.dueDate, 'dd MMMM yyyy', { locale: fr })}</TableCell>
+                                            <TableCell className="text-sm">{format(item.dueDate, 'EEEE dd MMMM yyyy', { locale: fr })}</TableCell>
                                             <TableCell className="font-mono">{item.amount.toFixed(2)} {selectedLoan.currency}</TableCell>
                                             <TableCell className="text-right">
                                                 {item.isPaid ? (
@@ -474,7 +474,7 @@ export default function SuperAgentLoans() {
                                             {nextDue ? (
                                                 <div>
                                                     <p className={cn("text-xs font-bold", isLate ? "text-red-500" : "text-zinc-300")}>
-                                                        {format(nextDue.dueDate, 'dd/MM/yyyy')}
+                                                        {format(nextDue.dueDate, 'EEEE dd MMMM yyyy', { locale: fr })}
                                                     </p>
                                                     <p className="text-[10px] text-zinc-500">{Number(nextDue.amount ?? nextDue.remaining ?? 0).toFixed(2)} {loan.currency}</p>
                                                 </div>
@@ -493,7 +493,7 @@ export default function SuperAgentLoans() {
                                                 <Button size="sm" variant="ghost" onClick={() => handleOpenAction(loan, 'view_schedule')} title="Voir l'échéancier">
                                                     <Calendar className="h-4 w-4"/>
                                                 </Button>
-                                                
+
                                                 {loan.status === 'pending' ? (
                                                     <>
                                                         <Button size="sm" variant="outline" className="h-8 border-green-600 text-green-500" onClick={() => handleOpenAction(loan, 'approve')}>
@@ -504,9 +504,9 @@ export default function SuperAgentLoans() {
                                                         </Button>
                                                     </>
                                                 ) : (
-                                                    <Button 
-                                                        size="sm" 
-                                                        disabled={!nextDue || loan.status !== 'approved'}
+                                                    <Button
+                                                        size="sm"
+                                                        disabled={!nextDue || !['approved','defaulted','overdue'].includes(loan.status)}
                                                         className={cn("h-8 font-bold", isLate ? "bg-red-600 hover:bg-red-700" : "bg-zinc-700")}
                                                         onClick={() => handleOpenAction(loan, 'collect')}
                                                     >

@@ -1,13 +1,14 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getFeeStructuresForCountry, type FeeStructure } from '@/lib/actions/fees.actions';
+import { getEffectiveFeeSchedule, type FeeStructure } from '@/lib/actions/fees.actions';
 import { Skeleton } from "../ui/skeleton";
+import { Button } from "../ui/button";
 import { countries } from "@/lib/countries";
 import { getAuthenticatedUser } from "@/lib/actions/user.actions";
 import { countryToCode } from "@/lib/utils";
@@ -77,8 +78,9 @@ const LoadingSkeleton = () => (
 )
 
 const FeeCard = ({ feeData, title, description }: { feeData: FeeStructure[], title: string, description: string }) => {
+    const [activeCurrency,setActiveCurrency]=useState('');
     if (!feeData || feeData.length === 0) return null;
-    
+
     const availableCurrencies = Array.from(new Set(feeData.map(f => f.currency)));
     const defaultTab = availableCurrencies.includes('USD') ? 'USD' : availableCurrencies[0];
 
@@ -94,8 +96,8 @@ const FeeCard = ({ feeData, title, description }: { feeData: FeeStructure[], tit
           <CardDescription>{description}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue={defaultTab} className="w-full">
-            <TabsList className={`grid w-full grid-cols-${availableCurrencies.length}`}>
+          <Tabs value={availableCurrencies.includes(activeCurrency)?activeCurrency:defaultTab} onValueChange={setActiveCurrency} className="w-full">
+            <TabsList className="flex w-full h-auto flex-wrap justify-start">
               {availableCurrencies.map(currency => (
                 <TabsTrigger key={currency} value={currency}>{currency}</TabsTrigger>
               ))}
@@ -117,34 +119,23 @@ const FeeCard = ({ feeData, title, description }: { feeData: FeeStructure[], tit
 
 export function FeeScheduleClient() {
   const { t } = useTranslation();
-  const [user, setUser] = useState<User | null>(null);
   const [fees, setFees] = useState<Record<string, FeeStructure[]>>({});
   const [isLoading, setIsLoading] = useState(true);
-
+  const [error, setError] = useState('');
+  const [country, setCountry] = useState('');
+  const requestId=useRef(0);
   const fetchFees = useCallback(async () => {
-    const currentUser = await getAuthenticatedUser();
-    setUser(currentUser);
-    if (currentUser?.country) {
-      const countryCode = countryToCode(currentUser.country);
-      
-      setIsLoading(true);
-      const [localFees, globalFees] = await Promise.all([
-          getFeeStructuresForCountry(countryCode || 'CD'), // Fallback to CD
-          getFeeStructuresForCountry('GBL')
-      ]);
-
-      // Merge local and global fees, local takes precedence
-      const mergedFees = { ...globalFees, ...localFees };
-
-      setFees(mergedFees);
-      setIsLoading(false);
-    } else {
-       setIsLoading(false);
-    }
+      const id=++requestId.current; setError('');
+      try { const data = await getEffectiveFeeSchedule(); if(id===requestId.current){setFees(data.fees); setCountry(data.countryCode);} }
+      catch (error) { if(id===requestId.current)setError(error instanceof Error ? error.message : 'Impossible de charger les frais.'); }
+      finally { if(id===requestId.current)setIsLoading(false); }
   }, []);
 
   useEffect(() => {
-    fetchFees();
+    void fetchFees();
+    const refresh=()=>{if(document.visibilityState==='visible')void fetchFees()};
+    window.addEventListener('focus',refresh);
+    return()=>{requestId.current++;window.removeEventListener('focus',refresh)};
   }, [fetchFees]);
 
   const feeSections = Object.entries(fees)
@@ -167,7 +158,10 @@ export function FeeScheduleClient() {
         <h1 className="text-3xl font-bold text-foreground">{t('feesTitle', 'Grille Tarifaire')}</h1>
         <p className="text-muted-foreground">{t('feesDescription', 'Retrouvez ci-dessous l\'ensemble de nos frais de retrait et de transfert.')}</p>
       </div>
-      
+
+      {error && <Card><CardContent className="p-6 space-y-3"><p role="alert" className="text-destructive">{error}</p><Button onClick={fetchFees}>Réessayer</Button></CardContent></Card>}
+      <Button variant="outline" onClick={fetchFees}>Actualiser les tarifs</Button>
+      {country && <p className="text-sm text-muted-foreground text-center">Grille applicable : {country}. Les tarifs globaux et locaux sont combinés par service et devise.</p>}
       {isLoading ? (
         <div className="grid md:grid-cols-1 gap-6">
           <LoadingSkeleton/>

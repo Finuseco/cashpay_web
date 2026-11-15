@@ -2,6 +2,8 @@
 'use server';
 
 import { db } from '@/lib/db';
+import { regionalScope, requireSuperAgent } from '@/lib/super-agent-access';
+import { verifyUserPin } from '../auth.actions';
 import { handleDbError, saveBase64Image, getUserFromDb } from '../helpers';
 import type { User } from '@/lib/types';
 import { formatUser } from '@/lib/utils';
@@ -16,67 +18,29 @@ import crypto from 'crypto';
  * Recherche des utilisateurs restreinte au territoire de l'admin.
  * Corrigé pour une indexation précise des paramètres SQL.
  */
-export async function searchCountryUsers(adminId: number, query: string): Promise<User[]> {
-    try {
-        const { rows: adminRows } = await db.query(
-            `SELECT id, role, country, province, status FROM users WHERE id = $1::integer LIMIT 1`,
-            [adminId]
-        );
-        if (!adminRows.length) return [];
-
-        const admin = adminRows[0];
-        const role = String(admin.role || '').trim();
-        if (!['SuperAgent', 'SubSuperAgent', 'Admin'].includes(role)) return [];
-        if (['Suspended', 'Blocked', 'Inactive', 'Disabled', 'Banned'].includes(String(admin.status || '').trim())) return [];
-        if (!admin.country) return [];
-
-        const params: any[] = [admin.country];
-        let sql = `
-            SELECT u.*, COALESCE(w.balances, '{}'::jsonb) AS wallet_balances,
-                   COALESCE(w.commission_balance, '{}'::jsonb) AS wallet_commission_balance
-            FROM users u
-            LEFT JOIN wallets w ON w.user_id = u.id
-            WHERE LOWER(TRIM(u.country)) = LOWER(TRIM($1))`;
-
-        if (role === 'SubSuperAgent' && admin.province) {
-            params.push(admin.province);
-            sql += ` AND LOWER(TRIM(COALESCE(u.province,''))) = LOWER(TRIM($${params.length}))`;
-        }
-
-        const normalizedQuery = String(query || '').trim();
-        if (normalizedQuery) {
-            params.push(`%${normalizedQuery}%`);
-            const p = `$${params.length}`;
-            sql += ` AND (
-                COALESCE(u.full_name,'') ILIKE ${p}
-                OR COALESCE(u.first_name,'') ILIKE ${p}
-                OR COALESCE(u.last_name,'') ILIKE ${p}
-                OR COALESCE(u.id_wallet,'') ILIKE ${p}
-                OR COALESCE(u.phone,'') ILIKE ${p}
-                OR COALESCE(u.email,'') ILIKE ${p}
-                OR CAST(u.id AS TEXT) ILIKE ${p}
-            )`;
-        }
-
-        // Pas de LIMIT artificielle : le Super Agent doit pouvoir parcourir tout son territoire.
-        sql += ` ORDER BY u.created_at DESC NULLS LAST, u.id DESC`;
-
-        const { rows } = await db.query(sql, params);
-        return rows.map((row: any) => {
-            try {
-                const user = formatUser(row) as any;
-                user.balances = typeof row.wallet_balances === 'string' ? JSON.parse(row.wallet_balances) : (row.wallet_balances || {});
-                user.commission_balance = typeof row.wallet_commission_balance === 'string' ? JSON.parse(row.wallet_commission_balance) : (row.wallet_commission_balance || {});
-                return user;
-            } catch (e) {
-                console.error('[searchCountryUsers] Error formatting user row:', row.id, e);
-                return null;
-            }
-        }).filter(Boolean) as User[];
-    } catch (error) {
-        console.error('[searchCountryUsers] SQL Error:', error);
-        return [];
+export async function searchCountryUsers(adminId: number, query: string, page = 0): Promise<User[]> {
+    const actor = await requireSuperAgent(adminId);
+    const scope = await regionalScope(actor.country);
+    const values = [...scope.values];
+    let sql = `SELECT u.*, w.balances AS wallet_balances, w.commission_balance AS wallet_commission_balance FROM users u LEFT JOIN wallets w ON w.user_id = u.id WHERE ${scope.sql}`;
+    const text = String(query || '').trim().slice(0,100);
+    if (text) {
+        values.push(`%${text}%`);
+        const pattern = `$${values.length}`;
+        const digits = text.replace(/\D/g, '');
+        values.push(digits.length >= 9 ? digits.slice(-9) : '');
+        sql += ` AND (u.full_name ILIKE ${pattern} OR u.id_wallet ILIKE ${pattern} OR u.phone ILIKE ${pattern} OR u.email ILIKE ${pattern} OR (RIGHT(REGEXP_REPLACE(COALESCE(u.phone,''),'[^0-9]','','g'),9) = $${values.length} AND $${values.length} <> ''))`;
     }
+    values.push(Math.max(0, Math.floor(Number(page) || 0)) * 100);
+    sql += ` ORDER BY u.created_at DESC NULLS LAST, u.id DESC LIMIT 100 OFFSET $${values.length}`;
+    const { rows } = await db.query(sql, values);
+    return rows.map(row => {
+        const user = formatUser(row) as any;
+        for (const field of ['pin_hash','password_hash','totp_secret','api_secret','test_api_secret','zoom_refresh_token']) delete user[field];
+        user.balances = typeof row.wallet_balances === 'string' ? JSON.parse(row.wallet_balances) : row.wallet_balances || {};
+        user.commission_balance = typeof row.wallet_commission_balance === 'string' ? JSON.parse(row.wallet_commission_balance) : row.wallet_commission_balance || {};
+        return user;
+    });
 }
 
 /**
@@ -87,9 +51,9 @@ export async function getClientKycDetails(targetUserId: number, adminId: number)
         await validateSuperAgentAccess(adminId, targetUserId);
         const { rows: userRows } = await db.query('SELECT signature_image, representative, phone, email, id_wallet, profile_photo FROM users WHERE id = $1::integer', [targetUserId]);
         if (userRows.length === 0) return null;
-        
+
         const { rows: docRows } = await db.query('SELECT * FROM user_documents WHERE user_id = $1::integer ORDER BY created_at DESC LIMIT 1', [targetUserId]);
-        
+
         return {
             signature_image: userRows[0]?.signature_image,
             representative: typeof userRows[0]?.representative === 'string' ? JSON.parse(userRows[0].representative) : userRows[0]?.representative,
@@ -110,7 +74,7 @@ export async function updateClientProfilePhoto(targetUserId: number, adminId: nu
     try {
         await connection.query('BEGIN');
         await validateSuperAgentAccess(adminId, targetUserId, connection);
-        
+
         const { rows: adminRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1::integer', [adminId]);
         if (!adminRows.length || !adminRows[0].pin_hash || !(await bcrypt.compare(adminPin, adminRows[0].pin_hash))) throw new Error("PIN Admin incorrect.");
 
@@ -137,7 +101,7 @@ export async function upgradeToBusinessAccount(targetUserId: number, adminId: nu
     try {
         await connection.query('BEGIN');
         await validateSuperAgentAccess(adminId, targetUserId, connection);
-        
+
         // 1. Vérifier le PIN Admin
         const { rows: adminRows } = await connection.query('SELECT pin_hash FROM users WHERE id = $1::integer', [adminId]);
         if (!adminRows.length || !adminRows[0].pin_hash || !(await bcrypt.compare(adminPin, adminRows[0].pin_hash))) throw new Error("PIN Admin incorrect.");
@@ -152,11 +116,11 @@ export async function upgradeToBusinessAccount(targetUserId: number, adminId: nu
 
         // 2. Mettre à jour l'utilisateur : rôle, type, NOM (Company Name) et les 4 clés (Live + Test)
         await connection.query(`
-            UPDATE users 
-            SET role = 'PartnerB2B', 
+            UPDATE users
+            SET role = 'PartnerB2B',
                 account_type = 'business',
                 full_name = $1,
-                api_key = $2, 
+                api_key = $2,
                 api_secret = $3,
                 test_api_key = $4,
                 test_api_secret = $5
@@ -170,16 +134,16 @@ export async function upgradeToBusinessAccount(targetUserId: number, adminId: nu
         await connection.query(`
             INSERT INTO b2b_partners (owner_user_id, company_name, company_email, status, api_key)
             VALUES ($1, $2, $3, 'active', $4)
-            ON CONFLICT (owner_user_id) DO UPDATE SET 
+            ON CONFLICT (owner_user_id) DO UPDATE SET
                 company_name = EXCLUDED.company_name,
-                status = 'active', 
+                status = 'active',
                 api_key = EXCLUDED.api_key
         `, [targetUserId, companyName, user.email, apiKey]);
 
         await logIntervention(adminId, targetUserId, 'ROLE_UPGRADE_B2B', `Surclassement B2B (Live & Test) : Identité changée en "${companyName}"`, connection);
 
         await connection.query('COMMIT');
-        
+
         if (user.email) {
             await sendEmail(user.email, `Bienvenue chez CashPay All International, ${companyName}`, 'b2b_welcome', {
                 companyName: companyName,
@@ -187,7 +151,7 @@ export async function upgradeToBusinessAccount(targetUserId: number, adminId: nu
                 testApiKey: testApiKey,
                 testApiSecret: testApiSecret,
                 buttonUrl: `${process.env.NEXT_PUBLIC_APP_URL}/settings`,
-            });
+            }).catch(error => console.error('[B2B_WELCOME_NOTIFICATION]', error));
         }
 
         return { success: true };
@@ -199,6 +163,7 @@ export async function upgradeToBusinessAccount(targetUserId: number, adminId: nu
 
 export async function updateClientContact(args: { targetUserId: number, adminId: number, pin: string, newPhone?: string, newEmail?: string }) {
     const { targetUserId, adminId, pin, newPhone, newEmail } = args;
+    if ((!newPhone && !newEmail) || (newPhone && !/^\+?[0-9 ()-]{8,25}$/.test(newPhone)) || (newEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail))) return { success: false, error: 'Coordonnées invalides.' };
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
@@ -226,25 +191,29 @@ export async function updateClientContact(args: { targetUserId: number, adminId:
     }
 }
 
-export async function resetClientPin(targetUserId: number, adminId: number): Promise<{ success: boolean; error?: string }> {
+export async function resetClientPin(targetUserId: number, adminId: number, adminPin?: string): Promise<{ success: boolean; error?: string }> {
     const connection = await db.getConnection();
     try {
         await connection.query('BEGIN');
         await validateSuperAgentAccess(adminId, targetUserId, connection);
-        
+        const verified = await verifyUserPin(adminId, adminPin || '');
+        if (!verified.success) throw new Error('PIN du gestionnaire requis.');
+
         const { rows } = await connection.query('SELECT phone FROM users WHERE id = $1::integer', [targetUserId]);
         if (rows.length === 0) throw new Error("Client non trouvé.");
-        
-        const newPin = Math.floor(1000 + Math.random() * 9000).toString();
+
+        if (!rows[0].phone) throw new Error('Téléphone client manquant.');
+        const newPin = crypto.randomInt(1000, 10000).toString();
         const pinHash = await bcrypt.hash(newPin, 10);
         await connection.query('UPDATE users SET pin_hash = $1 WHERE id = $2::integer', [pinHash, targetUserId]);
-        
+
         if (rows[0].phone) {
-            await sendSms(rows[0].phone, `CashPay Security: Votre nouveau code PIN de sécurité généré par agent est : ${newPin}.`);
+            const delivery = await sendSms(rows[0].phone, `CashPay Security: Votre nouveau code PIN de sécurité généré par agent est : ${newPin}.`);
+            if (!delivery.success) throw new Error('SMS refusé : le PIN n’a pas été modifié.');
         }
-        
+
         await logIntervention(adminId, targetUserId, 'PIN_RESET', 'Réinitialisation forcée du PIN client', connection);
-        
+
         await connection.query('COMMIT');
         return { success: true };
     } catch (error: any) {
@@ -260,14 +229,19 @@ export async function toggleUserStatus(targetUserId: number, currentStatus: stri
     try {
         await connection.query('BEGIN');
         await validateSuperAgentAccess(adminId, targetUserId, connection);
-        
-        const newStatus = currentStatus === 'Active' ? 'Suspended' : 'Active';
+
+        const { rows: stateRows } = await connection.query('SELECT status FROM users WHERE id = $1 FOR UPDATE', [targetUserId]);
+        if (!stateRows[0]) throw new Error('Utilisateur introuvable.');
+        if (String(stateRows[0].status).toLowerCase() !== String(currentStatus).toLowerCase()) throw new Error('Le statut a changé. Actualisez la fiche avant de recommencer.');
+        if (Number(targetUserId) === Number(adminId)) throw new Error('Vous ne pouvez pas bloquer votre propre compte.');
+        const newStatus = String(stateRows[0].status).toLowerCase() === 'active' ? 'Suspended' : 'Active';
+        if (newStatus === 'Suspended' && (!reason || reason.trim().length < 10)) throw new Error('Indiquez une raison de blocage d’au moins 10 caractères.');
         const finalReason = newStatus === 'Suspended' ? (reason || "Suspension administrative") : null;
 
         await connection.query('UPDATE users SET status = $1, suspension_reason = $2 WHERE id = $3::integer', [newStatus, finalReason, targetUserId]);
-        
+
         await logIntervention(adminId, targetUserId, 'STATUS_TOGGLE', `Changement de statut vers ${newStatus}. Raison: ${finalReason || 'N/A'}`, connection);
-        
+
         await connection.query('COMMIT');
         return { success: true, status: newStatus };
     } catch (e: any) {

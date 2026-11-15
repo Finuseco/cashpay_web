@@ -107,12 +107,7 @@ export async function POST(
 
         const currentUser = formatUser(userRows[0]);
 
-        const fee = await calculateTransactionFee(
-            amount,
-            currency,
-            'TR',
-            currentUser.country,
-            connection
+        const fee = await calculateTransactionFee(amount, currency, 'TR', currentUser.country, connection, currentUser.id
         );
 
         const totalDebit = amount + fee;

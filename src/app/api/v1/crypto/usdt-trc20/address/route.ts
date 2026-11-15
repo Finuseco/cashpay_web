@@ -34,8 +34,8 @@ export async function POST() {
           success: false,
           currency: 'USDT',
           network: 'TRC20',
-          error: 'SECURE_KEY_CUSTODY_NOT_CONFIGURED',
-          message: 'La création d’adresse est suspendue jusqu’à la configuration de la conservation sécurisée des clés.',
+          error: error.code,
+          message: 'Le portefeuille USDT nécessite une vérification de configuration par l’administrateur. Aucune adresse fictive n’a été créée.',
         },
         { status: 503 },
       );

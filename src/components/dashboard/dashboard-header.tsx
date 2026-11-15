@@ -12,13 +12,13 @@ import { CurrencyCard } from "./currency-card";
 import { BitcoinBalanceCard } from "./bitcoin-balance-card";
 import { UsdtBalanceCard } from "./usdt-balance-card";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  ActionPanel,
+  ActionPanelContent,
+  ActionPanelItem,
+  ActionPanelLabel,
+  ActionPanelSeparator,
+  ActionPanelTrigger,
+} from "@/components/ui/action-panel"
 import { useRouter } from 'next/navigation';
 import { logout } from '@/lib/actions/auth.actions';
 import { LanguageSwitcher } from '../ui/language-switcher';
@@ -59,6 +59,8 @@ function NotificationItem({ notification }: { notification: Notification }) {
 export function DashboardHeader({ user, currencies, cards, children, pageTitle }: { user: User | null; currencies?: Currency[], cards?: Card[], children?: React.ReactNode, pageTitle?: string }) {
   const { t } = useTranslation();
   const router = useRouter();
+  const { openAlert } = useAlertDialog();
+  const [isUsdtActivating, setIsUsdtActivating] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [renderedPageTitle, setRenderedPageTitle] = useState(pageTitle);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -176,7 +178,7 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
   }, [user?.id]);
 
   return (
-    <header className="relative bg-gradient-to-br from-[#000E38] to-[#FF6600] text-primary-foreground pb-4 shadow-lg rounded-b-[2rem]">
+    <header className="relative bg-gradient-to-br from-[#2A0E42] to-[#FF6600] text-primary-foreground pb-4 shadow-lg rounded-b-[2rem]">
       <div className="container mx-auto pt-4 px-4">
         <div className="relative flex items-center justify-between">
             <div className="flex items-center gap-3 text-sm font-medium">
@@ -205,8 +207,8 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
 
             <div className="flex items-center gap-1 md:gap-2">
                 <LanguageSwitcher />
-                <DropdownMenu onOpenChange={(open) => { if(open) handleOpenNotifications()}}>
-                    <DropdownMenuTrigger asChild>
+                <ActionPanel onOpenChange={(open) => { if(open) handleOpenNotifications()}}>
+                    <ActionPanelTrigger asChild>
                         <Button variant="ghost" size="icon" className="relative h-10 w-10 text-white hover:bg-white/20 rounded-full">
                             <Bell className="h-6 w-6" />
                             {unreadCount > 0 && (
@@ -216,75 +218,75 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
                                 </span>
                             )}
                         </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-80">
-                         <DropdownMenuLabel className="flex justify-between items-center">
+                    </ActionPanelTrigger>
+                    <ActionPanelContent align="end" className="w-80">
+                         <ActionPanelLabel className="flex justify-between items-center">
                             <span>Notifications</span>
                             <Link href="/notifications" className="text-xs font-normal text-primary hover:underline">Voir tout</Link>
-                         </DropdownMenuLabel>
-                         <DropdownMenuSeparator/>
+                         </ActionPanelLabel>
+                         <ActionPanelSeparator/>
                          <ScrollArea className="h-[400px]">
                             {notifications.length > 0 ? (
                                 notifications.map((n, i) => (
-                                    <DropdownMenuItem key={i} className="p-0">
+                                    <ActionPanelItem key={i} className="p-0">
                                         <NotificationItem notification={n} />
-                                    </DropdownMenuItem>
+                                    </ActionPanelItem>
                                 ))
                             ) : (
                                 <div className="text-center text-sm text-muted-foreground p-8">{t('noNotifications')}</div>
                             )}
                         </ScrollArea>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                    </ActionPanelContent>
+                </ActionPanel>
 
-                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+                 <ActionPanel>
+                  <ActionPanelTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-10 w-10 text-white hover:bg-white/20 rounded-full">
                       <Settings className="h-6 w-6" />
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>Mon Compte</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => router.push('/profile')}>
+                  </ActionPanelTrigger>
+                  <ActionPanelContent align="end">
+                    <ActionPanelLabel>Mon Compte</ActionPanelLabel>
+                    <ActionPanelSeparator />
+                    <ActionPanelItem onClick={() => router.push('/profile')}>
                       <UserIcon className="mr-2 h-4 w-4" />
                       <span>Profil</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/settings')}>
+                    </ActionPanelItem>
+                    <ActionPanelItem onClick={() => router.push('/settings')}>
                       <Settings className="mr-2 h-4 w-4" />
                       <span>Paramètres</span>
-                    </DropdownMenuItem>
-                     <DropdownMenuItem onClick={toggleFooterVisibility} className="md:hidden">
+                    </ActionPanelItem>
+                     <ActionPanelItem onClick={toggleFooterVisibility} className="md:hidden">
                         {isFooterVisible ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
                         <span>{isFooterVisible ? 'Masquer la barre de navigation' : 'Afficher la barre de navigation'}</span>
-                    </DropdownMenuItem>
+                    </ActionPanelItem>
                     
                     {isSuperAgent && (
                       <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => router.push('/super-agent/dashboard')}>
+                        <ActionPanelSeparator />
+                        <ActionPanelItem onClick={() => router.push('/super-agent/dashboard')}>
                           <ShieldCheck className="mr-2 h-4 w-4 text-primary" />
                           <span className="font-bold">Espace Super Agent</span>
-                        </DropdownMenuItem>
+                        </ActionPanelItem>
                       </>
                     )}
 
                     {isAgent && (
                       <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => router.push('/agent/dashboard')}>
+                        <ActionPanelSeparator />
+                        <ActionPanelItem onClick={() => router.push('/agent/dashboard')}>
                           <Briefcase className="mr-2 h-4 w-4" />
                           <span>Espace Agent</span>
-                        </DropdownMenuItem>
+                        </ActionPanelItem>
                       </>
                     )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={handleLogout} className="text-red-500 focus:text-red-500 focus:bg-red-50">
+                    <ActionPanelSeparator />
+                    <ActionPanelItem onClick={handleLogout} className="text-red-500 focus:text-red-500 focus:bg-red-50">
                       <LogOut className="mr-2 h-4 w-4" />
                       <span>Se déconnecter</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                    </ActionPanelItem>
+                  </ActionPanelContent>
+                </ActionPanel>
             </div>
         </div>
 
@@ -334,11 +336,14 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
                     <UsdtBalanceCard
                         usdtBalance={usdtBalance}
                         isActivated={isUsdtActivated}
+                        isActivating={isUsdtActivating}
                         onReceive={() => setUsdtAction("receive")}
                         onSend={() => setUsdtAction("send")}
                         onBuy={() => setUsdtAction("buy")}
                         onSell={() => setUsdtAction("sell")}
                         onActivate={async () => {
+                          if (isUsdtActivating) return;
+                          setIsUsdtActivating(true);
                           try {
                             const response = await fetch("/api/v1/crypto/usdt-trc20/address", {
                               method: "POST",
@@ -346,15 +351,15 @@ export function DashboardHeader({ user, currencies, cards, children, pageTitle }
                             });
                             const data = await response.json().catch(() => null);
 
-                            if (response.ok && data?.success) {
+                            if (response.ok && data?.success && data?.address) {
                               setIsUsdtActivated(true);
                               await refreshCryptoBalances();
                             } else {
-                              console.error("[DashboardHeader] USDT activation failed:", data?.error);
+                              openAlert({title: "Activation USDT indisponible", description: data?.message || "Impossible de créer votre adresse. Réessayez ou contactez l’assistance.", variant: "error"});
                             }
                           } catch (error) {
-                            console.error("[DashboardHeader] USDT activation failed:", error);
-                          }
+                            openAlert({title: "Connexion impossible", description: "L’activation USDT n’a pas abouti. Veuillez réessayer.", variant: "error"});
+                          } finally { setIsUsdtActivating(false); }
                         }}
                     />
                 </div>

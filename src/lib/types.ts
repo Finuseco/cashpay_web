@@ -73,7 +73,7 @@ export const SUPPORTED_LANGUAGES: SupportedLanguage[] = ['en', 'fr', 'es', 'pt',
 
 export interface User {
     id: number;
-    role: 'Client' | 'Agent' | 'Admin' | 'Seller' | 'Manager' | 'PartnerB2B' | 'Publisher' | 'Guarantor' | 'SuperAgent' | 'SubSuperAgent' | 'StationService';
+    role: 'Client' | 'Agent' | 'Admin' | 'Seller' | 'Manager' | 'PartnerB2B' | 'Publisher' | 'Guarantor' | 'SuperAgent' | 'SubSuperAgent' | 'InterAgent' | 'InterAgentSupervisor' | 'StationService';
     status: 'Active' | 'Inactive' | 'Suspended' | 'Pending';
     suspension_reason?: string | null;
     account_type: 'national' | 'diaspora' | 'business';
@@ -310,8 +310,10 @@ export interface Loan {
   repaid_amount: number;
   currency: string;
   interest_rate: number;
-  start_date: string;
-  end_date: string;
+  request_date?: string | null;
+  approval_date?: string | null;
+  start_date: string | null;
+  end_date: string | null;
   monthly_payment?: number;
 }
 

@@ -30,8 +30,9 @@ export const USDT_TRC20_CONTRACT =
 export class UsdtNotConfiguredError extends Error {
   code = 'SECURE_KEY_CUSTODY_NOT_CONFIGURED';
 
-  constructor() {
-    super('TRON_HD_MNEMONIC non configurée : création d’adresse suspendue.');
+  constructor(code = 'SECURE_KEY_CUSTODY_NOT_CONFIGURED') {
+    super(code === 'INVALID_KEY_CUSTODY_CONFIGURATION' ? 'Configuration du portefeuille TRON invalide.' : 'Conservation des clés TRON non configurée.');
+    this.code = code;
     this.name = 'UsdtNotConfiguredError';
   }
 }
@@ -82,7 +83,7 @@ export function isBase58TronAddress(address: unknown): boolean {
  * ne jamais l'enregistrer, l'afficher ni la renvoyer dans une réponse.
  */
 function deriveUserTronPrivateKey(userId: number): string {
-  const mnemonic = process.env.TRON_HD_MNEMONIC?.trim();
+  const mnemonic = process.env.TRON_HD_MNEMONIC?.trim().replace(/\s+/g, " ");
 
   if (!mnemonic) {
     throw new UsdtNotConfiguredError();
@@ -92,10 +93,13 @@ function deriveUserTronPrivateKey(userId: number): string {
     throw new Error('Utilisateur invalide pour la dérivation d’adresse TRON.');
   }
 
-  const wallet = (TronWeb as any).fromMnemonic(
-    mnemonic,
-    `m/44'/195'/0'/0/${userId}`,
-  );
+  let wallet: {privateKey?: string};
+  try {
+    wallet = TronWeb.fromMnemonic(mnemonic, `m/44'/195'/0'/0/${userId}`);
+  } catch {
+    // Never propagate library errors that might include key material.
+    throw new UsdtNotConfiguredError('INVALID_KEY_CUSTODY_CONFIGURATION');
+  }
 
   const privateKey = String(wallet?.privateKey ?? '').replace(/^0x/i, '');
 

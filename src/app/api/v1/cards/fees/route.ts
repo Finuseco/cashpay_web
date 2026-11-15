@@ -34,11 +34,7 @@ export async function GET(request: Request) {
     const suffix = type === 'virtuelle' ? 'V' : 'P';
     const code = `BUY_CARDS_${currency}_${suffix}_FEE`;
 
-    const fee = await calculateTransactionFee(
-      1,
-      currency,
-      code,
-      null
+    const fee = await calculateTransactionFee(1, currency, code, null, undefined, user.id
     );
 
     return NextResponse.json({

@@ -170,7 +170,7 @@ export function StatementDisplay({ transactions, fromDate, toDate, onBack, user 
                 head: head,
                 body: body,
                 startY: 50,
-                headStyles: { fillColor: [0, 14, 56] }, // #000E38
+                headStyles: { fillColor: [0, 14, 56] }, // #2A0E42
                 styles: { fontSize: 8 },
             });
     

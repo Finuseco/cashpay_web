@@ -22,7 +22,7 @@ export default function SuperAgentPaymentLinks() {
     const [superAgent, setSuperAgent] = useState<any>(null);
     const [filter, setFilter] = useState('');
     const [isProcessing, setIsProcessing] = useState<number | null>(null);
-    
+
     const { openAlert } = useAlertDialog();
     const { toast } = useToast();
 
@@ -38,7 +38,7 @@ export default function SuperAgentPaymentLinks() {
     };
 
     useEffect(() => {
-        fetchData();
+        fetchData().catch(() => { setIsLoading(false); openAlert({ title: 'Chargement impossible', description: 'Données indisponibles. Actualisez la page pour réessayer.', variant: 'error' }); });
     }, []);
 
     const handleBlockToggle = (link: PaymentLink) => {
@@ -72,7 +72,7 @@ export default function SuperAgentPaymentLinks() {
         });
     };
 
-    const filtered = links.filter(l => 
+    const filtered = links.filter(l =>
         l.title.toLowerCase().includes(filter.toLowerCase()) ||
         l.ownerName?.toLowerCase().includes(filter.toLowerCase()) ||
         l.ownerWalletId?.toLowerCase().includes(filter.toLowerCase())
@@ -87,8 +87,8 @@ export default function SuperAgentPaymentLinks() {
                 </div>
                 <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-                    <Input 
-                        placeholder="Rechercher titre ou auteur..." 
+                    <Input
+                        placeholder="Rechercher titre ou auteur..."
                         className="pl-9 bg-zinc-800 border-zinc-700 h-11 text-white"
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
@@ -136,7 +136,7 @@ export default function SuperAgentPaymentLinks() {
                                     <TableCell>
                                         <Badge className={cn(
                                             "text-[9px] uppercase font-black px-2 py-0.5",
-                                            link.status === 'active' ? "bg-green-600" : 
+                                            link.status === 'active' ? "bg-green-600" :
                                             link.status === 'inactive' ? "bg-zinc-600" : "bg-red-600"
                                         )}>
                                             {link.status === 'active' ? 'En ligne' : link.status === 'inactive' ? 'Désactivé' : 'BLOQUÉ'}
@@ -147,9 +147,9 @@ export default function SuperAgentPaymentLinks() {
                                             <Button variant="ghost" size="icon" asChild className="h-8 w-8 text-zinc-400 hover:text-white">
                                                 <Link href={`/pay/l_${link.id}`} target="_blank"><Eye className="h-4 w-4"/></Link>
                                             </Button>
-                                            <Button 
-                                                variant="ghost" 
-                                                size="icon" 
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
                                                 className={cn("h-8 w-8", link.status === 'blocked' ? "text-green-400 hover:bg-green-400/10" : "text-red-400 hover:bg-red-400/10")}
                                                 onClick={() => handleBlockToggle(link)}
                                                 disabled={isProcessing === link.id}

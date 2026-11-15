@@ -385,7 +385,7 @@ export function CartClient() {
         const loadVat = async () => {
             if (calculation.subtotal > 0 && user) {
                 const amountForVat = calculation.subtotal + (wantsShipping ? calculation.shipping : 0);
-                const vat = await calculateTransactionFee(amountForVat, calculation.currency, 'PRODUCT_SALE_VAT', user.country);
+                const vat = await calculateTransactionFee(amountForVat, calculation.currency, 'PRODUCT_SALE_VAT', user.country, undefined, user.id);
                 setVatAmount(vat);
             } else { setVatAmount(0); }
         };

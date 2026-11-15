@@ -1,4 +1,6 @@
 'use client';
+import { useOnChatPresence } from '@/hooks/use-onchat-presence';
+import { subscribeOnChatRealtime } from '@/lib/onchat-browser-socket';
 import { invitationCode } from '@/lib/meeting-invitation';
 import { MeetingInvitationCard } from '@/components/feedback/meeting-invitation-card';
 
@@ -18,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { postMessage, markConversationAsRead, deleteMessage, createInChatTransfer, forwardMessage, getConversationsForUser } from '@/lib/actions/message.actions';
 import { getUserCurrencies } from '@/lib/actions/currency.actions';
 import { useToast } from '@/hooks/use-toast';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../ui/dropdown-menu';
+import { ActionPanel, ActionPanelTrigger, ActionPanelContent, ActionPanelItem, ActionPanelSeparator } from '../ui/action-panel';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '../ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 
@@ -306,6 +308,8 @@ const MessageBubble = ({
   const isDocument = message.type === 'doc';
   const isImage = message.type === 'image';
   const isProduct = message.type === 'product';
+  let locationPoint:{latitude:number;longitude:number;title:string}|null=null;
+  if(message.type==='location')try{const data=typeof message.metadata==='string'?JSON.parse(message.metadata):message.metadata;const latitude=Number(data?.latitude),longitude=Number(data?.longitude);if(data?.latitude!=null&&data?.longitude!=null&&Number.isFinite(latitude)&&Math.abs(latitude)<=90&&Number.isFinite(longitude)&&Math.abs(longitude)<=180)locationPoint={latitude,longitude,title:String(data.title||'Position partagée')};}catch{}
 
   if (message.content?.startsWith('{')) {
       try {
@@ -350,19 +354,19 @@ const MessageBubble = ({
   return (
     <div className={cn("flex w-full items-end gap-2 group", isSentByCurrentUser ? "justify-end" : "justify-start")}>
        <div className={cn("flex items-center", isSentByCurrentUser && "order-1")}>
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+            <ActionPanel>
+                <ActionPanelTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 shrink-0 text-zinc-400">
                         <MoreVertical className="h-4 w-4" />
                     </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="bg-zinc-800 border-zinc-700 text-white">
-                    {!isAudio && !isImage && !isDocument && !isProduct && <DropdownMenuItem className="focus:bg-zinc-700" onClick={handleCopy}><Copy className="mr-2 h-4 w-4"/> {t('copyButton')}</DropdownMenuItem>}
-                    {(isImage || isDocument) && <DropdownMenuItem className="focus:bg-zinc-700" onClick={handleDownload}><Download className="mr-2 h-4 w-4"/> Télécharger</DropdownMenuItem>}
-                    <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => onForward(message)}><Forward className="mr-2 h-4 w-4"/> Transférer</DropdownMenuItem>
-                    {isSentByCurrentUser && <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => onDeleteMessage(message.id)}><Trash2 className="mr-2 h-4 w-4"/> {t('deleteButton')}</DropdownMenuItem>}
-                </DropdownMenuContent>
-            </DropdownMenu>
+                </ActionPanelTrigger>
+                <ActionPanelContent className="bg-zinc-800 border-zinc-700 text-white">
+                    {!isAudio && !isImage && !isDocument && !isProduct && <ActionPanelItem className="focus:bg-zinc-700" onClick={handleCopy}><Copy className="mr-2 h-4 w-4"/> {t('copyButton')}</ActionPanelItem>}
+                    {(isImage || isDocument) && <ActionPanelItem className="focus:bg-zinc-700" onClick={handleDownload}><Download className="mr-2 h-4 w-4"/> Télécharger</ActionPanelItem>}
+                    <ActionPanelItem className="focus:bg-zinc-700" onClick={() => onForward(message)}><Forward className="mr-2 h-4 w-4"/> Transférer</ActionPanelItem>
+                    {isSentByCurrentUser && <ActionPanelItem className="focus:bg-zinc-700" onClick={() => onDeleteMessage(message.id)}><Trash2 className="mr-2 h-4 w-4"/> {t('deleteButton')}</ActionPanelItem>}
+                </ActionPanelContent>
+            </ActionPanel>
         </div>
 
       <div className={cn(
@@ -376,6 +380,8 @@ const MessageBubble = ({
       )}>
         {isProduct ? (
             <ProductCardMessage metadata={message.metadata!} />
+        ) : locationPoint ? (
+            <a href={`https://www.google.com/maps?q=${locationPoint.latitude},${locationPoint.longitude}`} target="_blank" rel="noopener noreferrer" className="block p-3"><Map className="mb-2 text-cyan-300"/><strong>{locationPoint.title}</strong><p>{locationPoint.latitude}, {locationPoint.longitude}</p><span className="underline">Ouvrir la position</span></a>
         ) : isDocument && fileData?.fileUrl ? (
             <a href={fileData.fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 bg-black/20 rounded-md p-2">
                 <FileText className="h-8 w-8 text-white"/>
@@ -437,7 +443,7 @@ const DateSeparator = ({ date }: { date: string }) => {
 
     return (
         <div className="flex justify-center my-4">
-            <div className="px-3 py-1 text-xs text-white bg-[#141C38] rounded-full shadow-md">
+            <div className="px-3 py-1 text-xs text-white bg-[#2A0E42] rounded-full shadow-md">
                 {formattedDate}
             </div>
         </div>
@@ -445,6 +451,7 @@ const DateSeparator = ({ date }: { date: string }) => {
 };
 
 const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: () => void, contact: User, onViewProfile: () => void, onStartCall: (type: 'audio' | 'video' | 'meeting') => void }) => {
+    const online=useOnChatPresence(contact.id_wallet,contact.id);
     const shortcuts = [
         { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
         { href: "/shopping", label: "Shopping", icon: ShoppingCart },
@@ -455,7 +462,7 @@ const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: (
     ];
 
     return (
-        <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#141C38] text-white">
+        <header className="flex items-center p-2 sm:p-3 border-b border-zinc-700/50 shrink-0 bg-[#2A0E42] text-white">
             <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden">
                 <ArrowLeft />
             </Button>
@@ -465,32 +472,32 @@ const ChatHeader = ({ onBack, contact, onViewProfile, onStartCall }: { onBack: (
                       <AvatarImage src={contact.profile_photo || ''} alt={contact.full_name} data-ai-hint="person portrait" />
                       <AvatarFallback>{contact.first_name?.[0]}</AvatarFallback>
                   </Avatar>
-                  {contact.availabilityStatus === 'available' && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#141C38]" />}
+                  {online && <span className="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-[#2A0E42]" />}
               </div>
               <div className="min-w-0">
                   <h2 className="font-bold text-base truncate">{contact.full_name}</h2>
-                  <p className="text-xs text-zinc-400">{contact.availabilityStatus === 'available' ? 'En ligne' : 'Hors ligne'}</p>
+                  <p className="text-xs text-zinc-400">{online ? 'En ligne' : 'Hors ligne'}</p>
               </div>
             </div>
             <div className="ml-auto flex items-center gap-1">
                  <Button variant="ghost" size="icon" onClick={() => onStartCall('video')}><Video /></Button>
                 <Button variant="ghost" size="icon" onClick={() => onStartCall('audio')}><Phone /></Button>
-                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                 <ActionPanel>
+                    <ActionPanelTrigger asChild>
                         <Button variant="ghost" size="icon"><MoreVertical /></Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent className="bg-zinc-800 border-zinc-700 text-white">
-                         <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => onStartCall('meeting')}>
+                    </ActionPanelTrigger>
+                    <ActionPanelContent className="bg-zinc-800 border-zinc-700 text-white">
+                         <ActionPanelItem className="focus:bg-zinc-700" onClick={() => onStartCall('meeting')}>
                             <UsersIcon className="mr-2 h-4 w-4"/> Démarrer une réunion
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-zinc-700"/>
+                        </ActionPanelItem>
+                        <ActionPanelSeparator className="bg-zinc-700"/>
                         {shortcuts.map(shortcut => (
-                            <DropdownMenuItem key={shortcut.href} asChild className="focus:bg-zinc-700">
+                            <ActionPanelItem key={shortcut.href} asChild className="focus:bg-zinc-700">
                                 <Link href={shortcut.href}><shortcut.icon className="mr-2 h-4 w-4"/>{shortcut.label}</Link>
-                            </DropdownMenuItem>
+                            </ActionPanelItem>
                         ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                    </ActionPanelContent>
+                </ActionPanel>
             </div>
         </header>
     );
@@ -656,7 +663,7 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
       const current = conversationRef.current.messages.filter(m => !String(m.id).startsWith('temp-'));
       const lastFresh = fresh[fresh.length - 1];
       const lastCurrent = current[current.length - 1];
-      if (fresh.length !== current.length || (lastFresh && lastCurrent && lastFresh.id !== lastCurrent.id)) {
+      if (fresh.length !== current.length || fresh.some((message, index) => message.id !== current[index]?.id || message.status !== current[index]?.status || message.content !== current[index]?.content)) {
         const last = fresh[fresh.length - 1];
         onUpdateConversation({
           ...conversationRef.current,
@@ -669,8 +676,11 @@ export function ChatView({ conversation, currentUser, onBack, onUpdateConversati
         }
       }
     };
+    const unsubscribe = subscribeOnChatRealtime((event, data) => {
+      if (event === 'reconnected' || (event.startsWith('chat.') && String(data?.conversationId) === String(conversationRef.current.id))) void tick();
+    });
     const timer = setInterval(tick, 3000);
-    return () => { stopped = true; clearInterval(timer); };
+    return () => { stopped = true; unsubscribe(); clearInterval(timer); };
   }, [conversation.id, currentUser.id, onUpdateConversation]);
 
   const handleCall = (type: 'audio' | 'video' | 'meeting') => {
@@ -932,7 +942,7 @@ const sender = isCurrentUserMessage
           </div>
       </ScrollArea>
 
-      <footer className="shrink-0 border-t border-zinc-700/50 bg-[#141C38] p-2">
+      <footer className="shrink-0 border-t border-zinc-700/50 bg-[#2A0E42] p-2">
         <div className="flex items-center gap-2">
             <Popover>
                 <PopoverTrigger asChild>
@@ -942,15 +952,15 @@ const sender = isCurrentUserMessage
                     <EmojiPicker data={data} onEmojiSelect={(emoji: any) => setNewMessage(prev => prev + emoji.native)} theme="dark" />
                 </PopoverContent>
             </Popover>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <ActionPanel>
+            <ActionPanelTrigger asChild>
                 <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-white rounded-full h-11 w-11 bg-[#2a3942] hover:bg-zinc-700/80"><Plus/></Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="bg-zinc-800 border-zinc-700 text-white">
-                <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => setIsTransferDialogOpen(true)}><Banknote className="mr-2 h-4 w-4"/> {t('sendMoneyMenuItem')}</DropdownMenuItem>
-                <DropdownMenuItem className="focus:bg-zinc-700" onClick={() => fileInputRef.current?.click()}><Paperclip className="mr-2 h-4 w-4"/> {t('documentMenuItem')}</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </ActionPanelTrigger>
+            <ActionPanelContent align="start" side="top" className="bg-zinc-800 border-zinc-700 text-white">
+                <ActionPanelItem className="focus:bg-zinc-700" onClick={() => setIsTransferDialogOpen(true)}><Banknote className="mr-2 h-4 w-4"/> {t('sendMoneyMenuItem')}</ActionPanelItem>
+                <ActionPanelItem className="focus:bg-zinc-700" onClick={() => fileInputRef.current?.click()}><Paperclip className="mr-2 h-4 w-4"/> {t('documentMenuItem')}</ActionPanelItem>
+            </ActionPanelContent>
+          </ActionPanel>
 
           <Input
             placeholder={t('messagePlaceholder')}

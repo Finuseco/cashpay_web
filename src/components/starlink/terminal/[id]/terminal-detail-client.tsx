@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Loader2, ArrowLeft, Satellite, Signal, Info, RotateCw, Wrench, Edit, ShieldCheck, Database, Save, Server, Route, AlertTriangle, PlayCircle, BarChartHorizontal } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { getTerminalsForAccount, rebootUserTerminal, setServiceLineNickname, setServiceLineProduct, setPublicIp, topUpData, setRecurringData, cancelUserTerminal, optInToService, runDiagnostics, getDiagnosticResults, getResellerConfig } from '@/lib/actions/starlink.actions';
 import { DashboardLayout } from '@/components/dashboard/dashboard-layout';
@@ -175,13 +175,13 @@ export function TerminalDetailClient({ terminalId }: { terminalId: string }) {
                             <div className="flex flex-col sm:flex-row items-end gap-2">
                                 <div className="flex-grow w-full">
                                     <Label htmlFor="servicePlan">{t('activeProductLabel')}</Label>
-                                    <Select value={selectedProduct} onValueChange={setSelectedProduct}>
-                                        <SelectTrigger id="servicePlan"><SelectValue/></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="prd_mobile_regional">Mobile Regional</SelectItem>
-                                            <SelectItem value="prd_mobile_priority">Mobile Priority 50GB</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                                    <ChoiceGroup value={selectedProduct} onValueChange={setSelectedProduct}>
+                                        <ChoiceTrigger id="servicePlan"><ChoiceValue/></ChoiceTrigger>
+                                        <ChoiceContent>
+                                            <ChoiceItem value="prd_mobile_regional">Mobile Regional</ChoiceItem>
+                                            <ChoiceItem value="prd_mobile_priority">Mobile Priority 50GB</ChoiceItem>
+                                        </ChoiceContent>
+                                    </ChoiceGroup>
                                 </div>
                                 <Button onClick={() => handleAction(() => setServiceLineProduct(resellerConfig.accountId, terminal.serviceLineNumber, selectedProduct), 'Changer de Plan')} disabled={actionLoading === 'Changer de Plan' || selectedProduct === terminal.product.id}>
                                     {actionLoading === 'Changer de Plan' ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2"/>} {t('changePlanButton')}
@@ -205,15 +205,15 @@ export function TerminalDetailClient({ terminalId }: { terminalId: string }) {
                              <div className="flex items-end gap-2">
                                 <div className="flex-grow w-full">
                                     <Label htmlFor="recurring">{t('recurringTopUpLabel')}</Label>
-                                     <Select value={recurringAmount.toString()} onValueChange={(val) => setRecurringAmount(Number(val))}>
-                                        <SelectTrigger id="recurring"><SelectValue/></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="0">{t('disabledOption')}</SelectItem>
-                                            <SelectItem value="50">50 GB</SelectItem>
-                                            <SelectItem value="100">100 GB</SelectItem>
-                                            <SelectItem value="200">200 GB</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                                     <ChoiceGroup value={recurringAmount.toString()} onValueChange={(val) => setRecurringAmount(Number(val))}>
+                                        <ChoiceTrigger id="recurring"><ChoiceValue/></ChoiceTrigger>
+                                        <ChoiceContent>
+                                            <ChoiceItem value="0">{t('disabledOption')}</ChoiceItem>
+                                            <ChoiceItem value="50">50 GB</ChoiceItem>
+                                            <ChoiceItem value="100">100 GB</ChoiceItem>
+                                            <ChoiceItem value="200">200 GB</ChoiceItem>
+                                        </ChoiceContent>
+                                    </ChoiceGroup>
                                 </div>
                                 <Button onClick={() => handleAction(() => setRecurringData(resellerConfig.accountId, terminal.serviceLineNumber, recurringAmount), 'Définir Récurrence')} disabled={actionLoading === 'Définir Récurrence'}>
                                     {actionLoading === 'Définir Récurrence' ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2"/>} {t('setButton')}

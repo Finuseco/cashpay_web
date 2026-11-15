@@ -12,7 +12,7 @@ import { fr } from 'date-fns/locale';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -247,18 +247,18 @@ const StepDestination = ({ countries, form }: { countries: { code: string; name:
 
     return (
         <div className="space-y-6">
-             <FormField control={control} name="destinationCountry" render={({ field }) => ( <FormItem><FormLabel>Pays de Destination</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Sélectionnez un pays"/></SelectTrigger></FormControl><SelectContent>{countries.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}</SelectContent></Select><FormMessage/></FormItem> )}/>
-            <FormField control={control} name="visaType" render={({ field }) => ( <FormItem><FormLabel>Type de Visa</FormLabel><Select onValueChange={field.onChange} value={field.value} disabled={isLoadingTypes || !destinationCountry}>
+             <FormField control={control} name="destinationCountry" render={({ field }) => ( <FormItem><FormLabel>Pays de Destination</FormLabel><ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}><FormControl><ChoiceTrigger><ChoiceValue placeholder="Sélectionnez un pays"/></ChoiceTrigger></FormControl><ChoiceContent>{countries.map(c => <ChoiceItem key={c.code} value={c.code}>{c.name}</ChoiceItem>)}</ChoiceContent></ChoiceGroup><FormMessage/></FormItem> )}/>
+            <FormField control={control} name="visaType" render={({ field }) => ( <FormItem><FormLabel>Type de Visa</FormLabel><ChoiceGroup onValueChange={field.onChange} value={field.value} disabled={isLoadingTypes || !destinationCountry}>
                 <FormControl>
-                    <SelectTrigger className="relative">
+                    <ChoiceTrigger className="relative">
                         {isLoadingTypes && <Loader2 className="absolute right-8 h-4 w-4 animate-spin"/>}
-                        <SelectValue placeholder={isLoadingTypes ? "Chargement des types..." : "Sélectionnez un type de visa"}/>
-                    </SelectTrigger>
+                        <ChoiceValue placeholder={isLoadingTypes ? "Chargement des types..." : "Sélectionnez un type de visa"}/>
+                    </ChoiceTrigger>
                 </FormControl>
-                <SelectContent>
-                    {visaTypes.map(vt => <SelectItem key={vt.id} value={vt.id}>{vt.name}</SelectItem>)}
-                </SelectContent>
-            </Select><FormMessage/></FormItem> )}/>
+                <ChoiceContent>
+                    {visaTypes.map(vt => <ChoiceItem key={vt.id} value={vt.id}>{vt.name}</ChoiceItem>)}
+                </ChoiceContent>
+            </ChoiceGroup><FormMessage/></FormItem> )}/>
         </div>
     );
 }

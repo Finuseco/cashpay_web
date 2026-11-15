@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTranslation } from "react-i18next";
 import { Loader2, MapPin } from 'lucide-react';
@@ -12,6 +12,7 @@ import { getCardsForUser } from '@/lib/actions/card.actions';
 import { DashboardHeader } from '@/components/dashboard/dashboard-header';
 import { DashboardFooter } from '@/components/dashboard/dashboard-footer';
 import { InAppOtpHandler } from '@/components/in-app-otp-handler';
+import {EnterpriseEntry} from '@/components/enterprise/enterprise-entry';
 import { ActionGrid } from '@/components/dashboard/action-grid';
 import { CopyrightFooter } from '../copyright-footer';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
@@ -35,22 +36,25 @@ export function DashboardLayout({
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const router = useRouter();
   const pathname = usePathname();
+  const sessionLoaded=useRef(false);
   const { openAlert } = useAlertDialog();
   const { toast } = useToast();
   const { isVisible: isFooterVisible } = useFooterStore();
 
   useEffect(() => {
     const fetchUser = async () => {
-      setIsLoading(true);
+      if(!sessionLoaded.current)setIsLoading(true);
+      setLoadError('');
       const fetchedUser = await getAuthenticatedUser();
-      
+
       if (!fetchedUser) {
         router.replace('/login');
         return;
-      } 
-      
+      }
+
       const sessionRaw = sessionStorage.getItem('pin-verified-session');
       let isPinVerified = false;
       if (sessionRaw) {
@@ -67,9 +71,9 @@ export function DashboardLayout({
           router.replace(`/auth-check?returnTo=${encodeURIComponent(pathname)}`);
           return;
       }
-      
+
       setUser(fetchedUser);
-      
+
       if (fetchedUser.temp_photo_expires_at) {
           const expiryDate = new Date(fetchedUser.temp_photo_expires_at);
           if (new Date() > expiryDate) {
@@ -79,21 +83,23 @@ export function DashboardLayout({
                   variant: 'warning',
                   onClose: () => router.push('/profile')
               });
-              return; 
+              return;
           }
       }
 
-      const [fetchedCurrencies, fetchedCards] = await Promise.all([
-        getUserCurrencies(fetchedUser.id),
-        getCardsForUser(fetchedUser.id, fetchedUser.full_name)
-      ]);
-      setCurrencies(fetchedCurrencies);
-      setCards(fetchedCards);
+      sessionLoaded.current=true;
+      setIsLoading(false);
+      // Cards/providers are needed on the dashboard, not to render the fee schedule or other client pages.
+      if (pathname === '/dashboard') {
+          const [currencyResult, cardResult] = await Promise.allSettled([getUserCurrencies(fetchedUser.id), getCardsForUser(fetchedUser.id, fetchedUser.full_name)]);
+          if (currencyResult.status === 'fulfilled') setCurrencies(currencyResult.value);
+          if (cardResult.status === 'fulfilled') setCards(cardResult.value);
+      }
       setIsLoading(false);
     };
-    fetchUser();
+    fetchUser().catch(error => { setLoadError(error instanceof Error ? error.message : 'Chargement impossible.'); setIsLoading(false); });
   }, [router, openAlert, pathname]);
-  
+
   const showCurrencies = pathname === '/dashboard';
   const pageTitle = pageTitleKey ? t(pageTitleKey) : undefined;
 
@@ -106,7 +112,7 @@ export function DashboardLayout({
     navigator.geolocation.getCurrentPosition(async (position) => {
         const { latitude, longitude } = position.coords;
         const atms = await findNearbyAtms({ latitude, longitude });
-        
+
         if (atms.length > 0) {
             const firstAtm = atms[0];
             openAlert({
@@ -132,6 +138,7 @@ export function DashboardLayout({
     });
   };
 
+  if (loadError) return <div className="p-8 space-y-4"><p role="alert">{loadError}</p><Button onClick={() => window.location.reload()}>Réessayer</Button></div>;
   if (isLoading || !user) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
@@ -142,8 +149,8 @@ export function DashboardLayout({
 
   return (
     <div className="flex flex-col min-h-screen">
-        <DashboardHeader 
-            user={user} 
+        <DashboardHeader
+            user={user}
             currencies={showCurrencies ? currencies : []}
             cards={showCurrencies ? cards : []}
             pageTitle={pageTitle}
@@ -151,6 +158,7 @@ export function DashboardLayout({
           {showCurrencies && (
             <div className="space-y-4">
               <ActionGrid />
+              <EnterpriseEntry />
               <div className="text-center">
                   <Button onClick={handleLocateAtms} variant="ghost" className="h-auto p-1 text-primary-foreground/80 hover:text-white">
                       <MapPin className="h-4 w-4 mr-1"/>Localiser un ATM

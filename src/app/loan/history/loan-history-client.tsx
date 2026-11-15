@@ -49,9 +49,11 @@ function safeDate(value: unknown): string {
   if (Number.isNaN(date.getTime())) return 'Date non disponible';
 
   return date.toLocaleDateString('fr-FR', {
+    weekday: 'long',
     day: '2-digit',
     month: 'long',
     year: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
   });
 }
 
@@ -259,7 +261,7 @@ export function LoanHistoryClient({
 
 
   return (
-    <main className="min-h-full rounded-2xl bg-[#000E38] p-4 text-white md:p-6">
+    <main className="min-h-full rounded-2xl bg-[#2A0E42] p-4 text-white md:p-6">
       <div className="mx-auto w-full max-w-5xl space-y-6">
         <header>
           <h1 className="text-3xl font-bold">Historique des crédits</h1>
@@ -367,8 +369,9 @@ export function LoanHistoryClient({
                       </p>
 
                       <p className="text-xs text-zinc-400">
-                        Du {safeDate((loan as any).start_date)} au{' '}
-                        {safeDate((loan as any).end_date)}
+                        {String(loan.status).toLowerCase() === 'pending'
+                          ? `Demande : ${safeDate((loan as any).request_date)} · Échéances après approbation`
+                          : `Approbation : ${safeDate((loan as any).approval_date || loan.start_date)} · Fin : ${safeDate(loan.end_date)}`}
                       </p>
                     </div>
 
@@ -453,7 +456,7 @@ export function LoanHistoryClient({
                       </p>
 
                       {currentInstallment && currentInstallmentRemaining > 0.005 && (
-                        <div className="mt-3 flex flex-col gap-2 rounded-lg border border-white/10 bg-[#000E38]/60 p-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="mt-3 flex flex-col gap-2 rounded-lg border border-white/10 bg-[#2A0E42]/60 p-3 sm:flex-row sm:items-center sm:justify-between">
                           <div>
                             <p className="text-sm font-semibold">
                               Échéance #{num(currentInstallment?.installment_number, 0)}
@@ -489,7 +492,7 @@ export function LoanHistoryClient({
                             }))
                           }
                           disabled={repayingLoanId === loanId}
-                          className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#000E38] px-3 py-2 text-white outline-none focus:border-[#FF6600]"
+                          className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#2A0E42] px-3 py-2 text-white outline-none focus:border-[#FF6600]"
                         />
 
                         <button
@@ -641,7 +644,7 @@ export function LoanHistoryClient({
               onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
               onKeyDown={(event) => { if (event.key === 'Enter') void confirmPayment(); }}
               placeholder="PIN"
-              className="mt-4 w-full rounded-lg border border-white/10 bg-[#000E38] px-4 py-3 text-center text-xl tracking-[0.5em] outline-none focus:border-[#FF6600]"
+              className="mt-4 w-full rounded-lg border border-white/10 bg-[#2A0E42] px-4 py-3 text-center text-xl tracking-[0.5em] outline-none focus:border-[#FF6600]"
             />
             {balanceMessage && <p className="mt-2 text-sm text-green-300">{balanceMessage}</p>}
             {repayError[getLoanId(pinAction.loan)] && <p className="mt-2 text-sm text-red-300">{repayError[getLoanId(pinAction.loan)]}</p>}

@@ -1,3 +1,4 @@
+import { generateVideoThumbnail } from '@/lib/video-thumbnail';
 import { insertPublishedVideo } from '@/lib/video-sounds';
 import { verifiedVideoDuration, VideoPolicyError } from '@/lib/video-policy';
 import { NextRequest, NextResponse } from "next/server";
@@ -114,6 +115,7 @@ async function resolvePublisher(
 
 export async function POST(request: NextRequest) {
   let unpublishedFile: string | null = null;
+  let unpublishedThumbnail: string | null = null;
   try {
     const user = await getAuthenticatedUser();
 
@@ -244,7 +246,7 @@ export async function POST(request: NextRequest) {
 
     const thumbnailUrlRaw = formData.get("thumbnailUrl");
 
-    const thumbnailUrl =
+    let thumbnailUrl =
       typeof thumbnailUrlRaw === "string" && thumbnailUrlRaw.trim()
         ? thumbnailUrlRaw.trim()
         : null;
@@ -281,6 +283,15 @@ export async function POST(request: NextRequest) {
       absoluteFilePath,
       buffer
     );
+
+    if (!thumbnailUrl) {
+      const posterName = `${fileName}.jpg`;
+      const posterPath = path.join(absoluteDirectory, posterName);
+      if (await generateVideoThumbnail(absoluteFilePath, posterPath)) {
+        thumbnailUrl = `${BASE_URL}/${relativeDirectory}/${posterName}`;
+        unpublishedThumbnail = posterPath;
+      }
+    }
 
     const fileUrl =
       `${BASE_URL}/${relativeDirectory}/${fileName}`;
@@ -347,6 +358,7 @@ export async function POST(request: NextRequest) {
 
     const media = result.rows[0];
     unpublishedFile = null;
+    unpublishedThumbnail = null;
 
     return NextResponse.json(
       {
@@ -374,6 +386,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
+    if (unpublishedThumbnail) await fs.rm(unpublishedThumbnail, { force: true }).catch(() => {});
     if (unpublishedFile) await fs.unlink(unpublishedFile).catch(() => undefined);
     if (error instanceof VideoPolicyError) return NextResponse.json({ success: false, error: error.message }, { status: 422 });
     console.error("MEDIA_UPLOAD_ERROR", error);

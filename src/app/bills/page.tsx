@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { Loader2, Droplets, Gauge, Plus, Globe, Check as CheckIcon, ShieldCheck, FileWarning, CheckCheck } from 'lucide-react';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import type { User, RegidesoInvoice, RegidesoAbonnement, Country } from '@/lib/types';
@@ -181,10 +181,10 @@ const RegidesoService = ({ user, t }: { user: User, t: any }) => {
                 <CardTitle>Sélectionner un compte</CardTitle>
                 <div className="flex items-end gap-2 pt-2">
                     <div className="flex-grow">
-                        <Select onValueChange={setActiveAbonnementId} value={activeAbonnementId || ''}>
-                            <SelectTrigger disabled={abonnements.length === 0} className="h-12"><SelectValue placeholder="Choisir un abonnement" /></SelectTrigger>
-                            <SelectContent>{abonnements.map(sub => <SelectItem key={sub.id} value={sub.abonnement_id}>{sub.alias} ({sub.abonnement_id})</SelectItem>)}</SelectContent>
-                        </Select>
+                        <ChoiceGroup onValueChange={setActiveAbonnementId} value={activeAbonnementId || ''}>
+                            <ChoiceTrigger disabled={abonnements.length === 0} className="h-12"><ChoiceValue placeholder="Choisir un abonnement" /></ChoiceTrigger>
+                            <ChoiceContent>{abonnements.map(sub => <ChoiceItem key={sub.id} value={sub.abonnement_id}>{sub.alias} ({sub.abonnement_id})</ChoiceItem>)}</ChoiceContent>
+                        </ChoiceGroup>
                     </div>
                     <Button variant="outline" size="icon" className="h-12 w-12" onClick={() => setIsFormOpen(true)}><Plus className="h-5 w-5"/></Button>
                 </div>

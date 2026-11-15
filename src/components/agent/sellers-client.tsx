@@ -20,13 +20,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ActionPanel,
+  ActionPanelContent,
+  ActionPanelItem,
+  ActionPanelLabel,
+  ActionPanelSeparator,
+  ActionPanelTrigger,
+} from "@/components/ui/action-panel";
 import { useAlertDialog } from "@/hooks/use-alert-dialog";
 import { AddSellerForm } from "./add-seller-form";
 import type { Seller, Boutique, User } from "@/lib/types";
@@ -210,28 +210,28 @@ export function SellersClient({ initialSellers, boutiques }: { initialSellers: S
                               <span className="sr-only">{t('viewDetails')}</span>
                           </Link>
                       </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                      <ActionPanel>
+                        <ActionPanelTrigger asChild>
                           <Button aria-haspopup="true" size="icon" variant="ghost">
                             <MoreHorizontal className="h-4 w-4" />
                             <span className="sr-only">{t('toggleMenu')}</span>
                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>{t('tableHeaderActions')}</DropdownMenuLabel>
-                           <DropdownMenuItem onClick={() => handleResetPin(seller)}>
+                        </ActionPanelTrigger>
+                        <ActionPanelContent align="end">
+                          <ActionPanelLabel>{t('tableHeaderActions')}</ActionPanelLabel>
+                           <ActionPanelItem onClick={() => handleResetPin(seller)}>
                              <KeyRound className="mr-2 h-4 w-4" /> {t('resetPin')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => toggleSellerStatus(seller.id)}>
+                          </ActionPanelItem>
+                          <ActionPanelItem onClick={() => toggleSellerStatus(seller.id)}>
                             {seller.status === 'Active' ? <ToggleLeft className="mr-2 h-4 w-4" /> : <ToggleRight className="mr-2 h-4 w-4" />}
                             {seller.status === 'Active' ? t('deactivate') : t('activate')}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => handleDeleteSeller(seller.id)}>
+                          </ActionPanelItem>
+                          <ActionPanelSeparator />
+                          <ActionPanelItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => handleDeleteSeller(seller.id)}>
                             <Trash2 className="mr-2 h-4 w-4" /> {t('delete')}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                          </ActionPanelItem>
+                        </ActionPanelContent>
+                      </ActionPanel>
                     </div>
                   </TableCell>
                 </TableRow>

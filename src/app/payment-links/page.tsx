@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { ActionPanel, ActionPanelTrigger, ActionPanelContent, ActionPanelItem, ActionPanelSeparator } from '@/components/ui/action-panel';
 import Link from 'next/link';
 
 export default function PaymentLinksDashboard() {
@@ -154,25 +154,25 @@ export default function PaymentLinksDashboard() {
                                             <Button variant="outline" className="font-bold" onClick={() => handleCopy(link.id)}>
                                                 <Share2 className="mr-2 h-4 w-4" /> Partager
                                             </Button>
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
+                                            <ActionPanel>
+                                                <ActionPanelTrigger asChild>
                                                     <Button variant="ghost" size="icon"><MoreVertical /></Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end" className="w-48">
-                                                    <DropdownMenuItem asChild>
+                                                </ActionPanelTrigger>
+                                                <ActionPanelContent align="end" className="w-48">
+                                                    <ActionPanelItem asChild>
                                                         <Link href={`/pay/l_${link.id}`} target="_blank">
                                                             <ExternalLink className="mr-2 h-4 w-4"/> Voir la page
                                                         </Link>
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem onClick={() => handleToggleStatus(link)}>
+                                                    </ActionPanelItem>
+                                                    <ActionPanelItem onClick={() => handleToggleStatus(link)}>
                                                         {link.status === 'active' ? <><PowerOff className="mr-2 h-4 w-4"/> Désactiver</> : <><Power className="mr-2 h-4 w-4"/> Activer</>}
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuSeparator />
-                                                    <DropdownMenuItem className="text-red-500 focus:text-red-500 focus:bg-red-50" onClick={() => handleDelete(link)}>
+                                                    </ActionPanelItem>
+                                                    <ActionPanelSeparator />
+                                                    <ActionPanelItem className="text-red-500 focus:text-red-500 focus:bg-red-50" onClick={() => handleDelete(link)}>
                                                         <Trash2 className="mr-2 h-4 w-4"/> Supprimer
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
+                                                    </ActionPanelItem>
+                                                </ActionPanelContent>
+                                            </ActionPanel>
                                         </div>
                                     </CardContent>
                                 </Card>

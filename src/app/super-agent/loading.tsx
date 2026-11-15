@@ -1,0 +1,1 @@
+export default function Loading(){return <section role="status" className="min-h-[50vh] flex flex-col items-center justify-center gap-4"><span className="h-10 w-10 rounded-full border-4 border-violet-500 border-t-transparent animate-spin"/><p>Chargement de l’espace de gestion…</p></section>;}

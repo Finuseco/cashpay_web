@@ -65,11 +65,7 @@ export async function GET(request: NextRequest) {
 
     const balance = await getUssdBalance(user.id, currency);
 
-    const fee = await calculateTransactionFee(
-      amount,
-      currency,
-      typeCode,
-      user.country
+    const fee = await calculateTransactionFee(amount, currency, typeCode, user.country, undefined, user.id
     );
 
     const total = amount + fee;

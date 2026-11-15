@@ -68,7 +68,7 @@ export function CreateCardDialog({ user, existingCards, open, onOpenChange }: { 
       const feeCode = `BUY_CARDS_${currency.toUpperCase()}_${suffix}_FEE`;
       
       try {
-          const fee = await calculateTransactionFee(1, currency, feeCode, user.country);
+          const fee = await calculateTransactionFee(1, currency, feeCode, user.country, undefined, user.id);
           setCreationFee(fee);
       } catch (e) {
           console.error("Failed to fetch card fee:", e);

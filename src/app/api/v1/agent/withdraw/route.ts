@@ -61,7 +61,7 @@ type WithdrawOperation = {
 
 function getSecret() {
   const secret =
-    process.env.AGENT_OPERATION_SECRET;
+    process.env.AGENT_OPERATION_SECRET || process.env.JWT_SECRET;
 
   if (!secret) {
     throw new Error(

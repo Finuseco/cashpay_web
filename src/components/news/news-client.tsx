@@ -12,7 +12,7 @@ import { Rss, ThumbsUp, Eye, Globe } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getArticles, syncNewsFromRssFeeds } from '@/lib/actions/news.actions';
 import { Skeleton } from '../ui/skeleton';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { getAuthenticatedUser } from '@/lib/actions/user.actions';
 import { countryToCode } from '@/lib/utils';
 import { NEWS_CATEGORIES } from '@/lib/countries';
@@ -132,16 +132,16 @@ export function NewsClient() {
                 </Tabs>
                 
                  <div className="mb-6">
-                    <Select onValueChange={setActiveCategory} defaultValue={activeCategory}>
-                        <SelectTrigger className="w-[180px]">
-                            <SelectValue placeholder={t('newsCategoryFilterPlaceholder')} />
-                        </SelectTrigger>
-                        <SelectContent>
+                    <ChoiceGroup onValueChange={setActiveCategory} defaultValue={activeCategory}>
+                        <ChoiceTrigger className="w-[180px]">
+                            <ChoiceValue placeholder={t('newsCategoryFilterPlaceholder')} />
+                        </ChoiceTrigger>
+                        <ChoiceContent>
                             {newsCategories.map(cat => (
-                                <SelectItem key={cat} value={cat}>{t(`newsCategory_${cat}`, cat === 'all' ? 'Toutes les catégories' : cat)}</SelectItem>
+                                <ChoiceItem key={cat} value={cat}>{t(`newsCategory_${cat}`, cat === 'all' ? 'Toutes les catégories' : cat)}</ChoiceItem>
                             ))}
-                        </SelectContent>
-                    </Select>
+                        </ChoiceContent>
+                    </ChoiceGroup>
                 </div>
                 
                 {isLoading ? (

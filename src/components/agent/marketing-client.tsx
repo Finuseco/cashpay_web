@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import type { User, SmsPackage, SmsPurchase, SentSmsCampaign, Country, Product, MarketingCampaign } from '@/lib/types';
 import { purchaseSmsPackage, sendMarketingSms, sendProductBoostEmail, getMarketingCampaigns } from '@/lib/actions/marketing.actions';
 import { format } from 'date-fns';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { ratesFromUSD } from '@/config/rates';
 import { Skeleton } from '../ui/skeleton';
 import { getAgentProducts } from '@/lib/actions/agent.actions';
@@ -127,21 +127,21 @@ const SmsCampaignForm = ({ agent, clients, countries, initialBalance, onCampaign
                             />
                             <div>
                                <FormLabel>Ciblage des Clients</FormLabel>
-                               <Select value={selectedCountry} onValueChange={setSelectedCountry}>
-                                   <SelectTrigger className="mt-2">
-                                       <SelectValue placeholder="Sélectionnez une cible..." />
-                                   </SelectTrigger>
-                                   <SelectContent>
-                                       <SelectItem value="all">Tous les Clients ({clients.length})</SelectItem>
+                               <ChoiceGroup value={selectedCountry} onValueChange={setSelectedCountry}>
+                                   <ChoiceTrigger className="mt-2">
+                                       <ChoiceValue placeholder="Sélectionnez une cible..." />
+                                   </ChoiceTrigger>
+                                   <ChoiceContent>
+                                       <ChoiceItem value="all">Tous les Clients ({clients.length})</ChoiceItem>
                                        {countries.map(c => {
                                             const count = clients.filter(client => client.country === c.name).length;
                                             if (count > 0) {
-                                               return <SelectItem key={c.code} value={c.code}>{c.name} ({count})</SelectItem>
+                                               return <ChoiceItem key={c.code} value={c.code}>{c.name} ({count})</ChoiceItem>
                                             }
                                             return null;
                                        })}
-                                   </SelectContent>
-                               </Select>
+                                   </ChoiceContent>
+                               </ChoiceGroup>
                             </div>
                             
                             <Alert variant={balance >= cost ? "default" : "destructive"}>
@@ -375,7 +375,7 @@ export function MarketingClient({
                             <CardDescription>Sélectionnez des produits, choisissez un package et une mise en page, puis envoyez une campagne e-mail au nom de votre boutique à tous les utilisateurs de CashPay.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            {/* Step 1: Select Products */}
+                            {/* Step 1: ChoiceGroup Products */}
                                 <div>
                                     <h3 className="font-semibold mb-2">Étape 1 : Sélectionnez vos produits ({selectedProducts.length}/{selectedPackage.productCount})</h3>
                                     {isLoadingProducts ? (
@@ -396,7 +396,7 @@ export function MarketingClient({
                                     )}
                                 </div>
                                 
-                                {/* Step 2: Select Package & Layout */}
+                                {/* Step 2: ChoiceGroup Package & Layout */}
                                 <div className="grid md:grid-cols-2 gap-6">
                                     <div>
                                         <h3 className="font-semibold mb-2">Étape 2 : Choisissez votre package</h3>

@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChoiceGroup, ChoiceContent, ChoiceItem, ChoiceTrigger, ChoiceValue } from '@/components/ui/choice-group';
 import { Button } from '@/components/ui/button';
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import type { User, Currency } from '@/lib/types';
@@ -65,7 +65,7 @@ export function AtmWithdrawalForm({ user, currencies }: { user: User, currencies
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                         <div className="grid grid-cols-2 gap-4">
                             <FormField control={form.control} name="amount" render={({ field }) => ( <FormItem><FormLabel>Montant</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )}/>
-                            <FormField control={form.control} name="currency" render={({ field }) => ( <FormItem><FormLabel>Devise</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue/></SelectTrigger></FormControl><SelectContent>{currencies.filter(c => ['USD','CDF'].includes(c.code)).map(c => <SelectItem key={c.code} value={c.code}>{c.code} (Solde: {c.balance})</SelectItem>)}</SelectContent></Select><FormMessage /></FormItem> )}/>
+                            <FormField control={form.control} name="currency" render={({ field }) => ( <FormItem><FormLabel>Devise</FormLabel><ChoiceGroup onValueChange={field.onChange} defaultValue={field.value}><FormControl><ChoiceTrigger><ChoiceValue/></ChoiceTrigger></FormControl><ChoiceContent>{currencies.filter(c => ['USD','CDF'].includes(c.code)).map(c => <ChoiceItem key={c.code} value={c.code}>{c.code} (Solde: {c.balance})</ChoiceItem>)}</ChoiceContent></ChoiceGroup><FormMessage /></FormItem> )}/>
                         </div>
                         <FormField
                             control={form.control}

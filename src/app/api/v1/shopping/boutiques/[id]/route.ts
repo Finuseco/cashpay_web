@@ -10,6 +10,8 @@ type Context = {
   params: Promise<{ id: string }>;
 };
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   context: Context
@@ -24,7 +26,7 @@ export async function GET(
       );
     }
 
-    if (user.role !== 'agent') {
+    if (String(user.role).trim().toLowerCase() !== 'agent') {
       return NextResponse.json(
         { success: false, error: 'Accès réservé aux agents.' },
         { status: 403 }
@@ -71,7 +73,7 @@ export async function PUT(
       );
     }
 
-    if (user.role !== 'agent') {
+    if (String(user.role).trim().toLowerCase() !== 'agent') {
       return NextResponse.json(
         { success: false, error: 'Accès réservé aux agents.' },
         { status: 403 }
@@ -133,7 +135,7 @@ export async function DELETE(
       );
     }
 
-    if (user.role !== 'agent') {
+    if (String(user.role).trim().toLowerCase() !== 'agent') {
       return NextResponse.json(
         { success: false, error: 'Accès réservé aux agents.' },
         { status: 403 }

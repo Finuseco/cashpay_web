@@ -64,6 +64,7 @@ export function verifyToken(token: string, portal: 'main' | 'dev' | 'fx' = 'main
     
     try {
         const decoded = jwt.verify(token, tokenSecret);
+        if (typeof decoded === 'object' && (decoded.scope === 'onchat-ws-connect' || decoded.aud === 'onchat-ws')) return null;
         if (typeof decoded === 'object' && 'id' in decoded) {
             return decoded as JwtPayload;
         }

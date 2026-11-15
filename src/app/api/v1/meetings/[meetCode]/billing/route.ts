@@ -1,3 +1,4 @@
+import {sfuConfigured,mediaCapacity} from '@/lib/meeting-media';
 /**
  * GET  /api/v1/meetings/:meetCode/billing
  *   → info de facturation du meeting (prix, devise, créateur)
@@ -27,6 +28,7 @@ export async function GET(
 
         const { meeting, quote } = await quoteMeetingAccess(params.meetCode, user, _request.nextUrl.searchParams.get('currency') || undefined);
         return NextResponse.json({ success: true, meetCode: params.meetCode, topic: meeting.topic, type: meeting.type, status: meeting.status,
+            mediaTransport:sfuConfigured()?'livekit':'mesh',maxParticipants:sfuConfigured()?mediaCapacity():8,
             billing: { ...quote, isPaid: quote.priceAmount > 0, hostUserId: meeting.host_user_id }, quote });
     } catch (error: any) {
         if (error instanceof MeetingAccessError) return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status });

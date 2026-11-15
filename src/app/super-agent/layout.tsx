@@ -2,35 +2,31 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { 
-    Loader2, Users, ShoppingBag, CreditCard, LayoutDashboard, LogOut, ArrowLeft, 
-    ArrowRightLeft, LifeBuoy, Globe, Tv, Landmark, Wallet, Coins, Briefcase, 
+import {
+    Loader2, Users, ShoppingBag, CreditCard, LayoutDashboard, LogOut, ArrowLeft,
+    ArrowRightLeft, LifeBuoy, Globe, Tv, Landmark, Wallet, Coins, Briefcase,
     ChevronDown, ShieldCheck, History, UserPlus, Menu, PackageSearch, Handshake, PiggyBank, Megaphone, Ticket, Plane, Link2
 } from 'lucide-react';
-import { getAuthenticatedUser } from '@/lib/actions/user.actions';
+
 import { useAlertDialog } from '@/hooks/use-alert-dialog';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { 
-    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, 
-    DropdownMenuLabel, DropdownMenuSeparator 
-} from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 const NavGroup = ({ title, links, pathname }: { title: string, links: any[], pathname: string }) => (
     <div className="space-y-1">
         <p className="px-3 text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">{title}</p>
         {links.map(link => (
-            <Link 
-                key={link.href} 
+            <Link
+                key={link.href}
                 href={link.href}
                 className={cn(
                     "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors",
-                    pathname === link.href 
-                        ? "bg-primary/10 text-primary" 
+                    pathname === link.href
+                        ? "bg-primary/10 text-primary"
                         : "text-zinc-400 hover:text-white hover:bg-zinc-800"
                 )}
             >
@@ -44,30 +40,26 @@ const NavGroup = ({ title, links, pathname }: { title: string, links: any[], pat
 export default function SuperAgentLayout({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const pathname = usePathname();
+    const [loadError, setLoadError] = useState('');
     const [user, setUser] = useState<any | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const { openAlert } = useAlertDialog();
 
     useEffect(() => {
-        const checkAuth = async () => {
-            const fetchedUser = await getAuthenticatedUser();
-            const allowedRoles = ['SuperAgent', 'SubSuperAgent', 'Admin'];
-            if (!fetchedUser || !allowedRoles.includes(fetchedUser.role)) {
-                openAlert({
-                    title: 'Accès Refusé',
-                    description: "Vous n'avez pas les droits de gestionnaire pour accéder à cet espace.",
-                    variant: 'error',
-                    onClose: () => router.replace('/dashboard')
-                });
-                return;
-            }
-            setUser(fetchedUser);
-            setIsLoading(false);
-        };
-        checkAuth();
-    }, [router, openAlert]);
+        const controller=new AbortController();let active=true;
+        const timeout=setTimeout(()=>controller.abort(),20000);
+        setIsLoading(true);setLoadError('');
+        fetch('/api/v1/management/session',{cache:'no-store',signal:controller.signal}).then(async response=>{
+            const data=await response.json();
+            if(!response.ok||!data.success)throw new Error(data.error||'Session indisponible.');
+            if(active)setUser(data.user);
+        }).catch(error=>{if(active)setLoadError(controller.signal.aborted?'La vérification de session a pris trop de temps. Réessayez.':error.message);})
+          .finally(()=>{clearTimeout(timeout);if(active)setIsLoading(false);});
+        return()=>{active=false;clearTimeout(timeout);controller.abort();};
+    }, []);
 
     const groups = [
+        {title:"État des services",links:[{href:"/super-agent/diagnostics",label:"Diagnostic des services",icon:ShieldCheck}]},
         {
             title: "Commandes & Marché",
             links: [
@@ -91,6 +83,7 @@ export default function SuperAgentLayout({ children }: { children: React.ReactNo
             title: "Supports (Dépôts)",
             links: [
                 { href: "/super-agent/support", label: "Flux Entrants", icon: LifeBuoy },
+                { href: "/super-agent/inter-agents", label: "Agences inter & audit", icon: ShieldCheck },
                 { href: "/super-agent/international-claims", label: "Réclames Inter.", icon: Globe },
             ]
         },
@@ -123,6 +116,8 @@ export default function SuperAgentLayout({ children }: { children: React.ReactNo
         }
     ];
 
+    if (loadError) return <div role="alert" className="p-8">{loadError} <Button onClick={() => window.location.reload()}>Réessayer</Button></div>;
+    if (!isLoading && !user) return <main className="p-8"><p role="alert">Session de gestion indisponible.</p><Link href="/login">Se reconnecter</Link></main>;
     if (isLoading) {
         return <div className="flex h-screen w-full items-center justify-center bg-zinc-900"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
     }
@@ -140,10 +135,10 @@ export default function SuperAgentLayout({ children }: { children: React.ReactNo
                         <p className="text-sm font-bold text-primary truncate">{subAgentTitle}</p>
                     </div>
                 </div>
-                
+
                 <ScrollArea className="flex-1 px-3">
                     <div className="space-y-6 pb-6">
-                        <Link 
+                        <Link
                             href="/super-agent/dashboard"
                             className={cn(
                                 "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors",
@@ -172,20 +167,14 @@ export default function SuperAgentLayout({ children }: { children: React.ReactNo
             <div className="flex-1 flex flex-col min-w-0">
                 <header className="lg:hidden h-16 border-b border-zinc-800 bg-zinc-900 flex items-center justify-between px-4">
                     <Logo className="w-24" />
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon"><Menu className="h-6 w-6"/></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-64 bg-zinc-900 border-zinc-800 text-white">
-                            <DropdownMenuLabel>Menu Gestionnaire</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            {groups.flatMap(g => g.links).map(link => (
-                                <DropdownMenuItem key={link.href} onClick={() => router.push(link.href)}>
-                                    <link.icon className="mr-2 h-4 w-4"/> {link.label}
-                                </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    <details className="relative">
+                        <summary aria-label="Ouvrir le menu gestionnaire" className="list-none cursor-pointer rounded-md p-2 focus-visible:outline focus-visible:outline-2"><Menu className="h-6 w-6"/></summary>
+                        <nav aria-label="Menu gestionnaire" className="absolute right-0 top-full z-50 w-64 max-w-[calc(100vw-2rem)] max-h-[70dvh] overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900 p-2 shadow-xl">
+                            {groups.map(group => <div key={group.title} className="border-b border-zinc-800 py-2 last:border-0">
+                                {group.links.map(link => <Link key={link.href} href={link.href} onClick={event => event.currentTarget.closest('details')?.removeAttribute('open')} className="flex items-center rounded-md px-3 py-3 text-sm hover:bg-zinc-800"><link.icon className="mr-2 h-4 w-4 shrink-0"/>{link.label}</Link>)}
+                            </div>)}
+                        </nav>
+                    </details>
                 </header>
 
                 <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full pb-24 lg:pb-8">

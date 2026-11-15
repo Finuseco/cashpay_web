@@ -8,7 +8,7 @@ import type { AdCampaign } from "@/lib/types";
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { MoreVertical, Eye, BarChart2 } from "lucide-react";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { ActionPanel, ActionPanelTrigger, ActionPanelContent, ActionPanelItem } from "@/components/ui/action-panel";
 import { cn } from "@/lib/utils";
 
 const statusStyles: Record<AdCampaign['status'], string> = {
@@ -65,15 +65,15 @@ export function AdsCampaignTable({ campaigns }: { campaigns: AdCampaign[] }) {
                             </Badge>
                         </TableCell>
                          <TableCell className="text-right">
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
+                            <ActionPanel>
+                                <ActionPanelTrigger asChild>
                                     <Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent>
-                                    <DropdownMenuItem><Eye className="mr-2 h-4 w-4" /> Voir l'aperçu</DropdownMenuItem>
-                                    <DropdownMenuItem><BarChart2 className="mr-2 h-4 w-4" /> Voir les stats</DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+                                </ActionPanelTrigger>
+                                <ActionPanelContent>
+                                    <ActionPanelItem><Eye className="mr-2 h-4 w-4" /> Voir l'aperçu</ActionPanelItem>
+                                    <ActionPanelItem><BarChart2 className="mr-2 h-4 w-4" /> Voir les stats</ActionPanelItem>
+                                </ActionPanelContent>
+                            </ActionPanel>
                          </TableCell>
                     </TableRow>
                 ))}

@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
       JOIN users recv   ON recv.id   = cl.receiver_id
       WHERE cl.caller_id = $1
          OR cl.receiver_id = $1
+         OR EXISTS (SELECT 1 FROM onchat_call_invitees invited WHERE invited.call_id=cl.id AND invited.user_id=$1)
       ORDER BY COALESCE(cl.ended_at, cl.started_at) DESC NULLS LAST
       LIMIT 100
       `,
