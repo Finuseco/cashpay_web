@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import {db} from '@/lib/db';
 import {enterpriseFeeWaived} from '@/lib/enterprise/policy';
 import { NextResponse } from 'next/server';

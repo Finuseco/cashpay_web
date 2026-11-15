@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (typeof body.acceptedFee !== 'number' || !Number.isFinite(body.acceptedFee) || body.acceptedFee <= 0) return NextResponse.json({success:false,error:'Chargez et confirmez le tarif avant l’activation.'},{status:400});
+    if (typeof body.acceptedFee !== 'number' || !Number.isFinite(body.acceptedFee) || body.acceptedFee < 0) return NextResponse.json({success:false,error:'Chargez et confirmez le tarif avant l’activation.'},{status:400});
     const result = await subscribeAsAgent(user.id, plan, pin, body.acceptedFee);
 
     if (!result.success) {
