@@ -3,6 +3,7 @@ import {requireSuperAgent,assertManagedUser,countryIdentity} from '@/lib/super-a
 import {readLoanPayment} from '@/lib/loan-payment-intent';
 import {LOAN_INTERNAL_CONTEXT} from '@/lib/loan-internal-context';
 import {loanPlan} from '@/lib/loan-plan';
+import {loanCalendarMetadata} from '@/lib/loan-calendar';
 
 import type { User, Loan } from '@/lib/types';
 import { sendSms } from '@/services/sms';
@@ -284,10 +285,8 @@ export async function getLoanForUser(userId: number): Promise<Loan | null> {
         const { rows } = await db.query(`
             SELECT id, amount, remaining_balance, currency, interest_rate, duration, status,
                    monthly_payment, repayment_frequency, installment_count, installment_amount,
-                   approval_date AS start_date,
-                   CASE WHEN repayment_frequency='weekly'
-                        THEN approval_date + (installment_count * interval '7 days')
-                        ELSE approval_date + (CASE WHEN repayment_frequency='quarterly' THEN installment_count * 3 ELSE duration END * interval '1 month') END AS end_date
+                   request_date, approval_date,
+                   (SELECT MAX(i.due_date) FROM loan_installments i WHERE i.loan_id=loans.id) AS last_due_date
             FROM loans WHERE user_id=$1 AND LOWER(status::text) IN ('approved','defaulted','overdue')
             ORDER BY request_date DESC LIMIT 1`, [userId]);
         if (!rows.length) return null;
@@ -297,8 +296,7 @@ export async function getLoanForUser(userId: number): Promise<Loan | null> {
             id: loan.id, amount: totalAmount, principal_amount:money(loan.amount),total_repayment:totalAmount,status:loan.status,
             repaid_amount: totalAmount - money(loan.remaining_balance), currency: loan.currency,
             interest_rate: loan.interest_rate,
-            start_date: format(new Date(loan.start_date), 'yyyy-MM-dd'),
-            end_date: format(new Date(loan.end_date), 'yyyy-MM-dd'),
+            ...loanCalendarMetadata(loan, [loan.last_due_date]),
             remaining_balance: money(loan.remaining_balance), monthly_payment: money(loan.installment_amount || loan.monthly_payment),
             repayment_frequency: loan.repayment_frequency, installment_count: loan.installment_count,
             installment_amount: money(loan.installment_amount || loan.monthly_payment)
@@ -311,7 +309,7 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
     if(context!==LOAN_INTERNAL_CONTEXT){const current=await getAuthenticatedUser();if(!current)throw new Error('Authentification requise.');if(userId!==undefined&&Number(userId)!==Number(current.id))throw new Error('Accès refusé.');userId=current.id;}
     if(userId===undefined){
       const {rows}=await db.query(`SELECT DISTINCT l.user_id FROM loans l WHERE LOWER(l.status::text) IN ('approved','defaulted','overdue') AND
-       (EXISTS(SELECT 1 FROM loan_installments i WHERE i.loan_id=l.id AND i.due_date::date<=CURRENT_DATE-7 AND COALESCE(i.amount,0)+COALESCE(i.penalty_amount,0)-COALESCE(i.paid_amount,0)>0)
+       (EXISTS(SELECT 1 FROM loan_installments i WHERE i.loan_id=l.id AND i.due_date<=NOW()-INTERVAL '7 days' AND COALESCE(i.amount,0)+COALESCE(i.penalty_amount,0)-COALESCE(i.paid_amount,0)>0)
         OR (l.remaining_balance>0 AND NOT EXISTS(SELECT 1 FROM loan_installments existing WHERE existing.loan_id=l.id))) ORDER BY l.user_id`);
       let processed=0,failed=0;const successfulUserIds:number[]=[],errors:Array<{userId:number;error:string}>=[],debitedByCurrency:Record<string,number>={};
       for(const row of rows){try{const result:any=await processLoanRepayments(Number(row.user_id),LOAN_INTERNAL_CONTEXT);if(result.error||result.failed){failed++;errors.push({userId:Number(row.user_id),error:result.error||'Prélèvement refusé.'});}else successfulUserIds.push(Number(row.user_id));processed+=Number(result.processed||0);for(const [currency,amount] of Object.entries(result.debitedByCurrency||{}))debitedByCurrency[currency]=roundMoney((debitedByCurrency[currency]||0)+Number(amount));}catch(e:any){failed++;errors.push({userId:Number(row.user_id),error:e.message||'Recouvrement impossible.'});}}
@@ -335,7 +333,7 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
                 SELECT 1
                 FROM loan_installments li
                 WHERE li.loan_id = l.id
-                  AND li.due_date::date <= CURRENT_DATE - 7
+                  AND li.due_date <= NOW() - INTERVAL '7 days'
                   AND (
                     COALESCE(li.amount, 0)
                     + COALESCE(li.penalty_amount, 0)
@@ -352,7 +350,7 @@ export async function processLoanRepayments(userId?: number,context?:symbol) {
             if(Math.abs(Number(scheduleDebt)-Number(loanData.remaining_balance))>0.005)throw new Error('Dette et échéancier incohérents : rapprochement des paiements requis avant prélèvement.');
             const { rows: due } = await connection.query(`
               SELECT * FROM loan_installments
-              WHERE loan_id=$1 AND due_date::date <= CURRENT_DATE - 7 AND COALESCE(amount,0)+COALESCE(penalty_amount,0)-COALESCE(paid_amount,0)>0
+              WHERE loan_id=$1 AND due_date <= NOW() - INTERVAL '7 days' AND COALESCE(amount,0)+COALESCE(penalty_amount,0)-COALESCE(paid_amount,0)>0
               ORDER BY due_date,installment_number FOR UPDATE
             `, [loanData.id]);
             const user = formatUser({...loanData,id:loanData.u_id});
@@ -539,10 +537,13 @@ export async function approveLoanRequest(loanId: number, adminUserId: number): P
         const totalRepayment = roundMoney(money(loan.amount) * (1 + money(loan.interest_rate) / 100));
         const installmentAmount = roundMoney(totalRepayment / plan.count);
 
-        await connection.query(`UPDATE loans SET status='approved',approval_date=NOW(),remaining_balance=$1,repayment_frequency=$2,installment_count=$3,installment_amount=$4,monthly_payment=$4 WHERE id=$5`, [totalRepayment, plan.frequency, plan.count, installmentAmount, loanId]);
+        const approved = await connection.query(`UPDATE loans SET status='approved',approval_date=clock_timestamp(),remaining_balance=$1,repayment_frequency=$2,installment_count=$3,installment_amount=$4,monthly_payment=$4 WHERE id=$5 RETURNING approval_date`, [totalRepayment, plan.frequency, plan.count, installmentAmount, loanId]);
+        const approvalStamp = approved.rows[0]?.approval_date;
+        const approvalDate = new Date(approvalStamp);
+        if (!approvalStamp || !Number.isFinite(approvalDate.getTime())) throw new Error('Horodatage de l’approbation indisponible.');
         const transactionResult = await createTransaction({ user, typeCode:'LP', amount:money(loan.amount), currency:loan.currency, description:`Décaissement du prêt #${loanId}`, metadata:{loan_id:loanId,approved_by:adminUserId}, connection });
         if (!transactionResult.success || !transactionResult.transactionId) throw new Error(transactionResult.error || 'Échec du décaissement des fonds du prêt.');
-        await createLoanInstallmentSchedule(connection, loanId, new Date(), totalRepayment, plan.frequency, plan.count);
+        await createLoanInstallmentSchedule(connection, loanId, approvalDate, totalRepayment, plan.frequency, plan.count);
         // La décision financière est définitivement validée avant toute notification externe.
         // Les fournisseurs SMS/WhatsApp/e-mail ne doivent jamais bloquer la réponse du Server Action.
         await connection.query('COMMIT');
@@ -688,12 +689,11 @@ export async function getLoanHistory(userId:number):Promise<LoanHistory[]> {
                 installment_amount:money(loan.installment_amount||loan.monthly_payment),
                 repayment_frequency:loan.repayment_frequency,
                 installment_count:loan.installment_count,
-                start_date:format(new Date(loan.approval_date||loan.request_date),'yyyy-MM-dd'),
-                end_date:schedule.length?format(new Date(schedule[schedule.length-1].due_date),'yyyy-MM-dd'):format(new Date(loan.approval_date||loan.request_date).setMonth(new Date(loan.approval_date||loan.request_date).getMonth()+Number(loan.duration)),'yyyy-MM-dd'),
+                ...loanCalendarMetadata(loan, schedule.map(item => item.due_date)),
                 remaining_balance:money(loan.remaining_balance),
                 status:loan.status,
                 repayments,
-                schedule
+                schedule: loanCalendarMetadata(loan, []).approval_date ? schedule : []
             } as any);
         }
         return history;

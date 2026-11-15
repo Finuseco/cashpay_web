@@ -307,27 +307,27 @@ export function LoanHistoryClient({
 
                   <div className="grid gap-4 border-b border-white/10 p-5 sm:grid-cols-2 lg:grid-cols-4">
                     <div>
-                      <p className="text-xs text-zinc-400">Début</p>
+                      <p className="text-xs text-zinc-400">{String(loan.status).toLowerCase() === 'pending' ? 'Demande déposée' : 'Approbation'}</p>
                       {(() => {
-                        const dd = dateWithDay((loan as any).start_date || (loan as any).approval_date || (loan as any).request_date);
+                        const dd = dateWithDay(String(loan.status).toLowerCase() === 'pending' ? (loan as any).request_date : (loan as any).approval_date || (loan as any).start_date);
                         return dd ? (
                           <p className="mt-1 text-sm leading-snug">
                             <span className="font-medium">{dd.line1}</span><br/>
                             <span className="text-zinc-400">{dd.line2}</span>
                           </p>
-                        ) : <p className="mt-1 text-sm text-zinc-400">Non disponible</p>;
+                        ) : <p className="mt-1 text-sm text-zinc-400">{String(loan.status).toLowerCase() === 'pending' ? 'Après approbation' : 'Non disponible'}</p>;
                       })()}
                     </div>
                     <div>
                       <p className="text-xs text-zinc-400">Fin prévue</p>
                       {(() => {
-                        const dd = dateWithDay((loan as any).end_date);
+                        const dd = dateWithDay(String(loan.status).toLowerCase() === 'pending' ? null : (loan as any).end_date);
                         return dd ? (
                           <p className="mt-1 text-sm leading-snug">
                             <span className="font-medium">{dd.line1}</span><br/>
                             <span className="text-zinc-400">{dd.line2}</span>
                           </p>
-                        ) : <p className="mt-1 text-sm text-zinc-400">Non disponible</p>;
+                        ) : <p className="mt-1 text-sm text-zinc-400">{String(loan.status).toLowerCase() === 'pending' ? 'Après approbation' : 'Non disponible'}</p>;
                       })()}
                     </div>
                     <div>

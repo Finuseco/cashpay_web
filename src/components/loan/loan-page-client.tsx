@@ -34,7 +34,7 @@ export function LoanPageClient({ user, currencies, loanHistory }: { user: User |
   const hasActiveLoan = loanHistory.some(loan => ['pending', 'approved'].includes(String(loan.status).toLowerCase()));
   const repaidCount = loanHistory.filter(loan => String(loan.status).toLowerCase() === 'repaid').length;
   const durations = defaultDurations(repaidCount);
-  const lastRepaid = [...loanHistory].filter(loan => String(loan.status).toLowerCase() === 'repaid').sort((a,b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime())[0];
+  const lastRepaid = [...loanHistory].filter(loan => String(loan.status).toLowerCase() === 'repaid').sort((a,b) => new Date(b.start_date || 0).getTime() - new Date(a.start_date || 0).getTime())[0];
   const interestRate = Number(lastRepaid?.interest_rate) > 0 ? Number(lastRepaid.interest_rate) : (interestRates[durations[0]] ?? 21);
   const isFormDisabled = !isEligible || !acceptedTerms || hasActiveLoan;
 

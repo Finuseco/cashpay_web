@@ -310,8 +310,10 @@ export interface Loan {
   repaid_amount: number;
   currency: string;
   interest_rate: number;
-  start_date: string;
-  end_date: string;
+  request_date?: string | null;
+  approval_date?: string | null;
+  start_date: string | null;
+  end_date: string | null;
   monthly_payment?: number;
 }
 

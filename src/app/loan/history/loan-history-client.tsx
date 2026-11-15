@@ -53,6 +53,7 @@ function safeDate(value: unknown): string {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
   });
 }
 
@@ -368,8 +369,9 @@ export function LoanHistoryClient({
                       </p>
 
                       <p className="text-xs text-zinc-400">
-                        Du {safeDate((loan as any).start_date)} au{' '}
-                        {safeDate((loan as any).end_date)}
+                        {String(loan.status).toLowerCase() === 'pending'
+                          ? `Demande : ${safeDate((loan as any).request_date)} · Échéances après approbation`
+                          : `Approbation : ${safeDate((loan as any).approval_date || loan.start_date)} · Fin : ${safeDate(loan.end_date)}`}
                       </p>
                     </div>
 
