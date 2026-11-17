@@ -1,0 +1,561 @@
+{
+ "maxFileMB": 5,
+ "positions": [
+  {
+   "key": "manager",
+   "fr": "Manager général",
+   "en": "General Manager",
+   "frDesc": "Pilote les opérations, encadre les équipes et atteint les objectifs de la province.",
+   "enDesc": "Leads operations, manages teams and meets the province objectives."
+  },
+  {
+   "key": "accountant",
+   "fr": "Expert-comptable",
+   "en": "Chartered Accountant",
+   "frDesc": "Tient et contrôle la comptabilité, prépare les états financiers et assure la conformité.",
+   "enDesc": "Keeps and audits the accounts, prepares financial statements and ensures compliance."
+  },
+  {
+   "key": "treasurer",
+   "fr": "Trésorier",
+   "en": "Treasurer",
+   "frDesc": "Gère la trésorerie, les flux de caisse et les rapprochements.",
+   "enDesc": "Manages cash, cash flows and reconciliations."
+  },
+  {
+   "key": "hr",
+   "fr": "Directeur des ressources humaines",
+   "en": "Human Resources Director",
+   "frDesc": "Recrute, gère les équipes, la paie et la politique RH.",
+   "enDesc": "Recruits, manages teams, payroll and HR policy."
+  },
+  {
+   "key": "marketing",
+   "fr": "Directeur marketing",
+   "en": "Marketing Director",
+   "frDesc": "Définit la stratégie de marque, la communication et la croissance des utilisateurs.",
+   "enDesc": "Defines brand strategy, communication and user growth."
+  },
+  {
+   "key": "commercial",
+   "fr": "Directeur commercial",
+   "en": "Sales Director",
+   "frDesc": "Développe le réseau, les partenariats et le chiffre d'affaires.",
+   "enDesc": "Develops the network, partnerships and revenue."
+  },
+  {
+   "key": "delegate",
+   "fr": "Délégué commercial",
+   "en": "Sales Representative",
+   "frDesc": "Prospecte, visite les clients et partenaires et fait connaître les services CashPay.",
+   "enDesc": "Prospects, visits customers and partners and promotes CashPay services."
+  },
+  {
+   "key": "agent",
+   "fr": "Agent commercial",
+   "en": "Sales Agent",
+   "frDesc": "Recrute et accompagne des clients et des points de service sur le terrain.",
+   "enDesc": "Signs up and supports customers and service points in the field."
+  },
+  {
+   "key": "open",
+   "fr": "Candidature spontanée",
+   "en": "Open application",
+   "frDesc": "Votre profil ne correspond à aucun poste listé ? Présentez-nous vos compétences.",
+   "enDesc": "Your profile does not match a listed position? Tell us about your skills."
+  }
+ ],
+ "countries": [
+  {
+   "code": "CD",
+   "name": "République Démocratique du Congo",
+   "provinces": [
+    "Bas-Uele",
+    "Équateur",
+    "Haut-Katanga",
+    "Haut-Lomami",
+    "Haut-Uele",
+    "Ituri",
+    "Kasaï",
+    "Kasaï-Central",
+    "Kasaï-Oriental",
+    "Kinshasa",
+    "Kongo-Central",
+    "Kwango",
+    "Kwilu",
+    "Lomami",
+    "Lualaba",
+    "Mai-Ndombe",
+    "Maniema",
+    "Mongala",
+    "Nord-Kivu",
+    "Nord-Ubangi",
+    "Sankuru",
+    "Sud-Kivu",
+    "Sud-Ubangi",
+    "Tanganyika",
+    "Tshopo",
+    "Tshuapa"
+   ]
+  },
+  {
+   "code": "ZA",
+   "name": "Afrique du Sud",
+   "provinces": [
+    "Eastern Cape",
+    "Free State",
+    "Gauteng",
+    "KwaZulu-Natal",
+    "Limpopo",
+    "Mpumalanga",
+    "North West",
+    "Northern Cape",
+    "Western Cape"
+   ]
+  },
+  {
+   "code": "DZ",
+   "name": "Algérie"
+  },
+  {
+   "code": "AO",
+   "name": "Angola",
+   "provinces": [
+    "Bengo",
+    "Benguela",
+    "Bié",
+    "Cabinda",
+    "Cuando Cubango",
+    "Cuanza Norte",
+    "Cuanza Sul",
+    "Cunene",
+    "Huambo",
+    "Huíla",
+    "Luanda",
+    "Lunda Norte",
+    "Lunda Sul",
+    "Malanje",
+    "Moxico",
+    "Namibe",
+    "Uíge",
+    "Zaire"
+   ]
+  },
+  {
+   "code": "BW",
+   "name": "Botswana"
+  },
+  {
+   "code": "BF",
+   "name": "Burkina Faso"
+  },
+  {
+   "code": "BI",
+   "name": "Burundi"
+  },
+  {
+   "code": "BJ",
+   "name": "Bénin"
+  },
+  {
+   "code": "CM",
+   "name": "Cameroun",
+   "provinces": [
+    "Adamaoua",
+    "Centre",
+    "Est",
+    "Extrême-Nord",
+    "Littoral",
+    "Nord",
+    "Nord-Ouest",
+    "Ouest",
+    "Sud",
+    "Sud-Ouest"
+   ]
+  },
+  {
+   "code": "CV",
+   "name": "Cap-Vert"
+  },
+  {
+   "code": "KM",
+   "name": "Comores"
+  },
+  {
+   "code": "CG",
+   "name": "Congo (Brazzaville)",
+   "provinces": [
+    "Bouenza",
+    "Brazzaville",
+    "Cuvette",
+    "Cuvette-Ouest",
+    "Kouilou",
+    "Lékoumou",
+    "Likouala",
+    "Niari",
+    "Plateaux",
+    "Pointe-Noire",
+    "Pool",
+    "Sangha"
+   ]
+  },
+  {
+   "code": "CI",
+   "name": "Côte d’Ivoire"
+  },
+  {
+   "code": "DJ",
+   "name": "Djibouti"
+  },
+  {
+   "code": "GA",
+   "name": "Gabon"
+  },
+  {
+   "code": "GM",
+   "name": "Gambie"
+  },
+  {
+   "code": "GH",
+   "name": "Ghana"
+  },
+  {
+   "code": "GN",
+   "name": "Guinée"
+  },
+  {
+   "code": "GQ",
+   "name": "Guinée équatoriale"
+  },
+  {
+   "code": "GW",
+   "name": "Guinée-Bissau"
+  },
+  {
+   "code": "KE",
+   "name": "Kenya",
+   "provinces": [
+    "Baringo",
+    "Bomet",
+    "Bungoma",
+    "Busia",
+    "Elgeyo-Marakwet",
+    "Embu",
+    "Garissa",
+    "Homa Bay",
+    "Isiolo",
+    "Kajiado",
+    "Kakamega",
+    "Kericho",
+    "Kiambu",
+    "Kilifi",
+    "Kirinyaga",
+    "Kisii",
+    "Kisumu",
+    "Kitui",
+    "Kwale",
+    "Laikipia",
+    "Lamu",
+    "Machakos",
+    "Makueni",
+    "Mandera",
+    "Marsabit",
+    "Meru",
+    "Migori",
+    "Mombasa",
+    "Murang'a",
+    "Nairobi",
+    "Nakuru",
+    "Nandi",
+    "Narok",
+    "Nyamira",
+    "Nyandarua",
+    "Nyeri",
+    "Samburu",
+    "Siaya",
+    "Taita-Taveta",
+    "Tana River",
+    "Tharaka-Nithi",
+    "Trans Nzoia",
+    "Turkana",
+    "Uasin Gishu",
+    "Vihiga",
+    "Wajir",
+    "West Pokot"
+   ]
+  },
+  {
+   "code": "LS",
+   "name": "Lesotho"
+  },
+  {
+   "code": "LR",
+   "name": "Liberia"
+  },
+  {
+   "code": "LY",
+   "name": "Libye"
+  },
+  {
+   "code": "MG",
+   "name": "Madagascar"
+  },
+  {
+   "code": "MW",
+   "name": "Malawi"
+  },
+  {
+   "code": "ML",
+   "name": "Mali",
+   "provinces": [
+    "Bamako",
+    "Gao",
+    "Kayes",
+    "Kidal",
+    "Koulikoro",
+    "Ménaka",
+    "Mopti",
+    "Ségou",
+    "Sikasso",
+    "Taoudénit",
+    "Tombouctou"
+   ]
+  },
+  {
+   "code": "MA",
+   "name": "Maroc"
+  },
+  {
+   "code": "MU",
+   "name": "Maurice"
+  },
+  {
+   "code": "MR",
+   "name": "Mauritanie"
+  },
+  {
+   "code": "MZ",
+   "name": "Mozambique"
+  },
+  {
+   "code": "NA",
+   "name": "Namibie"
+  },
+  {
+   "code": "NE",
+   "name": "Niger"
+  },
+  {
+   "code": "NG",
+   "name": "Nigeria",
+   "provinces": [
+    "Abia",
+    "Adamawa",
+    "Akwa Ibom",
+    "Anambra",
+    "Bauchi",
+    "Bayelsa",
+    "Benue",
+    "Borno",
+    "Cross River",
+    "Delta",
+    "Ebonyi",
+    "Edo",
+    "Ekiti",
+    "Enugu",
+    "FCT",
+    "Gombe",
+    "Imo",
+    "Jigawa",
+    "Kaduna",
+    "Kano",
+    "Katsina",
+    "Kebbi",
+    "Kogi",
+    "Kwara",
+    "Lagos",
+    "Nasarawa",
+    "Niger",
+    "Ogun",
+    "Ondo",
+    "Osun",
+    "Oyo",
+    "Plateau",
+    "Rivers",
+    "Sokoto",
+    "Taraba",
+    "Yobe",
+    "Zamfara"
+   ]
+  },
+  {
+   "code": "UG",
+   "name": "Ouganda"
+  },
+  {
+   "code": "RW",
+   "name": "Rwanda"
+  },
+  {
+   "code": "CF",
+   "name": "République Centrafricaine"
+  },
+  {
+   "code": "ST",
+   "name": "Sao Tomé-et-Principe"
+  },
+  {
+   "code": "SC",
+   "name": "Seychelles"
+  },
+  {
+   "code": "SL",
+   "name": "Sierra Leone"
+  },
+  {
+   "code": "SO",
+   "name": "Somalie"
+  },
+  {
+   "code": "SD",
+   "name": "Soudan",
+   "provinces": [
+    "Al Jazirah",
+    "Al Qadarif",
+    "Blue Nile",
+    "Central Darfur",
+    "East Darfur",
+    "Kassala",
+    "Khartoum",
+    "North Darfur",
+    "North Kordofan",
+    "Northern",
+    "Red Sea",
+    "River Nile",
+    "Sennar",
+    "South Darfur",
+    "South Kordofan",
+    "West Darfur",
+    "West Kordofan",
+    "White Nile"
+   ]
+  },
+  {
+   "code": "SS",
+   "name": "Soudan du Sud",
+   "provinces": [
+    "Central Equatoria",
+    "Eastern Equatoria",
+    "Jonglei",
+    "Lakes",
+    "Northern Bahr el Ghazal",
+    "Unity",
+    "Upper Nile",
+    "Warrap",
+    "Western Bahr el Ghazal",
+    "Western Equatoria"
+   ]
+  },
+  {
+   "code": "SN",
+   "name": "Sénégal"
+  },
+  {
+   "code": "TZ",
+   "name": "Tanzanie",
+   "provinces": [
+    "Arusha",
+    "Dar es Salaam",
+    "Dodoma",
+    "Geita",
+    "Iringa",
+    "Kagera",
+    "Katavi",
+    "Kigoma",
+    "Kilimanjaro",
+    "Lindi",
+    "Manyara",
+    "Mara",
+    "Mbeya",
+    "Morogoro",
+    "Mtwara",
+    "Mwanza",
+    "Njombe",
+    "Pemba North",
+    "Pemba South",
+    "Pwani",
+    "Rukwa",
+    "Ruvuma",
+    "Shinyanga",
+    "Simiyu",
+    "Singida",
+    "Songwe",
+    "Tabora",
+    "Tanga",
+    "Zanzibar North",
+    "Zanzibar South",
+    "Zanzibar West"
+   ]
+  },
+  {
+   "code": "TD",
+   "name": "Tchad"
+  },
+  {
+   "code": "TG",
+   "name": "Togo"
+  },
+  {
+   "code": "TN",
+   "name": "Tunisie"
+  },
+  {
+   "code": "ZM",
+   "name": "Zambie",
+   "provinces": [
+    "Central",
+    "Copperbelt",
+    "Eastern",
+    "Luapula",
+    "Lusaka",
+    "Muchinga",
+    "Northern",
+    "North-Western",
+    "Southern",
+    "Western"
+   ]
+  },
+  {
+   "code": "ZW",
+   "name": "Zimbabwe"
+  },
+  {
+   "code": "EG",
+   "name": "Égypte"
+  },
+  {
+   "code": "ER",
+   "name": "Érythrée"
+  },
+  {
+   "code": "ET",
+   "name": "Éthiopie",
+   "provinces": [
+    "Addis Ababa",
+    "Afar",
+    "Amhara",
+    "Benishangul-Gumuz",
+    "Dire Dawa",
+    "Gambela",
+    "Harari",
+    "Oromia",
+    "Sidama",
+    "Somali",
+    "South West Ethiopia Peoples' Region",
+    "Tigray",
+    "Central Ethiopia",
+    "South Ethiopia"
+   ]
+  }
+ ]
+}
