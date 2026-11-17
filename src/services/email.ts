@@ -31,6 +31,7 @@ const templatePaths = {
   mlm_rank_up: 'mlm_rank_up.html',
   loanme_member_added: 'loanme_member_added.html',
   b2b_welcome: 'b2b_welcome.html',
+  career_status: 'career_status.html',
 };
 
 /**
@@ -109,10 +110,13 @@ export async function sendEmail(
     });
 
     const mailOptions = {
-        from: `"CashPay All" <${smtpUser}>`,
+        from: `"CashPay All" <${process.env.MAIL_FROM || smtpUser}>`,
         to: to,
+        replyTo: process.env.MAIL_REPLY_TO || 'info@cashpay-all.com',
         subject: subject,
         html: finalHtml,
+        // version texte : améliore la délivrabilité (moins de courrier indésirable)
+        text: finalHtml.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<br\s*\/?>|<\/p>|<\/h\d>|<\/tr>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').trim(),
     };
     
     const info = await transporter.sendMail(mailOptions);
