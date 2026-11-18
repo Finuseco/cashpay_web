@@ -127,7 +127,7 @@ function createCareersHandler({ env = process.env, transportFactory, clock = Dat
                     delivery: { internal: 'failed', acknowledgement: 'not_sent' }, message: 'L’envoi de la candidature n’a pas pu être confirmé. Vos documents ne sont pas conservés sur le serveur ; vérifiez la réception auprès du recrutement avant de soumettre à nouveau.' });
             }
             let acknowledgement = 'accepted';
-            try { await mailer.sendAcknowledgement(data, context); record(ref, 'acknowledgement', 'accepted'); }
+            try { await mailer.sendAcknowledgement(data, context, files); record(ref, 'acknowledgement', 'accepted'); }
             catch (reason) { acknowledgement = 'failed'; record(ref, 'acknowledgement', 'failed', reason); }
             return respond(200, { ok: true, ref, saved: false, retryScheduled: false, delivery: { internal: 'accepted', acknowledgement } });
         } catch (reason) {

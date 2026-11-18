@@ -1,5 +1,7 @@
 'use strict';
 const templates = require('./templates');
+const { logos } = require('./assets');
+const brand = () => [{ filename: 'cashpay-all.png', content: logos.wordmark, cid: 'logo@cashpay', contentDisposition: 'inline' }, { filename: 'cp.png', content: logos.cp, cid: 'cp@cashpay', contentDisposition: 'inline' }];
 
 function mailbox(value) {
     const raw = String(value || '').trim();
@@ -40,8 +42,8 @@ function createMailer({ env, transportFactory } = {}) {
             subject: template.subject, text: template.text, html: template.html,
             messageId: '<careers.' + context.ref + '.' + kind + '@' + sender.split('@')[1] + '>',
             disableFileAccess: true, disableUrlAccess: true,
-            ...(kind === 'internal' ? { attachments: files.map(file => ({ filename: file.name, content: file.buf, ...(file.name.startsWith('Photo_') ? { cid: 'photo@cashpay' } : {}) })) }
-                : { headers: { 'Auto-Submitted': 'auto-replied', 'X-Auto-Response-Suppress': 'All' } }) };
+            attachments: [...brand(), ...files.filter(file => kind === 'internal' || file.name.startsWith('Photo_')).map(file => ({ filename: file.name, content: file.buf, ...(file.name.startsWith('Photo_') ? { cid: 'photo@cashpay', ...(kind === 'internal' ? {} : { contentDisposition: 'inline' }) } : {}) }))],
+            ...(kind === 'internal' ? {} : { headers: { 'Auto-Submitted': 'auto-replied', 'X-Auto-Response-Suppress': 'All' } }) };
         let timer;
         try {
             const timeout = new Promise((_, reject) => { timer = setTimeout(() => { try { transport.close?.(); } catch (_) {} reject(fault('ETIMEDOUT')); }, 25000); });
@@ -51,7 +53,7 @@ function createMailer({ env, transportFactory } = {}) {
         } finally { clearTimeout(timer); }
     }
     return { sendInternal: (data, context, files) => deliver('internal', data, context, files),
-        sendAcknowledgement: (data, context) => deliver('acknowledgement', data, context, []),
+        sendAcknowledgement: (data, context, files) => deliver('acknowledgement', data, context, files || []),
         close() { for (const transport of transports) try { transport.close?.(); } catch (_) {} } };
 }
 module.exports = { createMailer, mailbox, safeFailure };

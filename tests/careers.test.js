@@ -48,7 +48,12 @@ test('accepted candidature sends the validated attachments to the fixed mailbox 
     const internal = f.messages.find(v => v.kind === 'internal').message;
     assert.deepEqual(recipients(internal.to), ['info@example.test']);
     assert.equal(internal.replyTo.address, 'candidate@example.test');
-    assert.equal(internal.attachments.length, 2);
+    assert.equal(internal.attachments.length, 4);
+    assert.ok(['logo@cashpay', 'cp@cashpay', 'photo@cashpay'].every(cid => internal.attachments.some(v => v.cid === cid)));
+    const ack = f.messages.find(v => v.kind === 'acknowledgement').message;
+    assert.deepEqual(ack.attachments.map(v => v.cid).sort(), ['cp@cashpay', 'logo@cashpay', 'photo@cashpay']);
+    assert.ok(!ack.attachments.some(v => /\.pdf$/i.test(v.filename)));
+    assert.match(ack.html, /n'importe quel pays/); assert.match(ack.html, /cid:photo@cashpay/);
     const cv = internal.attachments.find(v => v.filename.endsWith('.pdf'));
     assert.equal(cv.content.toString(), '%PDF-1.4 Private CV body');
     assert.equal(f.messages.length, 2);
