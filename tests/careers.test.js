@@ -162,13 +162,17 @@ test('a declared oversized body is rejected before reading it', async () => {
 
 test('a stalled upload times out, cancels its stream and releases the concurrency slot', async () => {
     const f = fixture({ limits: { maxReadMs: 10, maxConcurrent: 1 } });
+    // Buffer the follow-up before starting the short timeout fixture. This check
+    // exercises release of the slot, not FormData encoder scheduling under load.
+    const followupForm = request();
+    const followup = new Request(followupForm.url, { method: 'POST', headers: followupForm.headers, body: await followupForm.arrayBuffer() });
     let cancelled = false;
     const stream = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('PRIVATE_PENDING_PAYLOAD')); }, cancel() { cancelled = true; } });
     const req = new Request('https://app.cashpay-all.com/api/careers', { method: 'POST', headers: { origin: ORIGIN, 'content-type': 'multipart/form-data; boundary=synthetic' }, body: stream, duplex: 'half' });
     const response = await f.handler(req); const body = await response.json();
     assert.equal(response.status, 408); assert.equal(body.ok, false); assert.equal(cancelled, true); assert.equal(f.transports.length, 0);
     assert.equal((JSON.stringify(body) + f.logs.join('\n')).includes('PRIVATE_PENDING_PAYLOAD'), false);
-    assert.equal((await f.handler(request())).status, 200);
+    assert.equal((await f.handler(followup)).status, 200);
 });
 
 test('the concurrency cap rejects a second upload and releases its slot after delivery', { timeout: 5000 }, async () => {

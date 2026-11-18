@@ -8,7 +8,7 @@ const countries = require('../careers/jobs-data.json').countries;
 const COUNTRY = new Map(countries.map(c => [c.code, c]));
 const ext = { ...signatures, pptx: signatures.docx };
 
-function createProjectsHandler({ env = process.env, transportFactory, clock = Date.now, logger = console, limits = {} } = {}) {
+function createProjectsHandler({ env = process.env, transportFactory, clock = Date.now, logger = console, limits = {}, recordContact } = {}) {
     const maxBodyBytes = limits.maxBodyBytes || 14 * MiB, maxReadMs = limits.maxReadMs || 60000, maxConcurrent = limits.maxConcurrent || 2;
     const salt = randomBytes(16), buckets = new Map(); let active = 0;
     function allow(value, maximum, duration) {
@@ -83,6 +83,8 @@ function createProjectsHandler({ env = process.env, transportFactory, clock = Da
             }
             let acknowledgement = 'accepted';
             try { await mailer.sendAcknowledgement(d, context, []); record(ref, 'acknowledgement', 'accepted'); } catch (reason) { acknowledgement = 'failed'; record(ref, 'acknowledgement', 'failed', reason); }
+            if (recordContact) try { await recordContact({ ref, kind: 'project', email: d.email }); }
+            catch (_) { try { logger.error('[projects] contact_registry_unavailable ' + ref); } catch (_) {} }
             return respond(200, { ok: true, ref, saved: false, delivery: { internal: 'accepted', acknowledgement } });
         } catch (reason) {
             return failed(reason.status || 500, reason.code && reason.publicMessage ? reason.code : 'server', reason.publicMessage || 'Erreur du serveur. Veuillez réessayer.');
