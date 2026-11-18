@@ -1,5 +1,5 @@
 'use strict';
-const templates = require('./templates');
+const defaultTemplates = require('./templates');
 const { logos } = require('./assets');
 const brand = () => [{ filename: 'cashpay-all.png', content: logos.wordmark, cid: 'logo@cashpay', contentDisposition: 'inline' }, { filename: 'cp.png', content: logos.cp, cid: 'cp@cashpay', contentDisposition: 'inline' }];
 
@@ -19,10 +19,10 @@ function safeFailure(error) {
 const password = (env, key) => env[key + '_PASSWORD'] !== undefined ? env[key + '_PASSWORD'] : env[key + '_PASS'];
 
 /** Only transient SMTP transports and attachment buffers; no storage or retry queue. */
-function createMailer({ env, transportFactory } = {}) {
+function createMailer({ env, transportFactory, templates = defaultTemplates, fromName = 'CashPay All Carrières', idPrefix = 'careers', recipientEnv = 'CAREERS_MAIL_TO' } = {}) {
     const factory = transportFactory || (options => require('nodemailer').createTransport(options));
     const transports = [];
-    const recipient = mailbox(env.CAREERS_MAIL_TO || 'info@cashpay-all.com');
+    const recipient = mailbox(env[recipientEnv] || env.CAREERS_MAIL_TO || 'info@cashpay-all.com');
     const main = { host: env.SMTP_HOST, port: Number(env.SMTP_PORT || 587), user: env.SMTP_USER, pass: password(env, 'SMTP') };
     const dedicated = Boolean(env.NOREPLY_SMTP_USER || password(env, 'NOREPLY_SMTP'));
     const reply = dedicated ? { host: env.NOREPLY_SMTP_HOST || main.host, port: Number(env.NOREPLY_SMTP_PORT || main.port), user: env.NOREPLY_SMTP_USER, pass: password(env, 'NOREPLY_SMTP') } : main;
@@ -37,10 +37,10 @@ function createMailer({ env, transportFactory } = {}) {
             connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000 }, kind);
         transports.push(transport);
         const template = kind === 'internal' ? templates.internal(data, context) : templates.acknowledgement(data, context);
-        const message = { from: { name: kind === 'internal' ? 'CashPay All Carrières' : 'CashPay All', address: sender },
+        const message = { from: { name: kind === 'internal' ? fromName : 'CashPay All', address: sender },
             to: [to], replyTo: kind === 'internal' ? { name: data.firstName + ' ' + data.lastName, address: data.email } : recipient,
             subject: template.subject, text: template.text, html: template.html,
-            messageId: '<careers.' + context.ref + '.' + kind + '@' + sender.split('@')[1] + '>',
+            messageId: '<' + idPrefix + '.' + context.ref + '.' + kind + '@' + sender.split('@')[1] + '>',
             disableFileAccess: true, disableUrlAccess: true,
             attachments: [...brand(), ...files.filter(file => kind === 'internal' || file.name.startsWith('Photo_')).map(file => ({ filename: file.name, content: file.buf, ...(file.name.startsWith('Photo_') ? { cid: 'photo@cashpay', ...(kind === 'internal' ? {} : { contentDisposition: 'inline' }) } : {}) }))],
             ...(kind === 'internal' ? {} : { headers: { 'Auto-Submitted': 'auto-replied', 'X-Auto-Response-Suppress': 'All' } }) };

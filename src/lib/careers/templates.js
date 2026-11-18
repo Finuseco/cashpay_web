@@ -102,4 +102,4 @@ function acknowledgement(d, ctx) {
         '\n\n' + T.next + ' :\n1. ' + T.n[0] + '\n2. ' + T.n[1] + '\n3. ' + T.n[2] + '\n\n' + T.sign + '\n\n' + T.note;
     return { subject: T.subject, text, html };
 }
-module.exports = { internal, acknowledgement };
+module.exports = { internal, acknowledgement, shell, table, esc, nl2br };

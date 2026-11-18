@@ -135,4 +135,4 @@ function createCareersHandler({ env = process.env, transportFactory, clock = Dat
         } finally { mailer?.close(); active--; }
     };
 }
-module.exports = { createCareersHandler };
+module.exports = { createCareersHandler, helpers: { readBody, line, name, error, signatures, ORIGINS, MiB } };
