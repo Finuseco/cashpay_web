@@ -1,10 +1,10 @@
 'use strict';
 const crypto = require('node:crypto');
 const { decodeHtmlEntities } = require('./articles');
+const { newsletterHtml, newsletterAttachments, escapeHtml } = require('./newsletter-template');
 const MAX_ATTEMPTS = 5;
 const LEASE_MS = 2 * 60 * 1000;
 const BACKOFF_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
-const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const recipientAddress = value => typeof value === 'string' ? value.trim().toLowerCase() : value && typeof value.address === 'string' ? value.address.trim().toLowerCase() : '';
 async function sendAccepted(sendMail, payload) {
     const address = recipientAddress(payload.to);
@@ -128,7 +128,10 @@ function createDeliveryService({ db, sendMail, tokenSecret, baseUrl = 'https://w
                         to: row.email, subject: row.subject,
                         messageId: `<main-newsletter-${lease.id}@cashpay-all.com>`,
                         headers: { 'List-Unsubscribe': `<${unsubscribeUrl}>`, 'Auto-Submitted': 'auto-generated' },
-                        html: `<div style="font-family:Arial,sans-serif;color:#2e1841;max-width:680px;margin:auto;padding:28px"><p style="color:#7a22d4;font-weight:bold;letter-spacing:1px">CASHPAY ALL</p><h1 style="font-size:28px;line-height:1.25">${escapeHtml(row.subject)}</h1><div style="font-size:16px;line-height:1.65">${body}</div><p style="margin:28px 0"><a href="${escapeHtml(articleUrl.href)}" style="color:#7a22d4">${en ? 'Read on our website' : 'Lire sur notre site'}</a></p><hr style="border:0;border-top:1px solid #e6dcf0"><p style="font-size:12px;color:#6a6073">${en ? 'You receive this publication because you confirmed your CashPay All subscription.' : 'Vous recevez cette publication après avoir confirmé votre abonnement CashPay All.'} <a href="${escapeHtml(unsubscribeUrl)}">${en ? 'Unsubscribe' : 'Se désabonner'}</a></p></div>`,
+                        html: newsletterHtml({ title: row.subject, language: en ? 'en' : 'fr',
+                            bodyHtml: `<div style="font-size:16px;line-height:1.65">${body}</div><p style="margin:28px 0 0"><a href="${escapeHtml(articleUrl.href)}" style="color:#7a22d4">${en ? 'Read on our website' : 'Lire sur notre site'}</a></p>`,
+                            footerHtml: `<p style="margin:0">${en ? 'You receive this publication because you confirmed your CashPay All subscription.' : 'Vous recevez cette publication après avoir confirmé votre abonnement CashPay All.'} <a href="${escapeHtml(unsubscribeUrl)}" style="color:#7a22d4">${en ? 'Unsubscribe' : 'Se désabonner'}</a></p>` }),
+                        attachments: newsletterAttachments(),
                         text: `${row.subject}\n\n${row.body_text}\n\n${en ? 'Read on our website' : 'Lire sur notre site'}: ${articleUrl.href}\n\n${en ? 'Unsubscribe' : 'Se désabonner'}: ${unsubscribeUrl}`
                     });
                 } catch {

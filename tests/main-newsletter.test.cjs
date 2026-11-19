@@ -6,6 +6,8 @@ const path = require('node:path');
 const { createNewsletterService, unsubscribeToken, digest, normalizeEmail } = require('../src/lib/main-site/newsletter');
 const { createDeliveryService, createStrictMailer, sendAccepted } = require('../src/lib/main-site/delivery');
 const { sanitizeArticleHtml } = require('../src/lib/main-site/articles');
+const { newsletterHtml, newsletterAttachments, LOGO_CID } = require('../src/lib/main-site/newsletter-template');
+const { logos } = require('../src/lib/careers/assets');
 const at = new Date('2026-11-18T12:00:00.000Z');
 const secret = 'newsletter-token-secret-at-least-32-characters';
 const rawToken = 'A'.repeat(43);
@@ -34,6 +36,14 @@ test('double opt-in stores only the confirmation hash and sends a fragment link 
     assert.equal(messages.length, 1);
     assert.equal(messages[0].to, 'reader@example.com');
     assert.match(messages[0].text, new RegExp(`newsletter\\.html\\?action=confirm#${rawToken}`));
+    assert.match(messages[0].html, new RegExp(`src="cid:${LOGO_CID}"`));
+    assert.ok(messages[0].html.indexOf(`cid:${LOGO_CID}`) < messages[0].html.indexOf('<h1'));
+    assert.equal(messages[0].attachments.length, 1);
+    assert.equal(messages[0].attachments[0].cid, LOGO_CID);
+    assert.equal(messages[0].attachments[0].contentDisposition, 'inline');
+    assert.equal(messages[0].attachments[0].contentType, 'image/png');
+    assert.deepEqual(messages[0].attachments[0].content, logos.wordmark);
+    assert.match(messages[0].html, /bgcolor="#190a28"/);
     const update = db.calls.find(call => /SET language=/.test(call.sql));
     assert.equal(update.params[3], digest(rawToken));
     assert.equal(update.params[4].getTime(), at.getTime() + 24 * 60 * 60 * 1000);
@@ -122,6 +132,10 @@ test('campaign dispatch expands current active subscribers, claims with SKIP LOC
     assert.match(message.text, /Publication complète\./);
     assert.match(message.headers['List-Unsubscribe'], /newsletter\.html\?action=unsubscribe#[A-Za-z0-9_-]{43}/);
     assert.equal(message.messageId, '<main-newsletter-4@cashpay-all.com>');
+    assert.match(message.html, new RegExp(`src="cid:${LOGO_CID}"`));
+    assert.equal(message.attachments.length, 1);
+    assert.equal(message.attachments[0].cid, LOGO_CID);
+    assert.deepEqual(message.attachments[0].content, logos.wordmark);
     const expansion = fixture.db.calls.find(call => /INSERT INTO main_newsletter_deliveries/.test(call.sql));
     assert.match(expansion.sql, /status='active' AND confirmed_at IS NOT NULL/);
     assert.match(expansion.sql, /ON CONFLICT \(campaign_id,subscriber_id\) DO NOTHING/);
@@ -205,4 +219,26 @@ test('accepted SMTP followed by a database acknowledgement failure preserves the
     assert.equal(fixture.messages.length, 1);
     assert.equal(fixture.db.calls.some(call => /SMTP_SUBMISSION_UNCONFIRMED/.test(call.sql)), false);
     assert.equal(fixture.db.calls.some(call => /status='leased',attempts=attempts/.test(call.sql)), true);
+});
+
+test('newsletter header escapes its title and embeds only an independent trusted logo buffer', async () => {
+    const first = newsletterAttachments(), second = newsletterAttachments();
+    assert.deepEqual(Object.keys(first[0]).sort(), ['cid', 'content', 'contentDisposition', 'contentType', 'filename']);
+    assert.notEqual(first[0].content, second[0].content);
+    assert.notEqual(first[0].content, logos.wordmark);
+    assert.deepEqual(first[0].content.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const html = newsletterHtml({ title: '<img src=x onerror=alert(1)>', bodyHtml: '<p>Contenu validé.</p>', language: 'en' });
+    assert.match(html, /lang="en"/);
+    assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+    assert.doesNotMatch(html, /<img src=x/);
+    assert.match(html, /max-width:640px/);
+    assert.match(html, /alt="CashPay All"/);
+
+    let sent;
+    const mailer = createStrictMailer({ SMTP_HOST: 'mail.example.test', SMTP_PORT: '465', SMTP_USER: 'sender@example.test', SMTP_PASSWORD: 'synthetic' },
+        () => ({ async sendMail(message) { sent = message; return { accepted: [message.to] }; }, close() {} }));
+    await sendAccepted(mailer, { to: subscriber.email, subject: 'Newsletter', html, attachments: first });
+    assert.equal(sent.disableFileAccess, true);
+    assert.equal(sent.disableUrlAccess, true);
+    assert.deepEqual(sent.attachments[0].content, logos.wordmark);
 });

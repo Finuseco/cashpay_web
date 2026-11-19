@@ -1,6 +1,7 @@
 'use strict';
 const crypto = require('node:crypto');
 const { sendAccepted, escapeHtml } = require('./delivery');
+const { newsletterHtml, newsletterAttachments } = require('./newsletter-template');
 
 const CONFIRM_TTL_MS = 24 * 60 * 60 * 1000;
 const CONFIRM_COOLDOWN_MS = 2 * 60 * 1000;
@@ -65,7 +66,10 @@ function createNewsletterService({ db, sendMail, tokenSecret, baseUrl = 'https:/
                 await sendAccepted(sendMail, {
                     to: email, subject,
                     text: `${subject}\n\n${en ? 'Confirm your email to receive CashPay All publications. This link expires in 24 hours.' : 'Confirmez votre adresse pour recevoir les publications CashPay All. Ce lien expire dans 24 heures.'}\n\n${link}\n\n${en ? 'If you did not request this subscription, ignore this email.' : 'Si vous ne souhaitez pas vous inscrire, ignorez ce message.'}`,
-                    html: `<div style="font-family:Arial,sans-serif;color:#2e1841;max-width:640px;margin:auto;padding:32px"><p style="color:#7a22d4;font-weight:bold">CASHPAY ALL</p><h1 style="font-size:26px">${escapeHtml(subject)}</h1><p>${en ? 'Confirm your email to receive our publications and newsletters.' : 'Confirmez votre adresse pour recevoir nos publications et newsletters.'}</p><p><a style="display:inline-block;background:#7a22d4;color:#fff;padding:14px 22px;border-radius:8px;text-decoration:none" href="${escapeHtml(link)}">${en ? 'Confirm my subscription' : 'Confirmer mon inscription'}</a></p><p style="font-size:13px;color:#6a6073">${en ? 'This link expires in 24 hours. Ignore this email if you did not request it.' : 'Ce lien expire dans 24 heures. Ignorez ce message si vous ne l’avez pas demandé.'}</p></div>`
+                    html: newsletterHtml({ title: subject, language,
+                        bodyHtml: `<p style="margin:0 0 20px">${en ? 'Confirm your email to receive our publications and newsletters.' : 'Confirmez votre adresse pour recevoir nos publications et newsletters.'}</p><p style="margin:24px 0"><a style="display:inline-block;background:#7a22d4;color:#ffffff;padding:14px 22px;border-radius:8px;text-decoration:none;font-weight:bold" href="${escapeHtml(link)}">${en ? 'Confirm my subscription' : 'Confirmer mon inscription'}</a></p>`,
+                        footerHtml: `<p style="margin:0">${en ? 'This link expires in 24 hours. Ignore this email if you did not request it.' : 'Ce lien expire dans 24 heures. Ignorez ce message si vous ne l’avez pas demandé.'}</p>` }),
+                    attachments: newsletterAttachments()
                 });
             } catch {
                 // Do not log a capability or reveal whether an address is already subscribed.
