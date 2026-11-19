@@ -38,7 +38,7 @@ async function readBody(request, maxBytes, maxReadMs) {
 }
 
 /** Mail-only endpoint. Payloads and buffers live only for the duration of this request. */
-function createCareersHandler({ env = process.env, transportFactory, clock = Date.now, logger = console, limits = {}, catalog = jobs } = {}) {
+function createCareersHandler({ env = process.env, transportFactory, clock = Date.now, logger = console, limits = {}, catalog = jobs, recordContact } = {}) {
     const maxBodyBytes = limits.maxBodyBytes || 22 * MiB;
     const maxConcurrent = limits.maxConcurrent || 2;
     const maxReadMs = limits.maxReadMs || 60000;
@@ -129,6 +129,10 @@ function createCareersHandler({ env = process.env, transportFactory, clock = Dat
             let acknowledgement = 'accepted';
             try { await mailer.sendAcknowledgement(data, context, files); record(ref, 'acknowledgement', 'accepted'); }
             catch (reason) { acknowledgement = 'failed'; record(ref, 'acknowledgement', 'failed', reason); }
+            // Only contact metadata is retained for later recruitment replies.
+            // An unavailable registry must never invalidate an already mailed dossier.
+            if (recordContact) try { await recordContact({ ref, kind: 'careers', email: data.email }); }
+            catch (_) { try { logger.error('[careers] contact_registry_unavailable ' + ref); } catch (_) {} }
             return respond(200, { ok: true, ref, saved: false, retryScheduled: false, delivery: { internal: 'accepted', acknowledgement } });
         } catch (reason) {
             return failed(reason.status || 500, reason.code && reason.publicMessage ? reason.code : 'server', reason.publicMessage || 'Erreur du serveur. Veuillez réessayer.');
