@@ -21,7 +21,10 @@ export function getArticleService() {
   return articles;
 }
 export function getNewsletterService() {
-  newsletter ||= createNewsletterService({ db, sendMail, baseUrl: siteOrigin(), tokenSecret: process.env.MAIN_NEWSLETTER_TOKEN_SECRET });
+  newsletter ||= createNewsletterService({
+    db, sendMail, baseUrl: siteOrigin(), tokenSecret: process.env.MAIN_NEWSLETTER_TOKEN_SECRET,
+    loadRecentArticles: async () => (await getArticleService().listPublic({ limit: 10, offset: 0 })).articles,
+  });
   return newsletter;
 }
 export function getDeliveryService() {

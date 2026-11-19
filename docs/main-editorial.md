@@ -98,7 +98,17 @@ il n'annonce pas de statistiques d'ouverture ou de réception en boîte mail.
 Une inscription demande un consentement explicite puis un lien de confirmation
 valable 24 heures. Une popup visible invite à consulter la boîte mail après
 l’envoi du formulaire. Les mails affichent le logo CashPay en tête via une image
-incorporée au message (CID). Les abonnés non confirmés ne reçoivent pas de publications.
+incorporée au message (CID). Le bouton de confirmation reste en tête, suivi
+d’une présentation de CashPay All, des dix publications publiques les plus
+récentes au maximum (extraits, miniatures et liens), de trois blocs de services
+et des contacts/réseaux sociaux. Les profils Instagram, Facebook et LinkedIn
+reprennent les liens fournis par l’équipe ; le paramètre de suivi du lien
+Instagram est retiré. Les liens WhatsApp du site sont conservés.
+Les icônes sont des PNG incorporés au mail ; les couvertures d’articles sont des
+URL HTTPS et ne sont pas téléchargées par le serveur. Un flux vide ou en erreur
+laisse la présentation et les services dans le mail, sans articles inventés.
+La lecture utilise le même filtre public et le même ordre que le catalogue :
+les brouillons et publications programmées dans le futur sont exclus. Les abonnés non confirmés ne reçoivent pas de publications.
 Chaque mail contient le contenu publié, le lien du site et la désinscription.
 Les jetons des liens sont dans le fragment URL, puis retirés de la barre d'adresse.
 Après ouverture du lien de confirmation, la page visible valide l’inscription par

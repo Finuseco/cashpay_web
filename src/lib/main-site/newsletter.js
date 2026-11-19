@@ -2,6 +2,7 @@
 const crypto = require('node:crypto');
 const { sendAccepted, escapeHtml } = require('./delivery');
 const { newsletterHtml, newsletterAttachments } = require('./newsletter-template');
+const { renderWelcomeContent } = require('./newsletter-welcome');
 
 const CONFIRM_TTL_MS = 24 * 60 * 60 * 1000;
 const CONFIRM_COOLDOWN_MS = 2 * 60 * 1000;
@@ -24,7 +25,7 @@ async function transaction(db, operation) {
     catch (error) { try { await client.query('ROLLBACK'); } catch {} throw error; }
     finally { client.release(); }
 }
-function createNewsletterService({ db, sendMail, tokenSecret, baseUrl = 'https://www.cashpay-all.com', now = () => new Date(), randomToken = newToken }) {
+function createNewsletterService({ db, sendMail, tokenSecret, baseUrl = 'https://www.cashpay-all.com', now = () => new Date(), randomToken = newToken, loadRecentArticles = async () => [] }) {
     if (!db || typeof sendMail !== 'function') throw new Error('Newsletter database and mail sender are required.');
     if (typeof tokenSecret !== 'string' || tokenSecret.length < 32) throw new Error('MAIN_NEWSLETTER_TOKEN_SECRET must contain at least 32 characters.');
     const siteUrl = new URL(baseUrl);
@@ -63,13 +64,22 @@ function createNewsletterService({ db, sendMail, tokenSecret, baseUrl = 'https:/
             const link = pageLink('confirm', rawToken);
             const subject = en ? 'Confirm your CashPay All subscription' : 'Confirmez votre abonnement CashPay All';
             try {
+                // The confirmation remains useful when the optional public feed is
+                // unavailable. Await the bounded public query; no background task
+                // or email is detached from this request.
+                let articles = [];
+                try {
+                    const recent = await loadRecentArticles();
+                    if (Array.isArray(recent)) articles = recent.slice(0, 10);
+                } catch (_) {}
+                const welcome = renderWelcomeContent({ articles, baseUrl: siteUrl.origin, language });
                 await sendAccepted(sendMail, {
                     to: email, subject,
-                    text: `${subject}\n\n${en ? 'Confirm your email to receive CashPay All publications. This link expires in 24 hours.' : 'Confirmez votre adresse pour recevoir les publications CashPay All. Ce lien expire dans 24 heures.'}\n\n${link}\n\n${en ? 'If you did not request this subscription, ignore this email.' : 'Si vous ne souhaitez pas vous inscrire, ignorez ce message.'}`,
+                    text: `${subject}\n\n${en ? 'Confirm your email to receive CashPay All publications. This link expires in 24 hours.' : 'Confirmez votre adresse pour recevoir les publications CashPay All. Ce lien expire dans 24 heures.'}\n\n${link}\n\n${welcome.text}\n\n${en ? 'If you did not request this subscription, ignore this email.' : 'Si vous ne souhaitez pas vous inscrire, ignorez ce message.'}`,
                     html: newsletterHtml({ title: subject, language,
-                        bodyHtml: `<p style="margin:0 0 20px">${en ? 'Confirm your email to receive our publications and newsletters.' : 'Confirmez votre adresse pour recevoir nos publications et newsletters.'}</p><p style="margin:24px 0"><a style="display:inline-block;background:#7a22d4;color:#ffffff;padding:14px 22px;border-radius:8px;text-decoration:none;font-weight:bold" href="${escapeHtml(link)}">${en ? 'Confirm my subscription' : 'Confirmer mon inscription'}</a></p>`,
+                        bodyHtml: `<p style="margin:0 0 20px">${en ? 'Confirm your email to receive our publications and newsletters.' : 'Confirmez votre adresse pour recevoir nos publications et newsletters.'}</p><p style="margin:24px 0"><a style="display:inline-block;background:#7a22d4;color:#ffffff;padding:14px 22px;border-radius:8px;text-decoration:none;font-weight:bold" href="${escapeHtml(link)}">${en ? 'Confirm my subscription' : 'Confirmer mon inscription'}</a></p><p style="margin:0 0 20px;color:#6a6073;font-size:12px">${en ? 'This confirmation link expires in 24 hours.' : 'Ce lien de confirmation expire dans 24 heures.'}</p>${welcome.html}`,
                         footerHtml: `<p style="margin:0">${en ? 'This link expires in 24 hours. Ignore this email if you did not request it.' : 'Ce lien expire dans 24 heures. Ignorez ce message si vous ne l’avez pas demandé.'}</p>` }),
-                    attachments: newsletterAttachments()
+                    attachments: [...newsletterAttachments(), ...welcome.attachments]
                 });
             } catch {
                 // Do not log a capability or reveal whether an address is already subscribed.
