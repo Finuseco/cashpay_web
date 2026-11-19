@@ -96,11 +96,15 @@ il n'annonce pas de statistiques d'ouverture ou de réception en boîte mail.
 ## Consentement et données
 
 Une inscription demande un consentement explicite puis un lien de confirmation
-valable 24 heures. Les abonnés non confirmés ne reçoivent pas de publications.
+valable 24 heures. Une popup visible invite à consulter la boîte mail après
+l’envoi du formulaire. Les mails affichent le logo CashPay en tête via une image
+incorporée au message (CID). Les abonnés non confirmés ne reçoivent pas de publications.
 Chaque mail contient le contenu publié, le lien du site et la désinscription.
 Les jetons des liens sont dans le fragment URL, puis retirés de la barre d'adresse.
-Ouvrir le lien ne modifie rien : un bouton confirme le POST, ce qui protège contre
-les robots d'analyse de liens mail. L'audience est constituée au démarrage de
+Après ouverture du lien de confirmation, la page visible valide l’inscription par
+POST et affiche une popup de succès après réponse positive du serveur. Un
+prérendu ou une page masquée attend sa mise au premier plan avant cette requête.
+La désinscription conserve un bouton de validation explicite. L'audience est constituée au démarrage de
 l'envoi, puis son consentement est revérifié avant chaque soumission SMTP.
 
 Les candidatures et projets conservent leur circuit mail existant. Après une
