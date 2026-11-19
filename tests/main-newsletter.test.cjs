@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createNewsletterService, unsubscribeToken, digest, normalizeEmail } = require('../src/lib/main-site/newsletter');
 const { createDeliveryService, createStrictMailer, sendAccepted } = require('../src/lib/main-site/delivery');
-const { sanitizeArticleHtml } = require('../src/lib/main-site/articles');
+const { sanitizeArticleHtml, createArticleService } = require('../src/lib/main-site/articles');
 const { newsletterHtml, newsletterAttachments, LOGO_CID } = require('../src/lib/main-site/newsletter-template');
 const { logos } = require('../src/lib/careers/assets');
 const at = new Date('2026-11-18T12:00:00.000Z');
@@ -22,11 +22,15 @@ function database(handler) {
     };
     return db;
 }
-function subscriptionFixture({ row = subscriber, mailResult, mailError } = {}) {
-    const db = database(sql => /SELECT \* FROM main_newsletter_subscribers/.test(sql) ? { rows: row ? [row] : [] } : { rows: [], rowCount: 1 });
+function subscriptionFixture({ row = subscriber, mailResult, mailError, loadRecentArticles, articleRows = [] } = {}) {
+    const db = database(sql => {
+        if (/SELECT \* FROM main_newsletter_subscribers/.test(sql)) return { rows: row ? [row] : [] };
+        if (/FROM main_articles/.test(sql)) return /COUNT\(\*\)/.test(sql) ? { rows: [{ total: articleRows.length }] } : { rows: articleRows };
+        return { rows: [], rowCount: 1 };
+    });
     const messages = [];
     let tokens = 0;
-    const service = createNewsletterService({ db, tokenSecret: secret, now: () => at, randomToken: () => tokens++ ? nonce : rawToken,
+    const service = createNewsletterService({ db, tokenSecret: secret, now: () => at, randomToken: () => tokens++ ? nonce : rawToken, loadRecentArticles,
         async sendMail(message) { messages.push(message); if (mailError) throw mailError; return mailResult || { accepted: [message.to] }; } });
     return { service, db, messages };
 }
@@ -38,11 +42,11 @@ test('double opt-in stores only the confirmation hash and sends a fragment link 
     assert.match(messages[0].text, new RegExp(`newsletter\\.html\\?action=confirm#${rawToken}`));
     assert.match(messages[0].html, new RegExp(`src="cid:${LOGO_CID}"`));
     assert.ok(messages[0].html.indexOf(`cid:${LOGO_CID}`) < messages[0].html.indexOf('<h1'));
-    assert.equal(messages[0].attachments.length, 1);
-    assert.equal(messages[0].attachments[0].cid, LOGO_CID);
-    assert.equal(messages[0].attachments[0].contentDisposition, 'inline');
-    assert.equal(messages[0].attachments[0].contentType, 'image/png');
-    assert.deepEqual(messages[0].attachments[0].content, logos.wordmark);
+    const logo = messages[0].attachments.find(attachment => attachment.cid === LOGO_CID);
+    assert.ok(logo);
+    assert.equal(logo.contentDisposition, 'inline');
+    assert.equal(logo.contentType, 'image/png');
+    assert.deepEqual(logo.content, logos.wordmark);
     assert.match(messages[0].html, /bgcolor="#190a28"/);
     const update = db.calls.find(call => /SET language=/.test(call.sql));
     assert.equal(update.params[3], digest(rawToken));
@@ -51,6 +55,57 @@ test('double opt-in stores only the confirmation hash and sends a fragment link 
     assert.equal(db.calls.some(call => /status='active'/.test(call.sql)), false);
     assert.match(update.sql, /consented_at/);
     assert.equal(db.calls.at(-1).sql, 'RELEASE');
+});
+test('the confirmation CTA stays first while the public ten-item feed supplies excerpts without private bodies', async () => {
+    let fixture, feedCalls = 0;
+    fixture = subscriptionFixture({
+        articleRows: [{ id: '12', slug: 'recent-publication', title: 'Recent publication', excerpt: 'A public excerpt.', kind: 'article', cover_url: null, cover_alt: '', published_at: at, publish_at: at, status: 'published', body_html: 'PRIVATE_FULL_ARTICLE_BODY' }],
+        async loadRecentArticles(...args) {
+            feedCalls++;
+            assert.deepEqual(args, []);
+            assert.equal(fixture.db.calls.at(-1).sql, 'RELEASE');
+            return (await createArticleService({ db: fixture.db, clock: () => at.getTime() }).listPublic({ limit: 10, offset: 0 })).articles;
+        }
+    });
+    await fixture.service.subscribe({ email: subscriber.email, language: 'en', consent: true });
+    assert.equal(feedCalls, 1); assert.equal(fixture.messages.length, 1);
+    const message = fixture.messages[0];
+    assert.match(message.html, /Recent publication/); assert.match(message.html, /A public excerpt\./);
+    assert.match(message.text, /Recent publication/); assert.match(message.text, /article\.html\?slug=recent-publication/);
+    assert.ok(message.html.indexOf(`newsletter.html?action=confirm#${rawToken}`) < message.html.indexOf('Recent publication'));
+    assert.doesNotMatch(message.html + message.text, /PRIVATE_FULL_ARTICLE_BODY/);
+    assert.ok(message.attachments.length > 1);
+    assert.ok(message.attachments.every(file => Buffer.isBuffer(file.content) && file.contentType === 'image/png' && file.contentDisposition === 'inline' && !('path' in file)));
+    const queries = fixture.db.calls.filter(call => /FROM main_articles/.test(call.sql));
+    assert.equal(queries.length, 2);
+    assert.ok(queries.every(call => /status IN \('published','scheduled'\)/.test(call.sql) && /publish_at <=/.test(call.sql)));
+    assert.deepEqual(queries.find(call => /LIMIT/.test(call.sql)).params.slice(-2), [10, 0]);
+    assert.equal(fixture.db.calls.some(call => /SET status='active'/.test(call.sql)), false);
+});
+test('an unavailable or timed-out public feed preserves the confirmation mail and useful service introduction', async () => {
+    for (const reason of [new Error('PRIVATE_FEED_DATABASE_DETAIL'), Object.assign(new Error('PRIVATE_TIMEOUT_DETAIL'), { code: 'ETIMEDOUT' })]) {
+        const fixture = subscriptionFixture({ loadRecentArticles: async () => { throw reason; } });
+        assert.equal((await fixture.service.subscribe({ email: subscriber.email, consent: true })).ok, true);
+        assert.equal(fixture.messages.length, 1);
+        const message = fixture.messages[0];
+        assert.match(message.html, /services\.html/); assert.match(message.text, /services\.html/);
+        assert.match(message.text, new RegExp(`action=confirm#${rawToken}`));
+        assert.doesNotMatch(message.html + message.text, /PRIVATE_(?:FEED|TIMEOUT)/);
+        assert.equal(fixture.db.calls.some(call => /SET token_hash=NULL,token_expires_at=NULL/.test(call.sql)), false);
+    }
+});
+test('public news is not loaded when a request cannot send a new confirmation', async () => {
+    let calls = 0;
+    const loadRecentArticles = async () => { calls++; throw new Error('Must not load'); };
+    const active = subscriptionFixture({ row: { ...subscriber, status: 'active' }, loadRecentArticles });
+    const cooldown = subscriptionFixture({ row: { ...subscriber, token_expires_at: new Date(at.getTime() + 24 * 60 * 60 * 1000) }, loadRecentArticles });
+    const ignored = subscriptionFixture({ loadRecentArticles });
+    await active.service.subscribe({ email: subscriber.email, consent: true });
+    await cooldown.service.subscribe({ email: subscriber.email, consent: true });
+    await ignored.service.subscribe({ email: subscriber.email, consent: true, website: 'bot' });
+    await assert.rejects(ignored.service.subscribe({ email: subscriber.email, consent: false }), { status: 400 });
+    assert.equal(calls, 0);
+    assert.equal(active.messages.length + cooldown.messages.length + ignored.messages.length, 0);
 });
 test('active subscriptions and confirmation cooldowns return the same generic receipt without sending mail', async () => {
     const active = subscriptionFixture({ row: { ...subscriber, status: 'active' } });
