@@ -149,3 +149,29 @@ node --test tests/main-*.test.* tests/careers.test.js tests/projects.test.js
 Avant activation, exécuter aussi le build complet sur le serveur ou en CI,
 appliquer la migration sur une base de validation et vérifier le parcours dans
 un navigateur avec un administrateur et une adresse de test appartenant à l'équipe.
+
+## Fusion Git Carrières bloquée sur le serveur
+
+Pour le conflit historique add/add des quatre fichiers Carrières, le script
+`scripts/resolve-careers-merge.sh` vérifie le dépôt, la branche, les fichiers
+indexés et les logos avant intervention. Il sauvegarde les commits locaux dans
+une branche et les fichiers/index dans un dossier privé de `.git`.
+Il prend la version `origin/main` pour les quatre fichiers Carrières actifs,
+valide leur syntaxe et les tests de mail simulés, termine la fusion puis intègre
+le main récupéré. Les anciennes variantes restent dans la sauvegarde/historique.
+Exécuter sans autre modification simultanée du dépôt. Un conflit différent ou
+un échec de validation arrête le script ; les conflits ultérieurs nécessitent
+un examen. Les fichiers `.env` et les médias téléversés restent hors de cette
+opération. Le script n'exécute aucun build ni redémarrage.
+
+Même si `git pull` est bloqué par la fusion, le script peut être récupéré ainsi :
+
+```bash
+cd /var/www/cashpay-all/wallet &&
+git fetch origin main &&
+careers_fix="$(mktemp /tmp/cashpay-merge.XXXXXX)" &&
+git show origin/main:scripts/resolve-careers-merge.sh > "$careers_fix" &&
+bash "$careers_fix"
+```
+
+Après succès : `npm run build && pm2 restart cashpay-wallet --update-env`.
